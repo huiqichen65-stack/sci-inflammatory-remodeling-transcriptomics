@@ -1,0 +1,40 @@
+# Large analysis objects and raw matrices
+*.rds
+*.RDS
+*.RData
+*.rda
+*.loom
+*.mtx
+*.mtx.gz
+*.h5
+*.h5ad
+*.hdf5
+*.feather
+*.tar
+*.tgz
+
+# Generated analysis outputs
+04_results/
+09_final_figures/
+results/
+BPCells/
+BPCells_tmp/
+tmp/
+temp/
+
+# Raw public datasets / large external resources
+01_raw_data/*
+!01_raw_data/README.md
+
+# Local environments and IDE files
+.Rhistory
+.RData
+.Rproj.user/
+renv/library/
+__pycache__/
+*.pyc
+.DS_Store
+Thumbs.db
+
+# Local archives
+*.zip
