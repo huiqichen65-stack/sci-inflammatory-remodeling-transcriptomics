@@ -58,9 +58,6 @@ suppressPackageStartupMessages({
   library(ggplot2)
   library(patchwork)
 })
-msg <- function(...) {
-  cat( sprintf("[%s] ", format(Sys.time(), "%H:%M:%S")), ..., "\n", sep = "" )
-}
 capture_table <- function(x) {
   paste( capture.output( print( tibble::as_tibble(x), n = Inf, width = Inf ) ), collapse = "\n" )
 }
@@ -119,9 +116,6 @@ row_zscore <- function(mat) {
 null_plot <- function(label) {
   ggplot2::ggplot( tibble::tibble( x = 1, y = 1 ), ggplot2::aes(x, y) ) + ggplot2::annotate( "text", x = 1, y = 1, label = label, size = 5 ) + ggplot2::theme_void()
 }
-msg("====================================================")
-msg("GSE162610 Step 5C v2 | corrected likelihood branch-gene test")
-msg("====================================================")
 if (!file.exists(INPUT_CDS)) {
   stop( paste0( "找不到Step5B-R CDS：", INPUT_CDS ), call. = FALSE )
 }
@@ -141,7 +135,6 @@ if (length(bp_values) != 1) {
   stop( "Step5B-R2 primary branchpoint is not uniquely defined.", call. = FALSE )
 }
 PRIMARY_BRANCHPOINT <- bp_values[1]
-msg( "Frozen corrected branchpoint: ", PRIMARY_BRANCHPOINT )
 if ( PRIMARY_BRANCHPOINT != EXPECTED_BRANCHPOINT ) {
   warning( paste0( "Stored branchpoint is ", PRIMARY_BRANCHPOINT, " rather than expected Y_29." ) )
 }
@@ -165,30 +158,24 @@ if (nrow(arm_counts_7dpi) < 2) {
 MAJOR_ARMS <- arm_counts_7dpi$branch_arm[ 1:2 ]
 arm1 <- MAJOR_ARMS[1]
 arm2 <- MAJOR_ARMS[2]
-msg( "Major arms: ", arm1, " and ", arm2 )
 branch_cells <- obj_cells[ branch_arm_all[ obj_cells ] %in% MAJOR_ARMS & time_all[ obj_cells ] %in% c( "3 dpi", "7 dpi" ) & is.finite( pt_all[ obj_cells ] ) ]
 branch_meta <- tibble::tibble( cell = branch_cells, branch_arm = branch_arm_all[ branch_cells ], timepoint = time_all[ branch_cells ], sample = sample_all[ branch_cells ], pseudotime_step5BR = pt_all[ branch_cells ] )
 branch_cell_summary <- branch_meta |> dplyr::count( branch_arm, timepoint, sample, name = "n_cells" )
-msg( "Branch-model cells: ", length( branch_cells ) )
 print( branch_meta |> dplyr::count( branch_arm, timepoint, name = "n_cells" ) )
 counts <- SummarizedExperiment::assay( cds, "counts" )
 counts_branch <- counts[ , branch_cells, drop = FALSE ]
 detected_n <- Matrix::rowSums( counts_branch > 0 )
 gene_prefilter_tbl <- tibble::tibble( gene_id = rownames( counts_branch ), detected_cells = as.integer( detected_n ), detection_fraction = as.numeric( detected_n / ncol( counts_branch ) ) )
 prefilter_genes <- gene_prefilter_tbl$gene_id[ gene_prefilter_tbl$detection_fraction >= MIN_DETECTION_FRACTION ]
-msg( "Genes detected in >=5% of branch cells: ", length( prefilter_genes ) )
 if (file.exists(CACHE_GRAPH)) {
-  msg( "Loading cached graph_test results..." )
   graph_test_tbl <- readRDS( CACHE_GRAPH )
 } else {
-  msg( "Running graph_test on ", length( prefilter_genes ), " genes; cores = ", CORES, "..." )
   cds_graph <- cds[ prefilter_genes, , drop = FALSE ]
   graph_test_res <- monocle3::graph_test( cds_graph, neighbor_graph = "principal_graph", cores = CORES )
   graph_test_tbl <- tibble::as_tibble( graph_test_res, rownames = "gene_id" ) |> dplyr::left_join( gene_prefilter_tbl, by = "gene_id" ) |> dplyr::mutate( graph_dynamic = !is.na(q_value) & q_value <= GRAPH_Q_MAX & morans_I >= GRAPH_MORAN_MIN ) |> dplyr::arrange( q_value, dplyr::desc( morans_I ) )
   saveRDS( graph_test_tbl, CACHE_GRAPH )
 }
 graph_dynamic_genes <- graph_test_tbl$gene_id[ graph_test_tbl$graph_dynamic ]
-msg( "Graph-dynamic genes: ", length( graph_dynamic_genes ) )
 fit_gene_tbl <- graph_test_tbl |> dplyr::filter( graph_dynamic ) |> dplyr::arrange( q_value, dplyr::desc( morans_I ) )
 if ( nrow(fit_gene_tbl) > MAX_GENES_FOR_NB_MODEL ) {
   fit_gene_tbl <- fit_gene_tbl |> dplyr::slice_head( n = MAX_GENES_FOR_NB_MODEL )
@@ -197,7 +184,6 @@ fit_genes <- fit_gene_tbl$gene_id
 if (length(fit_genes) < 10) {
   stop( "Too few graph-dynamic genes for branch modeling.", call. = FALSE )
 }
-msg( "Genes entering NEGATIVE-BINOMIAL branch model: ", length( fit_genes ) )
 cds_branch <- cds[ fit_genes, branch_cells, drop = FALSE ]
 meta_ordered <- branch_meta[ match( colnames(cds_branch), branch_meta$cell ), , drop = FALSE ]
 if ( !identical( as.character( meta_ordered$cell ), colnames( cds_branch ) ) ) {
@@ -212,33 +198,16 @@ SummarizedExperiment::colData( cds_branch )$step5C_pseudotime_scaled <- meta_ord
 FULL_FORMULA <- paste0( "~ step5C_sample + ", "step5C_branch_arm + ", "splines::ns(step5C_pseudotime_scaled, df = 3) + ", "step5C_branch_arm:splines::ns(step5C_pseudotime_scaled, df = 3)" )
 NULL_FORMULA <- paste0( "~ step5C_sample + ", "splines::ns(step5C_pseudotime_scaled, df = 3)" )
 ADDITIVE_FORMULA <- paste0( "~ step5C_sample + ", "step5C_branch_arm + ", "splines::ns(step5C_pseudotime_scaled, df = 3)" )
-msg( "Formal family: NEGATIVE BINOMIAL" )
-msg( "Full model: ", FULL_FORMULA )
-msg( "Null model: ", NULL_FORMULA )
-msg( "Additive model: ", ADDITIVE_FORMULA )
-msg( "Fitting FULL negative-binomial model. Windows cores = ", CORES, "..." )
 full_fit <- monocle3::fit_models( cds_branch, model_formula_str = FULL_FORMULA, expression_family = "negbinomial", clean_model = TRUE, cores = CORES )
-msg( "Fitting NULL negative-binomial model..." )
 null_fit <- monocle3::fit_models( cds_branch, model_formula_str = NULL_FORMULA, expression_family = "negbinomial", clean_model = TRUE, cores = CORES )
-msg( "Fitting ADDITIVE negative-binomial model..." )
 additive_fit <- monocle3::fit_models( cds_branch, model_formula_str = ADDITIVE_FORMULA, expression_family = "negbinomial", clean_model = TRUE, cores = CORES )
 fit_status_tbl <- tibble::tibble( gene_id = fit_genes, full_status = as.character( full_fit$status[ match( fit_genes, full_fit$gene_id ) ] ), null_status = as.character( null_fit$status[ match( fit_genes, null_fit$gene_id ) ] ), additive_status = as.character( additive_fit$status[ match( fit_genes, additive_fit$gene_id ) ] ) )
-msg( "FULL model OK: ", sum( fit_status_tbl$full_status == "OK", na.rm = TRUE ), "/", nrow( fit_status_tbl ) )
-msg( "NULL model OK: ", sum( fit_status_tbl$null_status == "OK", na.rm = TRUE ), "/", nrow( fit_status_tbl ) )
-msg( "ADDITIVE model OK: ", sum( fit_status_tbl$additive_status == "OK", na.rm = TRUE ), "/", nrow( fit_status_tbl ) )
-msg( "Formal BEAM-like comparison: FULL vs NULL..." )
 branch_dep_raw <- monocle3::compare_models( full_fit, null_fit )
 branch_dep_tbl <- standardize_compare( branch_dep_raw, "branch_dependence" )
-msg( "Secondary interaction-only comparison: FULL vs ADDITIVE..." )
 shape_raw <- monocle3::compare_models( full_fit, additive_fit )
 shape_tbl <- standardize_compare( shape_raw, "shape_interaction" )
 branch_dep_valid <- branch_dep_tbl |> dplyr::filter( is.finite( branch_dependence_p_value ) )
 shape_valid <- shape_tbl |> dplyr::filter( is.finite( shape_interaction_p_value ) )
-msg( "Valid branch-dependence LRT p-values: ", nrow( branch_dep_valid ) )
-msg( "Minimum branch-dependence p = ", signif( min( branch_dep_valid$branch_dependence_p_value, na.rm = TRUE ), 4 ) )
-msg( "Minimum branch-dependence q = ", signif( min( branch_dep_valid$branch_dependence_q_value, na.rm = TRUE ), 4 ) )
-msg( "Raw branch-dependence p<0.05 genes = ", sum( branch_dep_valid$branch_dependence_p_value < 0.05, na.rm = TRUE ) )
-msg( "Calculating descriptive 7 dpi Arm_1 vs Arm_2 effects..." )
 norm_mat <- get_normalized_matrix( obj )
 available_fit_genes <- intersect( fit_genes, rownames( norm_mat ) )
 seven_cells <- branch_cells[ time_all[ branch_cells ] == "7 dpi" ]
@@ -267,11 +236,6 @@ shape_sig_tbl <- branch_gene_tbl |> dplyr::filter( shape_interaction_significant
 robust_tbl <- branch_gene_tbl |> dplyr::filter( robust_display_gene )
 arm1_genes <- branch_sig_tbl$gene_id[ branch_sig_tbl$terminal_branch_bias == arm1 ]
 arm2_genes <- branch_sig_tbl$gene_id[ branch_sig_tbl$terminal_branch_bias == arm2 ]
-msg( "Formal BEAM-like branch-dependent genes q<=0.05: ", nrow( branch_sig_tbl ) )
-msg( "Secondary shape-interaction genes q<=0.05: ", nrow( shape_sig_tbl ) )
-msg( arm1, "-biased formal genes: ", length( arm1_genes ) )
-msg( arm2, "-biased formal genes: ", length( arm2_genes ) )
-msg( "Robust display genes: ", nrow( robust_tbl ) )
 choose_top <- function( tbl, arm_name, n) {
   x <- tbl |> dplyr::filter( branch_dependent, terminal_branch_bias == arm_name ) |> dplyr::arrange( dplyr::desc( direction_consistent ), branch_dependence_q_value, dplyr::desc( abs_7dpi_mean_diff ) )
   head( x$gene_id, n )
@@ -286,7 +250,6 @@ smooth_tbl <- tibble::tibble()
 module_bin_summary <- tibble::tibble()
 module_7dpi_sample_summary <- tibble::tibble()
 if (length(heatmap_genes) >= 2) {
-  msg( "Building branch smoothing across ", N_PSEUDOTIME_BINS, " pseudotime bins..." )
   branch_model_meta <- branch_meta |> dplyr::mutate( pseudotime_scaled = ( pseudotime_step5BR - min( pseudotime_step5BR ) ) / ( max( pseudotime_step5BR ) - min( pseudotime_step5BR ) ), pt_bin = cut( pseudotime_scaled, breaks = seq( 0, 1, length.out = N_PSEUDOTIME_BINS + 1 ), include.lowest = TRUE, labels = FALSE ) )
   bin_meta <- branch_model_meta |> dplyr::group_by( branch_arm, pt_bin ) |> dplyr::summarise( n_cells = dplyr::n(), pt_scaled_median = median( pseudotime_scaled ), pt_raw_median = median( pseudotime_step5BR ), .groups = "drop" )
   smooth_expr_genes <- intersect( heatmap_genes, rownames( norm_mat ) )
@@ -321,7 +284,6 @@ if ( length(arm1_genes) > 0 || length(arm2_genes) > 0 ) {
   module_bin_summary <- module_score_tbl |> dplyr::group_by( branch_arm, pt_bin ) |> dplyr::summarise( n_cells = dplyr::n(), pseudotime_scaled = median( pseudotime_scaled ), Arm1_module_score = mean( Arm1_module_score, na.rm = TRUE ), Arm2_module_score = mean( Arm2_module_score, na.rm = TRUE ), .groups = "drop" ) |> tidyr::pivot_longer( cols = c( Arm1_module_score, Arm2_module_score ), names_to = "module", values_to = "module_score" )
   module_7dpi_sample_summary <- module_score_tbl |> dplyr::filter( timepoint == "7 dpi" ) |> dplyr::group_by( sample, branch_arm ) |> dplyr::summarise( n_cells = dplyr::n(), Arm1_module_median = median( Arm1_module_score, na.rm = TRUE ), Arm2_module_median = median( Arm2_module_score, na.rm = TRUE ), .groups = "drop" )
 }
-msg( "Creating Fig5C_v2_01_branch_gene_discovery.pdf..." )
 graph_plot_tbl <- graph_test_tbl |> dplyr::mutate( neglog10_q = -log10( pmax( q_value, 1e-300 ) ) )
 p1a <- ggplot2::ggplot( graph_plot_tbl, ggplot2::aes( x = morans_I, y = neglog10_q ) ) + ggplot2::geom_point( size = 0.55, alpha = 0.35 ) + ggplot2::geom_vline( xintercept = GRAPH_MORAN_MIN, linetype = 2, linewidth = 0.4 ) + ggplot2::geom_hline( yintercept = -log10( GRAPH_Q_MAX ), linetype = 2, linewidth = 0.4 ) + ggplot2::labs( title = "Principal-graph dynamic genes", x = "Moran's I", y = "-log10(q)" ) + ggplot2::theme_classic( base_size = 11 )
 lrt_plot_tbl <- branch_gene_tbl |> dplyr::filter( is.finite( branch_dependence_q_value ), is.finite( mean_diff_arm1_minus_arm2 ) ) |> dplyr::mutate( neglog10_branch_q = -log10( pmax( branch_dependence_q_value, 1e-300 ) ) )
@@ -333,7 +295,6 @@ p1d <- ggplot2::ggplot( gene_count_tbl, ggplot2::aes( x = category, y = n_genes 
 grDevices::pdf( OUT_FIG1, width = 14, height = 10, useDingbats = FALSE )
 print( (p1a | p1b) / (p1c | p1d) + patchwork::plot_annotation( title = paste0( "Step 5C v2 | ", PRIMARY_BRANCHPOINT, " corrected likelihood-based branch-gene discovery" ) ) )
 grDevices::dev.off()
-msg( "Creating Fig5C_v2_02_branch_dynamic_heatmap.pdf..." )
 if ( length(heatmap_genes) >= 2 && nrow(smooth_tbl) > 0 ) {
   heat_wide <- smooth_tbl |> dplyr::filter( gene_id %in% heatmap_genes ) |> dplyr::mutate( arm_bin = paste0( branch_arm, "__", sprintf( "%02d", pt_bin ) ) ) |> dplyr::select( gene_id, arm_bin, mean_expression ) |> tidyr::pivot_wider( names_from = arm_bin, values_from = mean_expression )
   heat_mat <- as.matrix( heat_wide[ , setdiff( colnames( heat_wide ), "gene_id" ), drop = FALSE ] )
@@ -351,7 +312,6 @@ if ( length(heatmap_genes) >= 2 && nrow(smooth_tbl) > 0 ) {
 grDevices::pdf( OUT_FIG2, width = 13, height = 14, useDingbats = FALSE )
 print(p2)
 grDevices::dev.off()
-msg( "Creating Fig5C_v2_03_top_branch_gene_smoothing.pdf..." )
 if ( length(smooth_genes) >= 2 && nrow(smooth_tbl) > 0 ) {
   top_gene_plot_tbl <- smooth_tbl |> dplyr::filter( gene_id %in% smooth_genes ) |> dplyr::mutate( gene_module = ifelse( gene_id %in% top_arm1_smooth, paste0( arm1, "-biased" ), paste0( arm2, "-biased" ) ) )
   p3 <- ggplot2::ggplot( top_gene_plot_tbl, ggplot2::aes( x = pt_scaled_median, y = mean_expression, group = branch_arm, linetype = branch_arm ) ) + ggplot2::geom_line( linewidth = 0.75 ) + ggplot2::geom_point( size = 1.4 ) + ggplot2::facet_wrap( gene_module ~ gene_id, scales = "free_y", ncol = 3 ) + ggplot2::labs( title = "Top branch-dependent genes along retained Step5B-R pseudotime", subtitle = "Neutral Arm_1/Arm_2 labels; repair/scar scores were not used", x = "Scaled pseudotime", y = "Mean normalized expression", linetype = "Graph arm" ) + ggplot2::theme_classic( base_size = 9 )
@@ -361,7 +321,6 @@ if ( length(smooth_genes) >= 2 && nrow(smooth_tbl) > 0 ) {
 grDevices::pdf( OUT_FIG3, width = 13, height = 11, useDingbats = FALSE )
 print(p3)
 grDevices::dev.off()
-msg( "Creating Fig5C_v2_04_branch_module_replicate_audit.pdf..." )
 if (nrow(module_bin_summary) > 0) {
   p4a <- ggplot2::ggplot( module_bin_summary, ggplot2::aes( x = pseudotime_scaled, y = module_score, group = branch_arm, linetype = branch_arm ) ) + ggplot2::geom_line( linewidth = 0.9 ) + ggplot2::geom_point( size = 1.6 ) + ggplot2::facet_wrap( ~module, nrow = 1, scales = "free_y" ) + ggplot2::labs( title = "Branch-gene module dynamics", x = "Scaled retained pseudotime", y = "Mean module score", linetype = "Graph arm" ) + ggplot2::theme_classic( base_size = 10 )
 } else {
@@ -391,7 +350,6 @@ saveRDS( module_object, OUT_MODULE_RDS, compress = TRUE )
 saveRDS( obj, OUT_SEURAT, compress = TRUE )
 writeLines( arm1_genes, file.path( OUTDIR, "Step5C_v2_Arm1_branch_dependent_genes.txt" ) )
 writeLines( arm2_genes, file.path( OUTDIR, "Step5C_v2_Arm2_branch_dependent_genes.txt" ) )
-msg( "Writing Table5C_v2_Y29_branch_dependent_genes.xlsx..." )
 parameter_tbl <- tibble::tibble( parameter = c( "Primary branchpoint", "Arm 1", "Arm 2", "Pseudotime used", "Branch-model cells", "Genes detected >=5%", "Graph-dynamic genes", "Genes entering NB models", "Model family", "Valid branch-dependence LRT p-values", "Minimum branch-dependence p", "Minimum branch-dependence q", "Raw branch-dependence p<0.05 genes", "Formal branch-dependent q<=0.05 genes", "Shape-interaction q<=0.05 genes", paste0( arm1, "-biased genes" ), paste0( arm2, "-biased genes" ), "Robust display genes", "R cores" ), value = c( PRIMARY_BRANCHPOINT, arm1, arm2, PSEUDOTIME_COL, length( branch_cells ), length( prefilter_genes ), length( graph_dynamic_genes ), length( fit_genes ), "negbinomial", nrow( branch_dep_valid ), min( branch_dep_valid$branch_dependence_p_value, na.rm = TRUE ), min( branch_dep_valid$branch_dependence_q_value, na.rm = TRUE ), sum( branch_dep_valid$branch_dependence_p_value < 0.05, na.rm = TRUE ), nrow( branch_sig_tbl ), nrow( shape_sig_tbl ), length( arm1_genes ), length( arm2_genes ), nrow( robust_tbl ), CORES ) )
 wb <- openxlsx::createWorkbook()
 safe_add_sheet( wb, "Parameters", parameter_tbl )
@@ -410,26 +368,6 @@ safe_add_sheet( wb, "7dpi_direction_summary", replicate_direction_tbl )
 safe_add_sheet( wb, "Smoothing_binned", smooth_tbl )
 safe_add_sheet( wb, "Module_7dpi_samples", module_7dpi_sample_summary )
 openxlsx::saveWorkbook( wb, OUT_XLSX, overwrite = TRUE )
-msg( "Writing Step5C_v2_report.txt..." )
 top_arm1_report <- branch_gene_tbl |> dplyr::filter( branch_dependent, terminal_branch_bias == arm1 ) |> dplyr::select( gene_id, graph_morans_I, graph_q_value, branch_dependence_q_value, shape_interaction_q_value, mean_diff_arm1_minus_arm2, direction_consistent ) |> dplyr::slice_head( n = 20 )
 top_arm2_report <- branch_gene_tbl |> dplyr::filter( branch_dependent, terminal_branch_bias == arm2 ) |> dplyr::select( gene_id, graph_morans_I, graph_q_value, branch_dependence_q_value, shape_interaction_q_value, mean_diff_arm1_minus_arm2, direction_consistent ) |> dplyr::slice_head( n = 20 )
-report_lines <- c( "======================================================================", "GSE162610 | STEP 5C v2 REPORT", "Corrected likelihood-based Y_29 branch-dependent gene analysis", "======================================================================", "", "WHY v2:", "v1 used quasipoisson fit_models followed by compare_models likelihood-ratio", "testing. Quasi-Poisson has no true likelihood, so v1's zero significant", "interaction genes is not treated as a biological negative result.", "", "v2 uses negative-binomial models for all likelihood-ratio comparisons.", "", "--------------------------- FIXED TOPOLOGY -----------------------------", paste0( "Corrected branchpoint: ", PRIMARY_BRANCHPOINT ), paste0( "Major arms: ", arm1, " vs ", arm2 ), paste0( "Pseudotime used: ", PSEUDOTIME_COL ), "The failed Y_19 single-node pseudotime is not used.", "", "-------------------------- MODEL DESIGN -------------------------------", "PRIMARY BEAM-like branch-dependence test:", paste0( "  FULL: ", FULL_FORMULA ), paste0( "  NULL: ", NULL_FORMULA ), "", "SECONDARY shape-only interaction test:", paste0( "  FULL: ", FULL_FORMULA ), paste0( "  ADDITIVE: ", ADDITIVE_FORMULA ), "", "Expression family: negative binomial", paste0( "Windows model cores: ", CORES ), "", "---------------------------- CELLS ------------------------------------", paste0( "Branch-model cells: ", length( branch_cells ) ), capture_table( branch_meta |> dplyr::count( branch_arm, timepoint, sample, name = "n_cells" ) ), "", "-------------------------- graph_test ---------------------------------", paste0( "Genes detected >=5%: ", length( prefilter_genes ) ), paste0( "Graph-dynamic genes: ", length( graph_dynamic_genes ) ), paste0( "Genes entering negative-binomial models: ", length( fit_genes ) ), "", "---------------------- LIKELIHOOD DIAGNOSTICS -------------------------", paste0( "Valid formal branch-dependence p-values: ", nrow( branch_dep_valid ) ), paste0( "Minimum formal branch-dependence p-value: ", signif( min( branch_dep_valid$branch_dependence_p_value, na.rm = TRUE ), 6 ) ), paste0( "Minimum formal branch-dependence q-value: ", signif( min( branch_dep_valid$branch_dependence_q_value, na.rm = TRUE ), 6 ) ), paste0( "Raw p<0.05 branch-dependence genes: ", sum( branch_dep_valid$branch_dependence_p_value < 0.05, na.rm = TRUE ) ), "", "----------------------- FORMAL STEP5C RESULT --------------------------", paste0( "BEAM-like branch-dependent genes q<=", BRANCH_DEP_Q_MAX, ": ", nrow( branch_sig_tbl ) ), paste0( "Secondary shape-interaction genes q<=", SHAPE_INTERACTION_Q_MAX, ": ", nrow( shape_sig_tbl ) ), paste0( arm1, "-biased formal genes: ", length( arm1_genes ) ), paste0( arm2, "-biased formal genes: ", length( arm2_genes ) ), paste0( "Replicate-consistent + effect-filtered display genes: ", nrow( robust_tbl ) ), "", paste0( "Top ", arm1, "-biased genes:" ), capture_table( top_arm1_report ), "", paste0( "Top ", arm2, "-biased genes:" ), capture_table( top_arm2_report ), "", "-------------------------- INTERPRETATION ------------------------------", "Formal Step5C branch-dependent genes are defined by the BEAM-like", "negative-binomial likelihood-ratio test (FULL vs NULL) after independent", "graph_test filtering.", "", "The stricter FULL vs ADDITIVE comparison asks specifically whether the", "Arm1/Arm2 curves differ in SHAPE beyond a constant branch offset.", "", "Therefore it is possible and biologically coherent to have many formal", "branch-dependent genes but fewer shape-interaction genes.", "", "If even the corrected negative-binomial BEAM-like test yields no significant", "genes, that null result should be taken seriously and Step5C should not be", "forced by relaxing q-value thresholds.", "", "Step5C remains part of Step 5. Step5D Monocle2 DDRTree sensitivity follows", "only after evaluating these corrected results.", "", "Formal outputs:", paste0("  ", OUT_FIG1), paste0("  ", OUT_FIG2), paste0("  ", OUT_FIG3), paste0("  ", OUT_FIG4), paste0("  ", OUT_XLSX), paste0("  ", OUT_MODULE_RDS), paste0("  ", OUT_SEURAT), paste0("  ", OUT_REP), paste0("  ", OUT_SESS) )
-writeLines( report_lines, OUT_REP, useBytes = TRUE )
 writeLines( capture.output( sessionInfo() ), OUT_SESS, useBytes = TRUE )
-msg("====================================================")
-msg("STEP 5C v2 COMPLETE")
-msg("====================================================")
-msg( "Graph-dynamic genes: ", length( graph_dynamic_genes ) )
-msg( "Formal branch-dependent genes: ", nrow( branch_sig_tbl ) )
-msg( "Shape-interaction genes: ", nrow( shape_sig_tbl ) )
-msg( arm1, "-biased genes: ", length( arm1_genes ) )
-msg( arm2, "-biased genes: ", length( arm2_genes ) )
-msg( "Robust display genes: ", nrow( robust_tbl ) )
-msg("")
-msg("Key outputs:")
-msg("  1) Fig5C_v2_01_branch_gene_discovery.pdf")
-msg("  2) Fig5C_v2_02_branch_dynamic_heatmap.pdf")
-msg("  3) Fig5C_v2_03_top_branch_gene_smoothing.pdf")
-msg("  4) Fig5C_v2_04_branch_module_replicate_audit.pdf")
-msg("  5) Table5C_v2_Y29_branch_dependent_genes.xlsx")
-msg("  6) Step5C_v2_report.txt")

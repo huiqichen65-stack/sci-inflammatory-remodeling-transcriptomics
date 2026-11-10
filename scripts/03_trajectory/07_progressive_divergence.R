@@ -52,9 +52,6 @@ suppressPackageStartupMessages({
   library(ggplot2)
   library(patchwork)
 })
-msg <- function(...) {
-  cat( sprintf("[%s] ", format(Sys.time(), "%H:%M:%S")), ..., "\n", sep = "" )
-}
 capture_table <- function(x) {
   paste( capture.output( print(tibble::as_tibble(x), n = Inf, width = Inf) ), collapse = "\n" )
 }
@@ -141,24 +138,16 @@ row_z <- function(mat) {
 null_plot <- function(txt) {
   ggplot2::ggplot( tibble::tibble(x = 1, y = 1), ggplot2::aes(x, y) ) + ggplot2::annotate("text", x = 1, y = 1, label = txt, size = 5) + ggplot2::theme_void()
 }
-msg("====================================================")
-msg("GSE162610 Step 5C-R | Y_29 prebranch divergence audit")
-msg("====================================================")
 core_objects <- c( "full_fit", "null_fit", "additive_fit", "branch_dep_tbl", "shape_tbl" )
 have_memory <- all( vapply( core_objects, exists, logical(1), envir = .GlobalEnv ) )
 if (have_memory) {
-  msg("检测到当前R session中的Step5C-v2耗时对象。")
-  msg("立即保存缓存，避免以后重跑3291-gene negative-binomial models...")
   save( full_fit, null_fit, additive_fit, branch_dep_tbl, shape_tbl, file = CACHE_FILE, compress = TRUE )
-  msg("缓存已保存：", CACHE_FILE)
 } else if (file.exists(CACHE_FILE)) {
-  msg("当前session对象不完整，正在读取已保存缓存...")
   load( CACHE_FILE, envir = .GlobalEnv )
 } else {
   stop(paste0("Missing Step5C model objects: ", paste(core_objects, collapse = ", ")), call. = FALSE)
 }
 formal_genes <- branch_dep_tbl |> dplyr::filter( is.finite(branch_dependence_q_value), branch_dependence_q_value <= 0.05 ) |> dplyr::pull(gene_id) |> unique()
-msg( "Step5C-v2正式branch-dependent genes带入本步：", length(formal_genes) )
 if (length(formal_genes) < 10) {
   stop("正式branch-dependent genes少于10个。", call. = FALSE)
 }
@@ -205,9 +194,6 @@ names(cell_distance) <- cds_cells
 prebranch_cells <- cds_cells[ timepoint[cds_cells] == "3 dpi" & shared_transition[cds_cells] & branch_arm[cds_cells] %in% c("Pre_branch_root_side", "Branchpoint_vertex") & cell_distance[cds_cells] <= PREBRANCH_GRAPH_RADIUS ]
 arm1_cells <- cds_cells[ branch_arm[cds_cells] == "Arm_1" & timepoint[cds_cells] %in% c("3 dpi", "7 dpi") ]
 arm2_cells <- cds_cells[ branch_arm[cds_cells] == "Arm_2" & timepoint[cds_cells] %in% c("3 dpi", "7 dpi") ]
-msg("Shared prebranch cells: ", length(prebranch_cells))
-msg("Arm_1 downstream cells: ", length(arm1_cells))
-msg("Arm_2 downstream cells: ", length(arm2_cells))
 if (length(prebranch_cells) < 50) {
   stop(paste0("High-confidence 3dpi prebranch cells near Y_29: ", length(prebranch_cells), " (<50)."), call. = FALSE)
 }
@@ -252,26 +238,12 @@ SummarizedExperiment::colData(cds_local)$step5CR_branch_contrast <- meta_order$b
 FULL_FORMULA <- paste0( "~ step5CR_sample + ", "splines::ns(step5CR_signed_progress, df = 3) + ", "step5CR_branch_contrast + ", "step5CR_branch_contrast:splines::ns(step5CR_post_progress, df = 2)" )
 ADDITIVE_FORMULA <- paste0( "~ step5CR_sample + ", "splines::ns(step5CR_signed_progress, df = 3) + ", "step5CR_branch_contrast" )
 NULL_FORMULA <- paste0( "~ step5CR_sample + ", "splines::ns(step5CR_signed_progress, df = 3)" )
-msg("Genes modeled: ", nrow(cds_local))
-msg("Cells modeled: ", ncol(cds_local))
-msg("Windows-safe cores: ", CORES)
-msg("FULL: ", FULL_FORMULA)
-msg("ADDITIVE: ", ADDITIVE_FORMULA)
-msg("NULL: ", NULL_FORMULA)
-msg("Fitting FULL prebranch-anchored model...")
 fit_full_CR <- monocle3::fit_models( cds_local, model_formula_str = FULL_FORMULA, expression_family = "negbinomial", clean_model = TRUE, cores = CORES )
-msg("Fitting ADDITIVE model...")
 fit_add_CR <- monocle3::fit_models( cds_local, model_formula_str = ADDITIVE_FORMULA, expression_family = "negbinomial", clean_model = TRUE, cores = CORES )
-msg("Fitting NULL common-trajectory model...")
 fit_null_CR <- monocle3::fit_models( cds_local, model_formula_str = NULL_FORMULA, expression_family = "negbinomial", clean_model = TRUE, cores = CORES )
 fit_status <- tibble::tibble( gene_id = formal_genes, full_status = as.character( fit_full_CR$status[ match(formal_genes, fit_full_CR$gene_id) ] ), additive_status = as.character( fit_add_CR$status[ match(formal_genes, fit_add_CR$gene_id) ] ), null_status = as.character( fit_null_CR$status[ match(formal_genes, fit_null_CR$gene_id) ] ) )
-msg( "FULL model OK: ", sum(fit_status$full_status == "OK", na.rm = TRUE), "/", nrow(fit_status) )
-msg( "ADDITIVE model OK: ", sum(fit_status$additive_status == "OK", na.rm = TRUE), "/", nrow(fit_status) )
-msg( "NULL model OK: ", sum(fit_status$null_status == "OK", na.rm = TRUE), "/", nrow(fit_status) )
-msg("PRIMARY progressive-shape test: FULL vs ADDITIVE...")
 shape_raw_CR <- monocle3::compare_models( fit_full_CR, fit_add_CR )
 shape_test <- standardize_compare( shape_raw_CR, "progressive_shape" )
-msg("SECONDARY anchored-branch test: FULL vs NULL...")
 branch_raw_CR <- monocle3::compare_models( fit_full_CR, fit_null_CR )
 branch_test <- standardize_compare( branch_raw_CR, "anchored_branch" )
 norm_mat <- get_norm(obj)
@@ -311,10 +283,6 @@ replicate_consistency <- replicate_effects |> dplyr::group_by(gene_id) |> dplyr:
 master <- tibble::tibble( gene_id = formal_genes ) |> dplyr::left_join( branch_dep_tbl |> dplyr::select( gene_id, step5C_v2_p = branch_dependence_p_value, step5C_v2_q = branch_dependence_q_value ), by = "gene_id" ) |> dplyr::left_join( shape_test, by = "gene_id" ) |> dplyr::left_join( branch_test, by = "gene_id" ) |> dplyr::left_join( divergence_tbl, by = "gene_id" ) |> dplyr::left_join( replicate_consistency, by = "gene_id" ) |> dplyr::mutate( progressive_shape_significant = is.finite(progressive_shape_q_value) & progressive_shape_q_value <= Q_MAX, anchored_branch_significant = is.finite(anchored_branch_q_value) & anchored_branch_q_value <= Q_MAX, terminal_direction = dplyr::case_when( mean_7dpi_arm1_minus_arm2 > 0 ~ "Arm_1", mean_7dpi_arm1_minus_arm2 < 0 ~ "Arm_2", TRUE ~ "Neutral" ), strong_progressive = progressive_shape_significant & divergence_gain >= MIN_DIVERGENCE_GAIN & abs(mean_7dpi_arm1_minus_arm2) >= MIN_ABS_7DPI_DIFF & direction_consistent ) |> dplyr::arrange( progressive_shape_q_value, dplyr::desc(divergence_gain) )
 progressive_tbl <- master |> dplyr::filter(progressive_shape_significant)
 strong_tbl <- master |> dplyr::filter(strong_progressive)
-msg( "Progressive-shape genes q<=0.05: ", nrow(progressive_tbl) )
-msg( "Anchored branch-deviation genes q<=0.05: ", sum(master$anchored_branch_significant, na.rm = TRUE) )
-msg( "Strong progressive genes: ", nrow(strong_tbl) )
-msg( "Minimum progressive-shape q: ", signif( min(master$progressive_shape_q_value, na.rm = TRUE), 6 ) )
 plot_source <- if (nrow(strong_tbl) >= 10) {
   strong_tbl
 } else {
@@ -367,7 +335,7 @@ if ( length(heat_genes) >= 2 && nrow(plot_bin_tbl) > 0 ) {
   heat_long$state <- factor( heat_long$state, levels = c( "Shared_prebranch", "Arm_1", "Arm_2" ) )
   p3 <- ggplot2::ggplot( heat_long, ggplot2::aes( x = bin, y = gene_id, fill = z_expression ) ) + ggplot2::geom_tile() + ggplot2::facet_grid( direction ~ state, scales = "free", space = "free" ) + ggplot2::scale_fill_gradient2( midpoint = 0, name = "Row z-score" ) + ggplot2::labs( title = "Shared prebranch -> Arm_1 / Arm_2 gene-program separation", x = "Branchpoint-centered progression bin", y = "Gene" ) + ggplot2::theme_classic(base_size = 8) + ggplot2::theme( axis.text.y = ggplot2::element_text(size = 5.5) )
 } else {
-  p3 <- null_plot( "No significant prebranch-anchored progressive genes.\nDo not force progressive molecular fate divergence." )
+  p3 <- null_plot( "No significant prebranch-anchored progressive genes.\nforce progressive molecular fate divergence." )
 }
 grDevices::pdf( OUT_FIG3, width = 13, height = 14, useDingbats = FALSE )
 print(p3)
@@ -401,23 +369,4 @@ safe_sheet(wb, "7dpi_replicate_effects", replicate_effects)
 safe_sheet(wb, "Binned_expression", plot_bin_tbl)
 openxlsx::saveWorkbook( wb, OUT_XLSX, overwrite = TRUE )
 top_progressive <- master |> dplyr::filter(progressive_shape_significant) |> dplyr::select( gene_id, progressive_shape_q_value, anchored_branch_q_value, early_arm1_minus_arm2, late_arm1_minus_arm2, divergence_gain, mean_7dpi_arm1_minus_arm2, direction_consistent, strong_progressive ) |> dplyr::slice_head(n = 30)
-report_lines <- c( "======================================================================", "GSE162610 | STEP 5C-R REPORT", "Y_29 shared prebranch -> Arm_1/Arm_2 progressive divergence audit", "======================================================================", "", "FORMAL POSITION:", "This is still Step 5. GO/KEGG/GSEA remain Step 6.", "", "PRIOR RESULT:", paste0( "Step5C-v2 formal branch-dependent genes carried forward: ", length(formal_genes) ), "", "SHARED PREBRANCH:", paste0( "Definition = 3 dpi + shared_transition_3dpi_highconf + ", "Pre_branch_root_side/Branchpoint_vertex + graph distance <= ", PREBRANCH_GRAPH_RADIUS, " from Y_29" ), paste0( "Shared prebranch cells: ", length(prebranch_cells) ), paste0( "Arm_1 downstream cells: ", length(arm1_cells) ), paste0( "Arm_2 downstream cells: ", length(arm2_cells) ), "", "CELL SUPPORT:", capture_table(analysis_summary), "", "MODEL:", paste0("FULL: ", FULL_FORMULA), paste0("ADDITIVE: ", ADDITIVE_FORMULA), paste0("NULL: ", NULL_FORMULA), "", "PRIMARY TEST:", "FULL vs ADDITIVE asks whether Arm1-vs-Arm2 separation changes as cells", "progress away from the shared Y_29 prebranch state.", "", "SECONDARY TEST:", "FULL vs NULL asks whether any branch-specific deviation exists after Y_29.", "", "RESULT:", paste0( "Progressive-shape genes q<=0.05: ", nrow(progressive_tbl) ), paste0( "Anchored branch-deviation genes q<=0.05: ", sum(master$anchored_branch_significant, na.rm = TRUE) ), paste0( "Strong progressive genes: ", nrow(strong_tbl) ), paste0( "Minimum progressive-shape p: ", signif( min(master$progressive_shape_p_value, na.rm = TRUE), 6 ) ), paste0( "Minimum progressive-shape q: ", signif( min(master$progressive_shape_q_value, na.rm = TRUE), 6 ) ), "", "TOP PROGRESSIVE GENES:", capture_table(top_progressive), "", "DECISION RULE:", "Strong progressive fate-divergence support requires a non-trivial set of", "significant progressive-shape genes, increasing Arm1/Arm2 separation from", "early to late downstream progression, and consistent late direction in both", "7 dpi biological samples.", "", "If this fails, retain the valid conclusion of Y_29-associated branch-biased", "transcriptional states, but do not claim progressive molecular fate divergence.", "", "STATUS:", "If Step5C-R passes, proceed to Step5D Monocle2 DDRTree sensitivity.", "", "OUTPUTS:", OUT_FIG1, OUT_FIG2, OUT_FIG3, OUT_FIG4, OUT_XLSX, OUT_RDS, OUT_REP, OUT_SESS )
-writeLines( report_lines, OUT_REP, useBytes = TRUE )
 writeLines( capture.output(sessionInfo()), OUT_SESS, useBytes = TRUE )
-msg("====================================================")
-msg("STEP 5C-R COMPLETE")
-msg("====================================================")
-msg("Shared prebranch cells: ", length(prebranch_cells))
-msg("Step5C-v2 genes tested: ", length(formal_genes))
-msg("Progressive-shape genes q<=0.05: ", nrow(progressive_tbl))
-msg( "Anchored branch-deviation genes q<=0.05: ", sum(master$anchored_branch_significant, na.rm = TRUE) )
-msg("Strong progressive genes: ", nrow(strong_tbl))
-msg( "Minimum progressive-shape q: ", signif( min(master$progressive_shape_q_value, na.rm = TRUE), 6 ) )
-msg("")
-msg("Key outputs:")
-msg("1) Fig5CR_01_shared_prebranch_definition.pdf")
-msg("2) Fig5CR_02_progressive_divergence_statistics.pdf")
-msg("3) Fig5CR_03_progressive_divergence_heatmap.pdf")
-msg("4) Fig5CR_04_top_gene_branchpoint_trajectories.pdf")
-msg("5) Table5CR_Y29_prebranch_progressive_divergence.xlsx")
-msg("6) Step5CR_report.txt")

@@ -46,9 +46,6 @@ suppressPackageStartupMessages({
   library(patchwork)
   library(cluster)
 })
-msg <- function(...) {
-  cat( sprintf("[%s] ", format(Sys.time(), "%H:%M:%S")), ..., "\n", sep = "" )
-}
 capture_table <- function(x) {
   paste( capture.output( print( tibble::as_tibble(x), n = Inf, width = Inf ) ), collapse = "\n" )
 }
@@ -124,9 +121,6 @@ safe_cor <- function(x, y) {
   }
   suppressWarnings( stats::cor( x, y, method = "pearson", use = "pairwise.complete.obs" ) )
 }
-msg("====================================================")
-msg("GSE162610 Step 6B | dynamic branch modules")
-msg("====================================================")
 for (ff in c(INPUT_STEP5CR, INPUT_STEP6A, INPUT_SEURAT)) {
   if (!file.exists(ff)) {
     stop( paste0("找不到输入文件：", ff), call. = FALSE )
@@ -150,10 +144,6 @@ step5_progressive <- unique( as.character( step5cr$progressive_shape_genes ) )
 step5_strong <- unique( as.character( step5cr$strong_progressive_genes ) )
 step6a_highconf <- unique( as.character( step6a$high_confidence_branch_markers$gene_id ) )
 candidate_genes <- union( step5_progressive, step6a_highconf )
-msg("Step5C-R progressive genes: ", length(step5_progressive))
-msg("Step5C-R strong progressive genes: ", length(step5_strong))
-msg("Step6A high-confidence markers: ", length(step6a_highconf))
-msg("Union candidate genes: ", length(candidate_genes))
 analysis_meta <- as.data.frame( step5cr$analysis_metadata )
 required_meta <- c( "cell", "state", "sample", "signed_progress", "post_progress" )
 missing_meta <- required_meta[ !required_meta %in% colnames(analysis_meta) ]
@@ -167,23 +157,17 @@ if ( length(PT_TIE_COL) == 0 || is.na(PT_TIE_COL) ) {
   analysis_meta$step6B_tie_pseudotime <- 0
 } else {
   analysis_meta$step6B_tie_pseudotime <- as.numeric( analysis_meta[[PT_TIE_COL]] )
-  msg("Pseudotime used for deterministic tie breaking: ", PT_TIE_COL)
 }
 analysis_meta <- analysis_meta |> dplyr::filter( state %in% c( "Shared_prebranch", "Arm_1", "Arm_2" ), cell %in% colnames(obj) )
 analysis_cells <- analysis_meta$cell
 if (length(unique(analysis_cells)) != nrow(analysis_meta)) {
   stop( "Step5C-R analysis_metadata存在重复cell。", call. = FALSE )
 }
-msg("Dynamic-module cells: ", length(analysis_cells))
-msg( "  Shared prebranch: ", sum(analysis_meta$state == "Shared_prebranch") )
-msg( "  Arm_1: ", sum(analysis_meta$state == "Arm_1") )
-msg( "  Arm_2: ", sum(analysis_meta$state == "Arm_2") )
 norm_mat <- get_norm(obj)
 candidate_genes <- intersect( candidate_genes, rownames(norm_mat) )
 expr_candidate <- norm_mat[ candidate_genes, analysis_cells, drop = FALSE ]
 detection_fraction <- Matrix::rowMeans( expr_candidate > 0 )
 keep_genes <- names(detection_fraction)[ is.finite(detection_fraction) & detection_fraction >= MIN_DETECTION_FRACTION ]
-msg( "Candidate genes detected in >=", MIN_DETECTION_FRACTION * 100, "% of dynamic-module cells: ", length(keep_genes) )
 if (length(keep_genes) < 50) {
   stop( "表达过滤后候选动态基因少于50个。", call. = FALSE )
 }
@@ -209,7 +193,6 @@ analysis_meta <- analysis_meta |> dplyr::group_by( sample, segment ) |> dplyr::g
   )
 sample_bin_summary <- analysis_meta |> dplyr::count( sample, segment, bin, trajectory_bin, name = "n_cells" )
 expected_group_count <- sum( group_size_audit$required_bins )
-msg( "Sample x trajectory-bin groups: ", nrow(sample_bin_summary), " / expected ", expected_group_count )
 if (nrow(sample_bin_summary) != expected_group_count) {
   print(sample_bin_summary)
   stop( "Sample-specific trajectory binning did not produce all expected bins.", call. = FALSE )
@@ -236,11 +219,9 @@ valid_profile_genes <- rownames(profile_mat)[ apply( profile_mat, 1, function(v)
 profile_mat <- profile_mat[ valid_profile_genes, , drop = FALSE ]
 profile_z <- row_zscore(profile_mat)
 profile_z <- profile_z[ apply(profile_z, 1, function(v) all(is.finite(v))), , drop = FALSE ]
-msg("Genes entering dynamic module clustering: ", nrow(profile_z))
 if (nrow(profile_z) < 50) {
   stop( "可用于动态模块聚类的完整表达轨迹基因少于50个。", call. = FALSE )
 }
-msg( "Selecting module number from K = ", paste(K_CANDIDATES, collapse = ", ") )
 dist_mat <- stats::dist( profile_z, method = "euclidean" )
 k_search <- list()
 fit_by_k <- list()
@@ -264,8 +245,6 @@ if (nrow(valid_k) > 0) {
 }
 selected_k <- as.integer(selected_k)
 selected_fit <- fit_by_k[[as.character(selected_k)]]
-msg("Selected K: ", selected_k)
-msg( "Selected average silhouette: ", signif( k_search_tbl$average_silhouette[ k_search_tbl$K == selected_k ], 4 ) )
 raw_module <- selected_fit$cluster
 module_centroids <- lapply( sort(unique(raw_module)), function(mm) {
     colMeans( profile_z[ raw_module == mm, , drop = FALSE ], na.rm = TRUE )
@@ -304,7 +283,6 @@ if ( length(STRONG_PROGRESSIVE_COL) == 0 || is.na(STRONG_PROGRESSIVE_COL) ) {
   step5_master_raw$strong_progressive_pattern <- step5_master_raw$gene_id %in%
     step5_strong
 } else {
-  msg( "Step5C-R strong-progressive field detected: ", STRONG_PROGRESSIVE_COL )
   step5_master_raw$strong_progressive_pattern <- as.logical( step5_master_raw[[STRONG_PROGRESSIVE_COL]] )
 }
 step5_master <- step5_master_raw |> dplyr::select( gene_id, progressive_shape_q_value, anchored_branch_q_value, strong_progressive_pattern, terminal_direction )
@@ -403,22 +381,5 @@ result_object <- list( candidate_genes = candidate_genes, genes_entering_cluster
 saveRDS( result_object, OUT_RDS, compress = TRUE )
 module_report_tbl <- module_annotation |> dplyr::select( module_name, n_genes, temporal_label, pre_score, early_score, intermediate_score, arm1_late_score, arm2_late_score, arm1_minus_arm2_late, mean_Arm1_minus_Arm2, min_abs_effect, same_direction_all_samples, robust_terminal_branch_effect ) |> dplyr::arrange( module_name )
 top_gene_report <- top_genes_by_module |> dplyr::select( module_name, gene_id, module_membership_cor, evidence_source, progressive_shape_q_value, cell_avg_log2FC, cell_BH_FDR, final_direction, strict_pseudobulk_supported ) |> dplyr::arrange( module_name, dplyr::desc(module_membership_cor) )
-report_lines <- c( "======================================================================", "GSE162610 | STEP 6B REPORT", "Shared-prebranch -> Arm_1 / Arm_2 dynamic branch modules", "======================================================================", "", "FORMAL POSITION:", "Step6B integrates Step5C-R dynamic genes and Step6A terminal markers.", "graph_test was NOT repeated.", "Repair/scar candidate scores were NOT used for gene selection or clustering.", "", "INPUT EVIDENCE:", paste0( "Step5C-R progressive-shape genes: ", length(step5_progressive) ), paste0( "Step5C-R strong progressive genes: ", length(step5_strong) ), paste0( "Step6A high-confidence branch markers: ", length(step6a_highconf) ), paste0( "Union candidate genes: ", length(candidate_genes) ), paste0( "Genes entering dynamic clustering: ", nrow(profile_z) ), "", "PROFILE CONSTRUCTION:", paste0( "Shared-prebranch bins: ", N_PRE_BINS ), paste0( "Postbranch bins per arm: ", N_POST_BINS ), "Cells were divided into equal-count bins WITHIN each biological sample", "and trajectory segment, using retained pseudotime to resolve tied graph", "distances. Expression was then averaged with equal sample weight.", "", "MODULE NUMBER:", paste0( "Selected K: ", selected_k ), paste0( "Selected average silhouette: ", signif( k_search_tbl$average_silhouette[ k_search_tbl$K == selected_k ], 5 ) ), "", "K SEARCH:", capture_table(k_search_tbl), "", "MODULE SUMMARY:", capture_table(module_report_tbl), "", "TOP GENES BY MODULE:", capture_table(top_gene_report), "", "INTERPRETATION RULE:", "Module labels describe timing/direction only:", "  Shared_prebranch / Early_shared / Intermediate_shared / Shared_late /", "  Arm1_terminal / Arm2_terminal.", "Do NOT rename modules as repair/scar until Step6C/6D pathway enrichment", "shows coherent functional separation.", "", "STEP6B PASS CRITERIA:", "  1. modules show coherent, non-random dynamic profiles;", "  2. at least one late Arm_1-biased and one late Arm_2-biased program are", "     visible or the data clearly justify a different temporal structure;", "  3. 7 dpi pseudobulk module effects are directionally consistent across", "     both biological samples;", "  4. module genes are supported by Step5C-R, Step6A, or both.", "", "STATUS:", "After Step6B PASS, proceed to Step6C GO/KEGG enrichment by dynamic module.", "", "OUTPUTS:", OUT_FIG1, OUT_FIG2, OUT_FIG3, OUT_FIG4, OUT_XLSX, OUT_RDS, OUT_REP, OUT_SESS )
-writeLines( report_lines, OUT_REP, useBytes = TRUE )
 writeLines( capture.output(sessionInfo()), OUT_SESS, useBytes = TRUE )
-msg("====================================================")
-msg("STEP 6B COMPLETE")
-msg("====================================================")
-msg("Genes entering clustering: ", nrow(profile_z))
-msg("Selected K: ", selected_k)
-msg( "Selected average silhouette: ", signif( k_search_tbl$average_silhouette[ k_search_tbl$K == selected_k ], 5 ) )
 print( module_annotation |> dplyr::select( module_name, n_genes, arm1_minus_arm2_late, mean_Arm1_minus_Arm2, same_direction_all_samples, robust_terminal_branch_effect ) )
-msg("")
-msg("Key outputs:")
-msg("1) figures/Fig6B_01_dynamic_module_heatmap.pdf")
-msg("2) figures/Fig6B_02_module_centroid_trajectories.pdf")
-msg("3) figures/Fig6B_03_7dpi_pseudobulk_module_scores.pdf")
-msg("4) figures/Fig6B_04_module_evidence_and_replicate_effects.pdf")
-msg("5) Step6B_report.txt")
-msg("")
-msg("如需精确模块基因列表，再补充 Table6B_dynamic_branch_modules.xlsx。")

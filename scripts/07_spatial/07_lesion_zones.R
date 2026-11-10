@@ -67,11 +67,6 @@ suppressPackageStartupMessages({
   library(png)
 })
 run_log <- character()
-log_message <- function(...) {
-  line <- paste0( "[", format( Sys.time(), "%Y-%m-%d %H:%M:%S" ), "] ", paste0(...) )
-  cat(line, "\n")
-  run_log <<- c( run_log, line )
-}
 write_run_log <- function() {
   writeLines( run_log, RUN_LOG_FILE, useBytes = TRUE )
 }
@@ -426,19 +421,13 @@ add_review <- function( check_id, category, description, observed, required, act
   checks <<- rbind( checks, data.table( check_id = as.character( check_id ), category = as.character( category ), description = as.character( description ), status = "REVIEW", observed = as.character( observed ), required = as.character( required ), critical = FALSE, action_if_not_pass = as.character( action_if_not_pass ) ), fill = TRUE )
 }
 write_fatal_report <- function(reason) {
-  report <- c( "============================================================", "GSE234774 Step 12F independent lesion-zone validation", "============================================================", paste0( "Generated: ", format( Sys.time(), "%Y-%m-%d %H:%M:%S" ) ), paste0( "Output directory: ", OUTPUT_DIR ), "", "FINAL_STATUS: STOP", "", "FATAL ERROR", paste0( "- ", reason ), "", "BOUNDARIES", "- No spot-level inferential P values were used.", "- No program name was upgraded to scar-associated.", "- No recipient-neighborhood or ligand-receptor analysis was run.", "", "NEXT ACTION", "- review this report and 00_run_log.txt.", "============================================================" )
-  writeLines( report, OUT_FINAL_REPORT, useBytes = TRUE )
-  log_message( "FATAL ERROR: ", reason )
   write_run_log()
 }
 main <- function() {
   workflow_start <- Sys.time()
-  log_message( "============================================================" )
-  log_message( "GSE234774 Step 12F independent lesion-zone validation started." )
-  log_message( "============================================================" )
   required_inputs <- c( Step12E_report = STEP12E_REPORT, Step12E_spot_scores_RDS = STEP12E_SPOT_SCORES_RDS, Step12D_report = STEP12D_REPORT, Step12D_normalized_weights_RDS = STEP12D_NORMALIZED_WEIGHTS_RDS, Step12B_report = STEP12B_REPORT, Step12B_capture_audit = STEP12B_CAPTURE_AUDIT )
   input_exists <- file.exists( required_inputs )
-  add_check( "C01", "input", "All frozen Step 12B/12D/12E inputs exist.", all( input_exists ), paste( paste0( names( required_inputs ), "=", input_exists ), collapse = "; " ), "All TRUE", TRUE, "Restore frozen upstream outputs; do not reconstruct scores or weights." )
+  add_check( "C01", "input", "All frozen Step 12B/12D/12E inputs exist.", all( input_exists ), paste( paste0( names( required_inputs ), "=", input_exists ), collapse = "; " ), "All TRUE", TRUE, "Restore frozen upstream outputs; reconstruct scores or weights." )
   if (!all( input_exists )) {
     stop( "At least one required Step 12F input is missing.", call. = FALSE )
   }
@@ -450,11 +439,10 @@ main <- function() {
   step12D_status <- read_status( STEP12D_REPORT )
   step12E_status <- read_status( STEP12E_REPORT )
   upstream_pass <- length( step12B_status ) == 1L && length( step12D_status ) == 1L && length( step12E_status ) == 1L && grepl( "^FINAL_STATUS: (PASS|PASS_WITH_REVIEW)$", step12B_status ) && grepl( "^FINAL_STATUS: (PASS|PASS_WITH_REVIEW)$", step12D_status ) && grepl( "^FINAL_STATUS: (PASS|PASS_WITH_REVIEW)$", step12E_status )
-  add_check( "C02", "upstream", "Step 12B, Step 12D, and Step 12E release lesion-zone validation.", upstream_pass, paste0( "Step12B=", collapse_unique( step12B_status ), "; Step12D=", collapse_unique( step12D_status ), "; Step12E=", collapse_unique( step12E_status ) ), "All PASS/PASS_WITH_REVIEW", TRUE, "Do not define lesion zones before upstream spatial outputs pass." )
+  add_check( "C02", "upstream", "Step 12B, Step 12D, and Step 12E release lesion-zone validation.", upstream_pass, paste0( "Step12B=", collapse_unique( step12B_status ), "; Step12D=", collapse_unique( step12D_status ), "; Step12E=", collapse_unique( step12E_status ) ), "All PASS/PASS_WITH_REVIEW", TRUE, "define lesion zones before upstream spatial outputs pass." )
   if (!upstream_pass) {
     stop( "An upstream frozen stage does not release Step 12F.", call. = FALSE )
   }
-  log_message( "[1/8] Loading frozen Step 12E scores and Step 12D weights." )
   spot_scores <- readRDS( STEP12E_SPOT_SCORES_RDS )
   spot_scores <- as.data.table( spot_scores )
   required_columns( spot_scores, c( "barcode", "capture_area_id", "section_id", "timepoint", "replicate_index", "biological_replicate_id", "injury_condition", "qc_review_flag", "Microglia_RCTD_weight", "target_program_AUCell_raw", "shared_prebranch_AUCell_raw", "target_program_microglia_adjusted_z", "target_program_adjusted_z_within_section", "shared_prebranch_microglia_adjusted_z" ), "Step 12E spot-score table" )
@@ -463,7 +451,7 @@ main <- function() {
   required_structural_types <- c( STRUCTURAL_POSITIVE_TYPES, STRUCTURAL_NEGATIVE_TYPES )
   structural_types_present <- all( required_structural_types %in% colnames( normalized_weights ) )
   alignment_ok <- nrow( spot_scores ) == EXPECTED_SPOTS && nrow( normalized_weights ) == EXPECTED_SPOTS && !anyDuplicated( spot_scores$barcode ) && !anyDuplicated( rownames( normalized_weights ) ) && setequal( spot_scores$barcode, rownames( normalized_weights ) ) && structural_types_present
-  add_check( "C03", "alignment", "Spot scores and normalized RCTD weights align and contain all structural cell types.", alignment_ok, paste0( "score rows=", nrow( spot_scores ), "; weight rows=", nrow( normalized_weights ), "; barcode sets equal=", setequal( spot_scores$barcode, rownames( normalized_weights ) ), "; structural types present=", structural_types_present ), "33,941 aligned spots and all prespecified structural cell types", TRUE, "Do not define lesions from incomplete or misaligned weights." )
+  add_check( "C03", "alignment", "Spot scores and normalized RCTD weights align and contain all structural cell types.", alignment_ok, paste0( "score rows=", nrow( spot_scores ), "; weight rows=", nrow( normalized_weights ), "; barcode sets equal=", setequal( spot_scores$barcode, rownames( normalized_weights ) ), "; structural types present=", structural_types_present ), "33,941 aligned spots and all prespecified structural cell types", TRUE, "define lesions from incomplete or misaligned weights." )
   if (!alignment_ok) {
     stop( "Step 12E score / Step 12D weight alignment failed.", call. = FALSE )
   }
@@ -485,7 +473,7 @@ main <- function() {
   coordinates <- rbindlist( coordinate_list, fill = TRUE )
   coordinates <- coordinates[ match( spot_scores$barcode, barcode ) ]
   coordinate_alignment_ok <- nrow( coordinates ) == EXPECTED_SPOTS && !anyNA( coordinates$barcode ) && identical( coordinates$barcode, spot_scores$barcode ) && all( is.finite( coordinates$coordinate_x_fullres ) ) && all( is.finite( coordinates$coordinate_y_fullres ) )
-  add_check( "C04", "coordinates", "All spot scores have aligned finite full-resolution image coordinates.", coordinate_alignment_ok, paste0( "rows=", nrow( coordinates ), "; missing barcode=", sum( is.na( coordinates$barcode ) ), "; finite x=", sum( is.finite( coordinates$coordinate_x_fullres ) ), "; finite y=", sum( is.finite( coordinates$coordinate_y_fullres ) ) ), "33,941 aligned finite coordinates", TRUE, "Do not calculate lesion distance with missing image coordinates." )
+  add_check( "C04", "coordinates", "All spot scores have aligned finite full-resolution image coordinates.", coordinate_alignment_ok, paste0( "rows=", nrow( coordinates ), "; missing barcode=", sum( is.na( coordinates$barcode ) ), "; finite x=", sum( is.finite( coordinates$coordinate_x_fullres ) ), "; finite y=", sum( is.finite( coordinates$coordinate_y_fullres ) ) ), "33,941 aligned finite coordinates", TRUE, "calculate lesion distance with missing image coordinates." )
   if (!coordinate_alignment_ok) {
     stop( "Coordinate alignment failed.", call. = FALSE )
   }
@@ -497,25 +485,23 @@ main <- function() {
         logical(1)
       )
     )
-  add_check( "C05", "design", "Spatial metadata contains 36 sections, 24 injured sections, and three animals per injured timepoint.", spatial_structure_ok, paste0( "capture areas=", uniqueN( spot_scores$capture_area_id ), "; sections=", uniqueN( spot_scores$section_id ), "; injured sections=", uniqueN( spot_scores[ timepoint %in% INJURED_TIMEPOINTS, section_id ] ), "; 7days animals=", uniqueN( spot_scores[ timepoint == "7days", biological_replicate_id ] ), "; 2months animals=", uniqueN( spot_scores[ timepoint == "2months", biological_replicate_id ] ) ), "12 capture areas, 36 sections, 24 injured sections, 3 animals/timepoint", TRUE, "Do not use spots as independent replicates." )
+  add_check( "C05", "design", "Spatial metadata contains 36 sections, 24 injured sections, and three animals per injured timepoint.", spatial_structure_ok, paste0( "capture areas=", uniqueN( spot_scores$capture_area_id ), "; sections=", uniqueN( spot_scores$section_id ), "; injured sections=", uniqueN( spot_scores[ timepoint %in% INJURED_TIMEPOINTS, section_id ] ), "; 7days animals=", uniqueN( spot_scores[ timepoint == "7days", biological_replicate_id ] ), "; 2months animals=", uniqueN( spot_scores[ timepoint == "2months", biological_replicate_id ] ) ), "12 capture areas, 36 sections, 24 injured sections, 3 animals/timepoint", TRUE, "use spots as independent replicates." )
   if (!spatial_structure_ok) {
     stop( "Spatial replicate structure is incomplete.", call. = FALSE )
   }
   forbidden_zone_variables <- c( "Microglia", "target_program_AUCell_raw", "target_program_microglia_adjusted_z", "target_program_adjusted_z_within_section", "shared_prebranch_AUCell_raw", "shared_prebranch_microglia_adjusted_z", "nCount_Spatial_BPCells", "nFeature_Spatial_BPCells", "percent.mt" )
   zone_definition_variables <- c( STRUCTURAL_POSITIVE_TYPES, STRUCTURAL_NEGATIVE_TYPES, "coordinate_x_fullres", "coordinate_y_fullres" )
   independence_ok <- length( intersect( forbidden_zone_variables, zone_definition_variables ) ) == 0L
-  add_check( "C06", "independence", "Lesion-zone definition excludes target scores, Shared_prebranch, Microglia, and QC metrics.", independence_ok, paste0( "zone variables=", paste( zone_definition_variables, collapse = " | " ), "; forbidden overlap=", paste( intersect( forbidden_zone_variables, zone_definition_variables ), collapse = " | " ) ), "Forbidden overlap = none", TRUE, "Do not use the tested target signal to choose lesion locations." )
+  add_check( "C06", "independence", "Lesion-zone definition excludes target scores, Shared_prebranch, Microglia, and QC metrics.", independence_ok, paste0( "zone variables=", paste( zone_definition_variables, collapse = " | " ), "; forbidden overlap=", paste( intersect( forbidden_zone_variables, zone_definition_variables ), collapse = " | " ) ), "Forbidden overlap = none", TRUE, "use the tested target signal to choose lesion locations." )
   if (!independence_ok) {
     stop( "Lesion-zone independence boundary was violated.", call. = FALSE )
   }
-  log_message( "[2/8] Defining independent lesion zones in 36 sections." )
   section_ids <- unique( as.character( spot_scores$section_id ) )
   section_ids <- section_ids[ order( match( section_ids, unique( as.character( spot_scores$section_id ) ) ) ) ]
   zone_assignment_list <- vector( "list", length( section_ids ) )
   zone_audit_list <- vector( "list", length( section_ids ) )
   for ( section_index in seq_along( section_ids ) ) {
     current_section_id <- section_ids[ section_index ]
-    log_message( "[", section_index, "/", length( section_ids ), "] ", current_section_id )
     section_table <- spot_scores[ section_id == current_section_id ]
     assignment <- build_section_zone_assignment( section_table = section_table, normalized_weights = normalized_weights )
     assignment[ , section_id := current_section_id ]
@@ -536,7 +522,6 @@ main <- function() {
     stop( "Independent lesion-zone assignment failed.", call. = FALSE )
   }
   spot_zones <- cbind( spot_scores, zone_assignment[ , !c( "barcode", "section_id" ) ] )
-  log_message( "[3/8] Calculating section-level zone summaries and contrasts." )
   injured_spots <- spot_zones[ timepoint %in% INJURED_TIMEPOINTS ]
   zone_levels <- c( "core", "border", "perilesional", "remote" )
   section_zone_summary <- injured_spots[ , .( n_spots = .N, n_QC_review_spots = sum( qc_review_flag ), structural_index_mean = safe_mean( structural_lesion_index_smoothed ), structural_index_median = safe_median( structural_lesion_index_smoothed ), distance_to_core_NN_mean = safe_mean( distance_to_core_NN ), distance_to_core_NN_median = safe_median( distance_to_core_NN ), Microglia_weight_mean = safe_mean( Microglia_RCTD_weight ), Microglia_weight_median = safe_median( Microglia_RCTD_weight ), target_raw_mean = safe_mean( target_program_AUCell_raw ), target_raw_median = safe_median( target_program_AUCell_raw ), target_adjusted_global_z_mean = safe_mean( target_program_microglia_adjusted_z ), target_adjusted_global_z_median = safe_median( target_program_microglia_adjusted_z ), target_adjusted_within_section_z_mean = safe_mean( target_program_adjusted_z_within_section ), target_adjusted_within_section_z_median = safe_median( target_program_adjusted_z_within_section ), shared_raw_mean = safe_mean( shared_prebranch_AUCell_raw ), shared_raw_median = safe_median( shared_prebranch_AUCell_raw ), shared_adjusted_z_mean = safe_mean( shared_prebranch_microglia_adjusted_z ), shared_adjusted_z_median = safe_median( shared_prebranch_microglia_adjusted_z ) ), by = .( capture_area_id, section_id, timepoint, replicate_index, biological_replicate_id, injury_condition, lesion_zone ) ]
@@ -566,14 +551,13 @@ main <- function() {
   section_contrasts <- rbindlist( section_contrast_rows, fill = TRUE )
   expected_section_contrast_rows <- EXPECTED_INJURED_SECTIONS * length( metrics_to_contrast ) * length( contrast_zones )
   section_outputs_ok <- nrow( section_zone_summary ) == EXPECTED_INJURED_SECTIONS * 4L && nrow( section_contrasts ) == expected_section_contrast_rows && all( is.finite( section_contrasts$zone_minus_remote ) )
-  add_check( "C08", "section_contrasts", "Section summaries and prespecified zone-vs-remote contrasts are complete.", section_outputs_ok, paste0( "zone-summary rows=", nrow( section_zone_summary ), "; contrast rows=", nrow( section_contrasts ), "/", expected_section_contrast_rows, "; finite contrasts=", sum( is.finite( section_contrasts$zone_minus_remote ) ) ), "96 section-zone rows and all expected finite contrasts", TRUE, "Do not aggregate incomplete section contrasts to animals." )
+  add_check( "C08", "section_contrasts", "Section summaries and prespecified zone-vs-remote contrasts are complete.", section_outputs_ok, paste0( "zone-summary rows=", nrow( section_zone_summary ), "; contrast rows=", nrow( section_contrasts ), "/", expected_section_contrast_rows, "; finite contrasts=", sum( is.finite( section_contrasts$zone_minus_remote ) ) ), "96 section-zone rows and all expected finite contrasts", TRUE, "aggregate incomplete section contrasts to animals." )
   if (!section_outputs_ok) {
     stop( "Section-level zone summary or contrast validation failed.", call. = FALSE )
   }
-  log_message( "[4/8] Aggregating section contrasts to independent animals." )
   animal_contrasts <- section_contrasts[ , .( n_sections = uniqueN( section_id ), animal_mean_contrast = safe_mean( zone_minus_remote ), animal_median_contrast = safe_median( zone_minus_remote ), animal_min_section_contrast = min( zone_minus_remote ), animal_max_section_contrast = max( zone_minus_remote ), positive_sections = sum( zone_minus_remote > 0 ), negative_sections = sum( zone_minus_remote < 0 ), section_contrasts = paste( round( zone_minus_remote, 6 ), collapse = " | " ) ), by = .( timepoint, biological_replicate_id, metric, contrast, zone, reference_zone ) ]
   animals_per_group_ok <- all( animal_contrasts[ , uniqueN( biological_replicate_id ), by = .( timepoint, metric, contrast ) ]$V1 == EXPECTED_ANIMALS_PER_INJURED_TIMEPOINT )
-  add_check( "C09", "animal_unit", "Every timepoint/metric/contrast has three independent animal summaries.", animals_per_group_ok, paste0( "minimum animals/group=", min( animal_contrasts[ , uniqueN( biological_replicate_id ), by = .( timepoint, metric, contrast ) ]$V1 ), "; maximum animals/group=", max( animal_contrasts[ , uniqueN( biological_replicate_id ), by = .( timepoint, metric, contrast ) ]$V1 ) ), "Exactly three animals per injured timepoint", TRUE, "Do not replace animal-level inference with spot-level testing." )
+  add_check( "C09", "animal_unit", "Every timepoint/metric/contrast has three independent animal summaries.", animals_per_group_ok, paste0( "minimum animals/group=", min( animal_contrasts[ , uniqueN( biological_replicate_id ), by = .( timepoint, metric, contrast ) ]$V1 ), "; maximum animals/group=", max( animal_contrasts[ , uniqueN( biological_replicate_id ), by = .( timepoint, metric, contrast ) ]$V1 ) ), "Exactly three animals per injured timepoint", TRUE, "replace animal-level inference with spot-level testing." )
   if (!animals_per_group_ok) {
     stop( "Animal-level replicate audit failed.", call. = FALSE )
   }
@@ -588,19 +572,17 @@ main <- function() {
   animal_inference <- rbind( animal_inference, between_timepoint_rows, fill = TRUE )
   primary_animal_results <- animal_inference[ metric == "target_adjusted_within_section_z" & timepoint %in% INJURED_TIMEPOINTS ]
   primary_complete <- nrow( primary_animal_results ) == length( INJURED_TIMEPOINTS ) * length( contrast_zones ) && all( primary_animal_results$n_animals == EXPECTED_ANIMALS_PER_INJURED_TIMEPOINT )
-  add_check( "C10", "primary_inference", "Primary adjusted-target animal summaries are complete for both injured timepoints and all lesion-proximity contrasts.", primary_complete, paste0( "rows=", nrow( primary_animal_results ), "; expected=", length( INJURED_TIMEPOINTS ) * length( contrast_zones ), "; animals/row=", paste( primary_animal_results$n_animals, collapse = " | " ) ), "Six primary rows, each with three animals", TRUE, "Do not make target-localization claims from incomplete animal summaries." )
+  add_check( "C10", "primary_inference", "Primary adjusted-target animal summaries are complete for both injured timepoints and all lesion-proximity contrasts.", primary_complete, paste0( "rows=", nrow( primary_animal_results ), "; expected=", length( INJURED_TIMEPOINTS ) * length( contrast_zones ), "; animals/row=", paste( primary_animal_results$n_animals, collapse = " | " ) ), "Six primary rows, each with three animals", TRUE, "make target-localization claims from incomplete animal summaries." )
   if (!primary_complete) {
     stop( "Primary animal-level inference summary is incomplete.", call. = FALSE )
   }
-  log_message( "[5/8] Building section-level distance-to-core profiles." )
   injured_spots[ , distance_bin := cut( distance_to_core_NN, breaks = DISTANCE_PROFILE_BREAKS_NN, include.lowest = TRUE, right = FALSE ) ]
   distance_profile <- injured_spots[ , .( n_spots = .N, distance_to_core_NN_mean = safe_mean( distance_to_core_NN ), distance_to_core_NN_median = safe_median( distance_to_core_NN ), target_adjusted_within_section_z_mean = safe_mean( target_program_adjusted_z_within_section ), target_adjusted_within_section_z_median = safe_median( target_program_adjusted_z_within_section ), target_raw_mean = safe_mean( target_program_AUCell_raw ), shared_adjusted_z_mean = safe_mean( shared_prebranch_microglia_adjusted_z ), Microglia_weight_mean = safe_mean( Microglia_RCTD_weight ), structural_index_mean = safe_mean( structural_lesion_index_smoothed ) ), by = .( capture_area_id, section_id, timepoint, biological_replicate_id, distance_bin ) ]
   distance_profile_ok <- nrow( distance_profile ) > 0L && all( distance_profile$n_spots > 0 ) && all( is.finite( distance_profile$ target_adjusted_within_section_z_mean ) )
-  add_check( "C11", "distance_profile", "Section-level distance-to-core profiles are nonempty and finite.", distance_profile_ok, paste0( "rows=", nrow( distance_profile ), "; sections=", uniqueN( distance_profile$section_id ), "; finite target means=", sum( is.finite( distance_profile$ target_adjusted_within_section_z_mean ) ) ), "All injured sections represented with finite target profiles", TRUE, "Do not interpret an incomplete radial profile." )
+  add_check( "C11", "distance_profile", "Section-level distance-to-core profiles are nonempty and finite.", distance_profile_ok, paste0( "rows=", nrow( distance_profile ), "; sections=", uniqueN( distance_profile$section_id ), "; finite target means=", sum( is.finite( distance_profile$ target_adjusted_within_section_z_mean ) ) ), "All injured sections represented with finite target profiles", TRUE, "interpret an incomplete radial profile." )
   if (!distance_profile_ok) {
     stop( "Distance-to-core profile validation failed.", call. = FALSE )
   }
-  log_message( "[6/8] Writing spot, section, animal, and inference tables." )
   input_audit <- rbindlist( list( data.table( item_type = "package", item = required_packages, value = vapply( required_packages, function(package_name) {
               as.character( utils::packageVersion( package_name ) )
             },
@@ -621,7 +603,6 @@ main <- function() {
   data.table::fwrite( animal_inference, OUT_ANIMAL_INFERENCE, bom = TRUE )
   data.table::fwrite( distance_profile, OUT_DISTANCE_PROFILE, bom = TRUE )
   saveRDS( spot_zones, OUT_SPOT_ZONES_RDS, compress = FALSE )
-  log_message( "[7/8] Drawing independent lesion-zone and target-validation maps." )
   capture_audit <- data.table::fread( STEP12B_CAPTURE_AUDIT, data.table = TRUE, showProgress = FALSE )
   required_columns( capture_audit, c( "capture_area_id", "tissue_lowres_scalef", "asset_linkage_status" ), "Step 12B capture-area image audit" )
   capture_audit[ , capture_area_id := toupper( trimws( as.character( capture_area_id ) ) ) ]
@@ -707,19 +688,18 @@ main <- function() {
   graphics::legend( "topright", legend = INJURED_TIMEPOINTS, lty = line_types[ INJURED_TIMEPOINTS ], pch = point_types[ INJURED_TIMEPOINTS ], bty = "n" )
   grDevices::dev.off()
   figure_outputs_ok <- all( file.exists( c( OUT_ANIMAL_CONTRAST_FIGURE, OUT_DISTANCE_PROFILE_FIGURE ) ) ) && all( file.info( c( OUT_ANIMAL_CONTRAST_FIGURE, OUT_DISTANCE_PROFILE_FIGURE ) )$size > 0 )
-  add_check( "C13", "summary_figures", "Animal-level contrast and distance-profile figures were written.", figure_outputs_ok, paste0( "contrast PDF bytes=", file_size_safe( OUT_ANIMAL_CONTRAST_FIGURE ), "; distance PDF bytes=", file_size_safe( OUT_DISTANCE_PROFILE_FIGURE ) ), "Both nonempty", TRUE, "Do not report spatial localization without animal-level visual summaries." )
+  add_check( "C13", "summary_figures", "Animal-level contrast and distance-profile figures were written.", figure_outputs_ok, paste0( "contrast PDF bytes=", file_size_safe( OUT_ANIMAL_CONTRAST_FIGURE ), "; distance PDF bytes=", file_size_safe( OUT_DISTANCE_PROFILE_FIGURE ) ), "Both nonempty", TRUE, "report spatial localization without animal-level visual summaries." )
   if (!figure_outputs_ok) {
     stop( "Animal-level summary figure generation failed.", call. = FALSE )
   }
-  log_message( "[8/8] Writing final checks, handoff, and report." )
   fallback_sections <- zone_audit[ timepoint %in% INJURED_TIMEPOINTS & zone_method == "prespecified_distance_quantile_fallback", section_id ]
   if (length( fallback_sections ) > 0L) {
-    add_review( "R01", "zone_threshold", "Some injured sections required the prespecified distance-quantile fallback to maintain adequate zone sizes.", paste( fallback_sections, collapse = " | " ), "Inspect the 12-page zone-map PDF before interpreting exact border widths.", "Keep the fallback fixed; do not tune thresholds using target-score results." )
+    add_review( "R01", "zone_threshold", "Some injured sections required the prespecified distance-quantile fallback to maintain adequate zone sizes.", paste( fallback_sections, collapse = " | " ), "Inspect the 12-page zone-map PDF before interpreting exact border widths.", "Keep the fallback fixed; tune thresholds using target-score results." )
   }
   primary_direction <- animal_inference[ metric == "target_adjusted_within_section_z" & timepoint %in% INJURED_TIMEPOINTS, .( timepoint, contrast, n_animals, animal_mean_contrast_mean, positive_animals, negative_animals, exact_sign_test_p, wilcoxon_signed_rank_p ) ]
   all_primary_positive <- all( primary_direction$ animal_mean_contrast_mean > 0 )
   if (!all_primary_positive) {
-    add_review( "R02", "target_localization", "Not every prespecified timepoint/zone contrast has a positive mean adjusted-target contrast.", paste( paste0( primary_direction$timepoint, ":", primary_direction$contrast, "=", round( primary_direction$ animal_mean_contrast_mean, 4 ) ), collapse = " | " ), "Interpret the program as spatially heterogeneous and retain the persistent inflammatory-remodeling name.", "Do not selectively report only positive zones or animals." )
+    add_review( "R02", "target_localization", "Not every prespecified timepoint/zone contrast has a positive mean adjusted-target contrast.", paste( paste0( primary_direction$timepoint, ":", primary_direction$contrast, "=", round( primary_direction$ animal_mean_contrast_mean, 4 ) ), collapse = " | " ), "Interpret the program as spatially heterogeneous and retain the persistent inflammatory-remodeling name.", "selectively report only positive zones or animals." )
   }
   critical_failures <- checks[ critical == TRUE & status == "FAIL" ]
   review_items <- checks[ status == "REVIEW" ]
@@ -737,45 +717,15 @@ main <- function() {
   data.table::fwrite( checks, OUT_CHECKS, bom = TRUE )
   total_elapsed <- elapsed_minutes( workflow_start )
   primary_lines <- paste0( "- ", primary_direction$timepoint, " | ", primary_direction$contrast, ": mean animal contrast=", round( primary_direction$ animal_mean_contrast_mean, 4 ), "; positive animals=", primary_direction$positive_animals, "/", primary_direction$n_animals, "; exact sign P=", format( primary_direction$ exact_sign_test_p, digits = 4 ), "; Wilcoxon P=", format( primary_direction$ wilcoxon_signed_rank_p, digits = 4 ) )
-  report <- c( "============================================================", "GSE234774 Step 12F independent lesion-zone validation", "============================================================", paste0( "Generated: ", format( Sys.time(), "%Y-%m-%d %H:%M:%S" ) ), paste0( "Output directory: ", OUTPUT_DIR ), "", paste0( "FINAL_STATUS: ", final_status ), "", "INDEPENDENT LESION-ZONE DEFINITION", paste0( "- Positive structural RCTD types: ", paste( STRUCTURAL_POSITIVE_TYPES, collapse = ", " ), "." ), paste0( "- Negative structural RCTD types: ", paste( STRUCTURAL_NEGATIVE_TYPES, collapse = ", " ), "." ), "- Target scores, Shared_prebranch scores, Microglia weight, and QC metrics were excluded from zone definition.", paste0( "- Injured sections assigned: ", uniqueN( injured_spots$section_id ), "/24." ), paste0( "- Uninjured sections retained without artificial lesion zones: ", uniqueN( spot_zones[ timepoint == UNINJURED_TIMEPOINT, section_id ] ), "/12." ), paste0( "- Sections using fixed NN thresholds: ", sum( zone_audit[ timepoint %in% INJURED_TIMEPOINTS, zone_method == "fixed_NN_thresholds" ] ), "/24." ), paste0( "- Sections using prespecified fallback: ", length( fallback_sections ), "/24." ), "", "PRIMARY OUTCOME AND STATISTICAL UNIT", "- Primary outcome: target_program_adjusted_z_within_section.", "- Contrast: core, border, or perilesional mean minus remote mean within the same section.", "- Four section contrasts were averaged within each biological animal.", "- Independent animals per injured timepoint: 3.", "- Spot-level inferential P values were not used.", "- With n=3 animals per timepoint, exact tests have low resolution; effect direction and cross-animal consistency are emphasized.", "", "PRIMARY ANIMAL-LEVEL RESULTS", primary_lines, "", "OUTPUT COVERAGE", paste0( "- Spatial spots: ", nrow( spot_zones ), "/33,941." ), paste0( "- Capture areas: ", uniqueN( spot_zones$capture_area_id ), "/12." ), paste0( "- Sections: ", uniqueN( spot_zones$section_id ), "/36." ), paste0( "- Injured animal summaries: ", uniqueN( animal_contrasts[ , paste( timepoint, biological_replicate_id, sep = "|" ) ] ), "/6." ), "", "CRITICAL CHECKS", paste0( "- PASS: ", nrow( checks[ critical == TRUE & status == "PASS" ] ), "; FAIL: ", nrow( critical_failures ), "." ) )
   if (nrow( critical_failures ) > 0L) {
-    report <- c( report, "", "FAILED CHECKS", paste0( "- ", critical_failures$check_id, ": ", critical_failures$description, " Observed: ", critical_failures$observed, " Action: ", critical_failures$action_if_not_pass ) )
   }
   if (nrow( review_items ) > 0L) {
-    report <- c( report, "", "REVIEW ITEMS", paste0( "- ", review_items$check_id, ": ", review_items$description, " Observed: ", review_items$observed, " Action: ", review_items$action_if_not_pass ) )
   }
-  report <- c( report, "", "INTERPRETATION BOUNDARY", if ( final_status %in% c( "PASS", "PASS_WITH_REVIEW" ) ) {
-      paste( "- Step 12F is technically complete.", "Independent lesion-proximity zones and animal-level target-program", "contrasts are available." )
-    } else {
-      "- Step 12F is not released."
-    },
-    "- A consistent positive core/border/perilesional-minus-remote contrast supports lesion-proximal localization after Microglia adjustment.", "- Statistical significance is not expected to be finely resolved with only three animals per timepoint.", "- The program remains persistent inflammatory-remodeling unless the independent spatial evidence is strong and consistent.", "- No recipient-cell neighborhood or ligand-receptor closure analysis was performed.", "", "NEXT ACTION", if ( final_status %in% c( "PASS", "PASS_WITH_REVIEW" ) ) {
-      paste( "- Review the 12-page independent-zone map PDF and the animal-level", "contrast table. Only if lesion-proximal enrichment is consistent", "should Step 12G test recipient-cell neighborhoods and ligand-receptor", "spatial closure." )
-    } else {
-      "- Resolve the failed zone or replicate checks before continuing."
-    },
-    "", "KEY OUTPUTS:", "- tables/01_step12F_input_and_zone_definition_audit.csv", "- tables/02_spot_independent_lesion_zones_and_scores.csv.gz", "- tables/03_section_zone_score_summary.csv", "- tables/04_section_zone_vs_remote_contrasts.csv", "- tables/05_animal_zone_vs_remote_contrasts.csv", "- tables/06_animal_level_inference_summary.csv", "- tables/07_section_distance_to_core_profiles.csv", "- figures/01_independent_lesion_zone_and_target_validation_maps.pdf", "- figures/02_animal_level_target_zone_contrasts.pdf", "- figures/03_target_score_distance_to_core_profiles.pdf", "- tables/09_STEP12F_audit_checks.csv", "- 10_STEP12F_FINAL_REPORT.txt", "", "LARGE INTERMEDIATE FILES", paste0( "- ", OUT_SPOT_ZONES_RDS ), paste0( "- ", OUT_HANDOFF_RDS ), "", paste0( "TOTAL ELAPSED TIME: ", total_elapsed, " minutes" ), "============================================================"
-  )
-  writeLines( report, OUT_FINAL_REPORT, useBytes = TRUE )
   writeLines( capture.output( sessionInfo() ), SESSION_INFO_FILE, useBytes = TRUE )
-  log_message( "FINAL_STATUS: ", final_status )
-  log_message( "Spots assigned: ", nrow( spot_zones ), "/33,941" )
-  log_message( "Injured sections: ", uniqueN( injured_spots$section_id ), "/24" )
-  log_message( "Animals represented: ", uniqueN( animal_contrasts[ , paste( timepoint, biological_replicate_id, sep = "|" ) ] ), "/6" )
-  log_message( "Open first: ", OUT_FINAL_REPORT )
   write_run_log()
-  cat("\n")
-  cat( "============================================================\n" )
-  cat( "Step 12F completed: ", final_status, "\n", sep = "" )
-  cat( "Spots assigned: ", nrow( spot_zones ), "/33941\n", sep = "" )
-  cat( "Injured sections: ", uniqueN( injured_spots$section_id ), "/24\n", sep = "" )
-  cat( "Independent animals: ", uniqueN( animal_contrasts[ , paste( timepoint, biological_replicate_id, sep = "|" ) ] ), "/6\n", sep = "" )
-  cat( "Open first: ", OUT_FINAL_REPORT, "\n", sep = "" )
-  cat( "============================================================\n" )
   invisible( list( final_status = final_status, spot_zone_RDS = OUT_SPOT_ZONES_RDS, handoff_RDS = OUT_HANDOFF_RDS, primary_animal_results = primary_direction, checks = checks ) )
 }
 tryCatch( main(), error = function(e) {
     write_fatal_report( conditionMessage( e ) )
-    message( "Step 12F stopped: ", conditionMessage( e ) )
   }
 )

@@ -20,16 +20,11 @@ missing_packages <- required_packages[!vapply(required_packages, requireNamespac
 if (length(missing_packages)) stop("Install missing R packages first: ", paste(missing_packages, collapse = ", "))
 required_files <- c(REF_FILE, KEGG_LINKS_FILE, KEGG_NAMES_FILE, SEURAT_FILE, BRANCH_FILE, MASTER_FILE, MODULE_FILE, FROZEN_FILE)
 missing_files <- required_files[!file.exists(required_files)]
-if (length(missing_files)) stop("Required files do not exist:\n", paste(missing_files, collapse = "\n"))
+if (length(missing_files)) stop("Required files exist:\n", paste(missing_files, collapse = "\n"))
 dir.create(TDIR, recursive = TRUE, showWarnings = FALSE)
 dir.create(FDIR, recursive = TRUE, showWarnings = FALSE)
 log_path <- file.path(OUTDIR, "00_run_log.txt")
 writeLines(c(paste0("Started: ", Sys.time()), "Input sources are READ ONLY."), log_path)
-msg <- function(...) {
-  x <- paste(..., collapse = "")
-  cat(x, "\n")
-  cat(x, "\n", file = log_path, append = TRUE)
-}
 write_csv <- function(df, name) {
   path <- file.path(TDIR, name)
   utils::write.csv(df, path, row.names = FALSE, na = "")
@@ -38,7 +33,6 @@ write_csv <- function(df, name) {
 yn <- function(x) as.character(x) %in% c("TRUE", "T", "true", "1")
 score_summary <- function(x) c(median = stats::median(x), q25 = unname(stats::quantile(x, .25)), q75 = unname(stats::quantile(x, .75)), mean = mean(x))
 make_report <- function(lines, file="10_STEP6F_FINAL_REPORT.txt") writeLines(lines, file.path(OUTDIR, file))
-msg("Reading Marsh Supplementary Table 4: ", REF_FILE)
 raw <- as.data.frame(readxl::read_excel(REF_FILE, sheet = 1, col_names = FALSE, .name_repair = "minimal"), stringsAsFactors = FALSE)
 header <- trimws(as.character(unlist(raw[1, , drop = TRUE])))
 expected <- c(identity = "Microglial Identity Score", all_CNS_activation = "All CNS Cells Act. Score", micro_myeloid_activation = "Micro/Myeloid Shared Act. Score")
@@ -58,10 +52,7 @@ stopifnot(length(gene_sets$identity) == 18L, length(gene_sets$all_CNS_activation
 activation_union <- sort(unique(c(gene_sets$all_CNS_activation, gene_sets$micro_myeloid_activation)))
 if (length(activation_union) != 34L) stop("Unexpected Marsh activation union size; expected 34, found ", length(activation_union))
 if (any(gene_sets$identity %in% activation_union)) {
-  msg("NOTE: Some identity-list genes also appear in activation lists; only published activation memberships determine masking.")
 }
-msg("Marsh input: identity=", length(gene_sets$identity), ", all-CNS=", length(gene_sets$all_CNS_activation), ", micro/myeloid=", length(gene_sets$micro_myeloid_activation), ", activation union=", length(activation_union))
-msg("Loading frozen trajectory Seurat and branch definition (read-only) ...")
 obj <- readRDS(SEURAT_FILE)
 if (!inherits(obj, "Seurat")) stop("Expected original trajectory Seurat object")
 if (!"RNA" %in% names(obj@assays)) stop("RNA assay missing")
@@ -115,7 +106,6 @@ coverage <- data.frame(signature=names(set_map), published_n=c(vapply(gene_sets,
 coverage$coverage_fraction <- coverage$detected_n / coverage$published_n
 write_csv(coverage, "01B_Marsh2022_signature_coverage_summary.csv")
 if (any(coverage$coverage_fraction < .60)) stop("Less than 60% published signature gene coverage; check species / feature names before scoring")
-msg("Computing published activation module scores by sample and branch ...")
 for (nm in names(set_map)) {
   md[[paste0("score_", nm)]] <- as.numeric(Matrix::colMeans(logexp[set_map[[nm]], , drop=FALSE]))
 }
@@ -167,7 +157,7 @@ if (!all(c("record_type","gene","in_Arm2_specific") %in% names(frozen))) stop("F
 target_496 <- unique(as.character(frozen$gene[frozen$record_type=="GENE" & yn(frozen$in_Arm2_specific)]))
 target_496 <- target_496[!is.na(target_496) & nzchar(target_496)]
 if (length(target_496) != 496L) {
-  stop("Frozen target signature must have 496 genes; identified ",length(target_496), ". Do not substitute another gene set without verification.")
+  stop("Frozen target signature must have 496 genes; identified ",length(target_496), ". substitute another gene set without verification.")
 }
 key_groups <- list(assayed_DEG_genes=master$gene_id, high_confidence_745=master$gene_id[master$highconf], strict_pseudobulk_343=master$gene_id[master$strict], frozen_target_496=target_496, dynamic_module_genes=unique(modules$gene_id))
 counts_overlap <- do.call(rbind,lapply(names(key_groups),function(name) {
@@ -197,7 +187,6 @@ signature_stats <- do.call(rbind,lapply(c("score_frozen_target_original","score_
   }))
 }))
 write_csv(signature_stats,"10_frozen_target_signature_before_after_mask_by_sample.csv")
-msg("Evaluating cross-sample branch separability before/after activation-gene masking ...")
 variable_genes <- function(mat,cc,n=1500L) {
   v <- mat[,cc,drop=FALSE]
   det <- Matrix::rowSums(v>0)
@@ -273,7 +262,6 @@ write_csv(pca_df,"14_unsupervised_PCA_cell_coordinates.csv")
 p2 <- ggplot2::ggplot(pca_df, ggplot2::aes(x=PC1,y=PC2,color=branch)) + ggplot2::geom_point(alpha=.4,size=.50) + ggplot2::facet_grid(analysis~sample_id,scales="free") + ggplot2::scale_color_manual(values=c(Arm_1="#4B78A8",Arm_2="#C63535")) + ggplot2::labs(title="Recomputed PCA after removal of published activation genes", subtitle="Original branch labels shown; PCA is not a relearned Monocle trajectory") + ggplot2::theme_bw(base_size=11)
 ggplot2::ggsave(file.path(FDIR,"Fig6F_02_masked_vs_unmasked_PCA_by_sample.pdf"),p2,width=10,height=8)
 ggplot2::ggsave(file.path(FDIR,"Fig6F_02_masked_vs_unmasked_PCA_by_sample_review.png"),p2,width=10,height=8,dpi=200)
-msg("Reading offline mouse KEGG annotation files ...")
 read_kegg_two_columns <- function(path, label, min_rows = 100L) {
   if (!file.exists(path)) stop("Missing local KEGG ", label, " file: ", path)
   lines <- readLines(path, n = 5L, warn = FALSE, encoding = "UTF-8")
@@ -330,12 +318,10 @@ term2name <- term2name[term2name$term %in% matched_pathways, , drop = FALSE]
 kegg_genes_available <- unique(term2gene$gene)
 local_ref_audit <- data.frame( metric = c("links_path", "links_bytes", "links_md5", "links_column_order", "links_raw_rows", "names_path", "names_bytes", "names_md5", "names_raw_rows", "TERM2GENE_unique_rows", "KEGG_pathways_with_names", "KEGG_unique_Entrez_genes", "pathway_name_coverage_fraction"), value = as.character(c(KEGG_LINKS_FILE, file.info(KEGG_LINKS_FILE)$size, unname(tools::md5sum(KEGG_LINKS_FILE)), link_order, nrow(kegg_links_raw), KEGG_NAMES_FILE, file.info(KEGG_NAMES_FILE)$size, unname(tools::md5sum(KEGG_NAMES_FILE)), nrow(kegg_names_raw), nrow(term2gene), length(matched_pathways), length(kegg_genes_available), match_fraction)), stringsAsFactors = FALSE)
 write_csv(local_ref_audit, "15B_offline_KEGG_reference_audit.csv")
-msg("Local KEGG ready: ", length(matched_pathways), " pathways, ", length(kegg_genes_available), " Entrez IDs, link order=",link_order)
 for (fn in c("16_new_masked_GO_BP_KEGG_enrichment.csv", "17_significant_masked_GO_BP_KEGG_enrichment.csv", "16_new_masked_GO_BP_KEGG_enrichment_NOT_PERFORMED.csv", "15C_offline_KEGG_gene_mapping_audit.csv")) {
   target <- file.path(TDIR, fn)
   if (file.exists(target)) unlink(target)
 }
-msg("Running masked GO BP and OFFLINE KEGG enrichment ...")
 enrich_pkgs <- c("clusterProfiler", "org.Mm.eg.db", "AnnotationDbi", "dplyr")
 can_enrich <- all(vapply(enrich_pkgs, requireNamespace, logical(1), quietly = TRUE))
 write_csv(data.frame(component = enrich_pkgs, installed = vapply(enrich_pkgs, requireNamespace, logical(1), quietly = TRUE)), "15_functional_enrichment_dependency_audit.csv")
@@ -444,8 +430,7 @@ write_csv(checks,"20_STEP6F_audit_checks.csv")
 input_manifest <- data.frame( file=required_files,bytes=file.info(required_files)$size,md5=unname(tools::md5sum(required_files)))
 write_csv(input_manifest,"00_input_file_manifest.csv")
 writeLines(capture.output(sessionInfo()),file.path(OUTDIR,"00_sessionInfo.txt"))
-report <- c( "GSE162610 | Reviewer 2 Major Comment 2 | Dissociation sensitivity audit", paste("Completed:",Sys.time()), "Marsh source: Supplementary Table 4; exact 3 column headings checked.", sprintf("Marsh identity/all-CNS activation/micro-myeloid activation/union = %d/%d/%d/%d", length(gene_sets$identity),length(gene_sets$all_CNS_activation),length(gene_sets$micro_myeloid_activation),length(activation_union)), paste("Activation union gene coverage:",length(set_map$activation_union),"of",length(activation_union)), paste("Frozen Arm_1 / Arm_2 cells:",length(arm1),"/",length(arm2)), "Published activation submodules scored separately in both 7dpi biological samples.", paste("High-confidence markers retained after mask:",counts_overlap$n_after_mask[counts_overlap$gene_group=="high_confidence_745"]), paste("Strict pseudobulk markers retained after mask:",counts_overlap$n_after_mask[counts_overlap$gene_group=="strict_pseudobulk_343"]), paste("Frozen target genes retained after mask:",length(masked_target)), paste("Technical_like prefix-flag mismatch:",flag_mismatch), "technical_like is a NAME-PREFIX flag, NOT a dissociation score/marker.", paste("Local KEGG file (links):",KEGG_LINKS_FILE), paste("Local KEGG file (names):",KEGG_NAMES_FILE), paste("Local KEGG pathway / Entrez coverage:",length(matched_pathways),"/",length(kegg_genes_available)), paste("GO BP comparisons completed:",n_go_success,"of",expected_combinations), paste("Offline KEGG comparisons completed:",n_kegg_success,"of",expected_combinations), "GO/KEGG audit: 09_functional_enrichment_status.txt; tables/15D_functional_enrichment_run_status.csv.", paste("Regulon assessment:",reg_status), "Cross-sample centroid analysis uses original branch labels and TRAINING-SAMPLE feature selection.", "Unsupervised PCA is rebuilt after masking; neither method re-learns Monocle trajectory topology.", "Gene-masked DEG sensitivity retains precomputed estimates; Wilcoxon/edgeR models are NOT refitted.", "No individual cells are considered independent biological replicates.", "No causal or independent validation claim is made.", "KEY OUTPUTS:", "  10_STEP6F_FINAL_REPORT.txt", "  tables/01B_Marsh2022_signature_coverage_summary.csv", "  tables/05_paired_sample_activation_score_effects.csv", "  tables/06_Marsh_activation_gene_overlap_with_core_evidence.csv", "  tables/08_frozen_target_496_gene_mask.csv", "  tables/10_frozen_target_signature_before_after_mask_by_sample.csv", "  tables/12_cross_sample_heldout_branch_separability.csv", "  tables/13_unsupervised_PCA_branch_centroid_separation.csv", "  tables/18_key_inflammatory_stress_axis_genes_mask_status.csv", "  tables/19_descriptive_masked_regulon_target_edge_support.csv (if present)", "  tables/20_STEP6F_audit_checks.csv", "  09_functional_enrichment_status.txt", "  tables/15B_offline_KEGG_reference_audit.csv", "  tables/15C_offline_KEGG_gene_mapping_audit.csv (if present)", "  tables/15D_functional_enrichment_run_status.csv", "  tables/16_new_masked_GO_BP_KEGG_enrichment.csv (if present)", "  figures/Fig6F_01_Marsh_activation_scores_by_sample_review.png", "  figures/Fig6F_02_masked_vs_unmasked_PCA_by_sample_review.png" )
-make_report(report)
+invisible(NULL)
 review_rel <- c( "10_STEP6F_FINAL_REPORT.txt", "09_functional_enrichment_status.txt", "tables/15B_offline_KEGG_reference_audit.csv", "tables/15C_offline_KEGG_gene_mapping_audit.csv", "tables/15D_functional_enrichment_run_status.csv", "tables/01B_Marsh2022_signature_coverage_summary.csv", "tables/04_activation_score_sample_by_branch_summary.csv", "tables/05_paired_sample_activation_score_effects.csv", "tables/06_Marsh_activation_gene_overlap_with_core_evidence.csv", "tables/07_original_technical_like_flag_and_Marsh_gene_audit.csv", "tables/08_frozen_target_496_gene_mask.csv", "tables/10_frozen_target_signature_before_after_mask_by_sample.csv", "tables/12_cross_sample_heldout_branch_separability.csv", "tables/13_unsupervised_PCA_branch_centroid_separation.csv", "tables/18_key_inflammatory_stress_axis_genes_mask_status.csv", "tables/19_descriptive_masked_regulon_target_edge_support.csv", "tables/20_STEP6F_audit_checks.csv", "tables/16_new_masked_GO_BP_KEGG_enrichment.csv", "tables/17_significant_masked_GO_BP_KEGG_enrichment.csv", "figures/Fig6F_01_Marsh_activation_scores_by_sample_review.png", "figures/Fig6F_02_masked_vs_unmasked_PCA_by_sample_review.png" )
 review_rel <- review_rel[file.exists(file.path(OUTDIR,review_rel))]
 if (requireNamespace("zip",quietly=TRUE)) {
@@ -458,10 +443,7 @@ if (requireNamespace("zip",quietly=TRUE)) {
       unlink(review_zip)
       stop("Review ZIP exceeded 512 MiB; use the listed small results instead")
     }
-    msg("Output archive: ",review_zip," (",round(file.info(review_zip)$size/1024^2,2)," MiB)")
   },error=function(e) msg("Review ZIP optional packaging failed: ",conditionMessage(e),
                           ". Use the files listed in the results directory."))
 } else {
-  msg("Optional package 'zip' is absent; results are complete. Use the files listed in the final report.")
 }
-msg("SUCCESS: ",file.path(OUTDIR,"10_STEP6F_FINAL_REPORT.txt"))

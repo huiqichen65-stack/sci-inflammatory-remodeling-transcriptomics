@@ -34,11 +34,6 @@ if (!file.exists(step2A_rds)) {
 if (!file.exists(step1F_rds)) {
   stop("找不到 Step 1F RDS：\n", step1F_rds)
 }
-message("====================================================")
-message("GSE162610 Step 2B | lineage adjudication")
-message("====================================================")
-message("Reading Step 2A object:")
-message(step2A_rds)
 obj <- readRDS(step2A_rds)
 if (!inherits(obj, "Seurat")) {
   stop("Step 2A RDS 不是 Seurat 对象。")
@@ -51,8 +46,6 @@ if (!"myeloid_cluster_r04" %in% meta_names) {
 }
 obj$myeloid_cluster_r04 <- as.character(obj$myeloid_cluster_r04)
 Idents(obj) <- "myeloid_cluster_r04"
-message("Input cells: ", ncol(obj))
-message("Resolution 0.4 clusters:")
 print(table(obj$myeloid_cluster_r04))
 expected_clusters <- as.character(0:11)
 observed_clusters <- sort(unique(as.character(obj$myeloid_cluster_r04)))
@@ -77,8 +70,6 @@ if (!is.finite(best_match) || best_match < 0.95) {
   stop( "无法可靠识别 Step 2A 的 resolution 0.4 cluster 列。\n", "Best candidate: ", best_r04_col, " | agreement = ", round(best_match, 4) )
 }
 cluster_prefix <- sub("0\\.4$", "", best_r04_col)
-message("Step 2A clustering prefix detected: ", cluster_prefix)
-message("Agreement with myeloid_cluster_r04: ", round(best_match, 4))
 find_resolution_col <- function(resolution_value) {
   candidates <- meta_names[startsWith(meta_names, cluster_prefix)]
   suffix <- sub(cluster_prefix, "", candidates, fixed = TRUE)
@@ -102,7 +93,6 @@ cluster_number_tbl <- data.frame( resolution = intended_resolutions, n_clusters 
 write.csv( cluster_number_tbl, file.path(tab_dir, "01_corrected_cluster_number_by_resolution.csv"), row.names = FALSE )
 p_tree <- clustree( tree_meta, prefix = "step2B_res." )
 ggsave( file.path( fig_dir, "01_corrected_myeloid_clustree_Step2A_resolutions_only.pdf" ), p_tree, width = 11, height = 8 )
-message("Attempting to recover original_V30 / V30 author annotation...")
 target_cells <- colnames(obj)
 author_col <- "NOT_FOUND"
 author_source_file <- "NOT_FOUND"
@@ -204,14 +194,12 @@ recover_author_from_df <- function( df, source_file, source_type, target_cells, 
 }
 safe_read_csv <- function(path) {
   tryCatch( read.csv( path, stringsAsFactors = FALSE, check.names = FALSE ), error = function(e) {
-      message( "Could not read CSV: ", path, " | ", e$message )
       NULL
     }
   )
 }
 safe_read_tsv_gz <- function(path) {
   tryCatch( read.delim( gzfile(path), header = TRUE, stringsAsFactors = FALSE, check.names = FALSE ), error = function(e) {
-      message( "Could not read TSV.GZ with header: ", e$message )
       NULL
     }
   )
@@ -224,13 +212,11 @@ if (file.exists(raw_barcode_file)) {
       as.character(x[[1]])
     },
     error = function(e) {
-      message( "Could not read GEO barcode file: ", e$message )
       NULL
     }
   )
 }
 recovery_attempts <- list()
-message("[V30 recovery A] Step 1F RDS")
 obj1F <- tryCatch( readRDS(step1F_rds), error = function(e) NULL )
 if (!is.null(obj1F) && inherits(obj1F, "Seurat")) {
   meta1F <- obj1F[[]]
@@ -249,7 +235,6 @@ for (ii in seq_along(step0_candidate_files)) {
     recovery_attempts[[paste0("Step0_", ii)]] <- list( success = FALSE, reason = "file_not_found", source_file = ff )
     next
   }
-  message( "[V30 recovery Step0] ", ff )
   df_tmp <- safe_read_csv(ff)
   if (is.null(df_tmp)) {
     recovery_attempts[[paste0("Step0_", ii)]] <- list( success = FALSE, reason = "read_failed", source_file = ff )
@@ -262,7 +247,6 @@ for (ii in seq_along(step0_candidate_files)) {
 }
 raw_meta_file <- file.path( project_dir, "01_raw_data", "GSE162610", "GSE162610_barcode_metadata.tsv.gz" )
 if (file.exists(raw_meta_file)) {
-  message( "[V30 recovery GEO raw] ", raw_meta_file )
   raw_meta <- safe_read_tsv_gz( raw_meta_file )
   if (!is.null(raw_meta)) {
     result_E <- recover_author_from_df( df = raw_meta, source_file = raw_meta_file, source_type = "GEO_raw_barcode_metadata", target_cells = target_cells, external_barcodes = geo_barcodes )
@@ -291,14 +275,6 @@ if (length(success_idx) > 0) {
   author_source_file <- best_result$source_file
   author_source_type <- best_result$source_type
   author_match_method <- best_result$match_method
-  message("----------------------------------------------------")
-  message("original_V30 recovery SUCCESS")
-  message("Source type: ", author_source_type)
-  message("Source file: ", author_source_file)
-  message("Annotation column: ", author_col)
-  message("Cell matching: ", author_match_method)
-  message( "Recovered non-NA: ", best_result$recovered_nonNA, " / ", length(target_cells) )
-  message("----------------------------------------------------")
 } else {
   warning( paste0( "original_V30 could not be recovered from Step1F, Step0, or raw GEO metadata.\n", "Step 2B will CONTINUE with marker + AUCell + ssGSEA + broad-origin evidence.\n", "Author annotation cross-check will be recorded as unavailable." ) )
 }
@@ -326,7 +302,6 @@ if (coverage_n > 0) {
     dev.off()
   }
 } else {
-  message( "original_V30 unavailable: ", "author annotation heatmap skipped." )
 }
 gc()
 gene_sets <- list( Resident_microglia = c( "P2ry12", "Tmem119", "Sall1", "Fcrls", "Hexb", "Cx3cr1", "Siglech", "Gpr34", "P2ry13" ), Infiltrating_mono_macro = c( "Ccr2", "Ly6c2", "Ms4a7", "Fn1", "Fcgr1", "S100a8", "S100a9", "Chil3", "Clec4n", "F13a1", "Arg1" ), BAM_like = c( "Lyve1", "Cd163", "Mrc1", "Mgl2", "Clec10a", "Pf4" ), Cycling_S = c( "Ccne2", "Hells", "Uhrf1", "Dtl", "Chek1", "Rad51", "Mcm10", "Mcm5", "Cdc6", "Mcm2" ), Cycling_G2M = c( "Mki67", "Top2a", "Ube2c", "Birc5", "Cenpf", "Ccna2", "Aurkb" ), IFN_response = c( "Ifit1", "Ifit2", "Ifit3", "Isg15", "Mx1", "Rsad2", "Usp18", "Oasl1" ), MHCII_APC = c( "H2-Aa", "H2-Ab1", "H2-Eb1", "Cd74", "Itgax" ) )
@@ -346,8 +321,6 @@ dot_features <- unique(c( gene_sets_use$Resident_microglia, gene_sets_use$Infilt
 Idents(obj) <- "myeloid_cluster_r04"
 p_dot <- DotPlot( obj, features = dot_features, group.by = "myeloid_cluster_r04", assay = "RNA" ) + RotatedAxis() + ggtitle( "Step 2B lineage adjudication | resident vs infiltrating vs BAM vs cycling" )
 ggsave( file.path( fig_dir, "03_expanded_lineage_marker_DotPlot.pdf" ), p_dot, width = 19, height = 7 )
-message("Starting AUCell per-cell scoring...")
-message("This step keeps the RNA matrix sparse; do NOT convert to dense matrix.")
 get_rna_matrix <- function(seurat_obj) {
   x <- tryCatch( GetAssayData( seurat_obj, assay = "RNA", layer = "counts" ), error = function(e) NULL )
   if (is.null(x)) {
@@ -367,11 +340,9 @@ if (!inherits(expr_auc, "dgCMatrix")) {
 }
 keep_gene_auc <- Matrix::rowSums(expr_auc) > 0
 expr_auc <- expr_auc[keep_gene_auc, , drop = FALSE]
-message( "AUCell sparse matrix: ", nrow(expr_auc), " genes × ", ncol(expr_auc), " cells" )
 cells_rankings <- AUCell_buildRankings( expr_auc, plotStats = FALSE, nCores = 1, verbose = TRUE )
 auc_max_rank <- max( 50, ceiling(0.05 * nrow(expr_auc)) )
 cells_AUC <- tryCatch( AUCell_calcAUC( gene_sets_use, cells_rankings, aucMaxRank = auc_max_rank, nCores = 1 ), error = function(e1) {
-    message("AUCell_calcAUC with nCores failed: ", e1$message)
     AUCell_calcAUC( gene_sets_use, cells_rankings, aucMaxRank = auc_max_rank )
   }
 )
@@ -429,14 +400,12 @@ focus_long <- build_long_auc( plot_meta, lineage_auc_features, "myeloid_cluster_
 focus_long$cluster <- factor( focus_long$cluster, levels = focus_clusters )
 p_focus <- ggplot( focus_long, aes(x = cluster, y = AUC) ) + geom_violin( scale = "width", trim = TRUE ) + geom_boxplot( width = 0.15, outlier.shape = NA ) + facet_wrap( ~ signature, scales = "free_y", ncol = 3 ) + theme_bw() + labs( title = "Focused AUCell adjudication of cluster 4 and cluster 8", x = "myeloid cluster", y = "AUCell AUC" )
 ggsave( file.path( fig_dir, "06_cluster4_8_AUCell_violin.pdf" ), p_focus, width = 13, height = 5 )
-message("Starting cluster-average ssGSEA...")
 avg_expr <- AverageExpression( obj, assays = "RNA", group.by = "myeloid_cluster_r04", layer = "data", verbose = FALSE )[["RNA"]]
 avg_expr <- as.matrix(avg_expr)
 run_ssgsea_compat <- function(expr_matrix, gene_sets_list) {
   ns_exports <- getNamespaceExports("GSVA")
   if (any(ns_exports == "ssgseaParam")) {
     param <- tryCatch( GSVA::ssgseaParam( exprData = expr_matrix, geneSets = gene_sets_list, minSize = 2, maxSize = Inf ), error = function(e1) {
-        message("ssgseaParam named-argument call failed: ", e1$message)
         GSVA::ssgseaParam( expr_matrix, gene_sets_list, minSize = 2, maxSize = Inf )
       }
     )
@@ -494,65 +463,10 @@ step2B_rds <- file.path( out_dir, "GSE162610_step2B_lineage_adjudication.rds" )
 saveRDS( obj, step2B_rds )
 report_file <- file.path( out_dir, "09_STEP2B_lineage_adjudication_report.txt" )
 sink(report_file)
-cat("GSE162610 Step 2B | lineage adjudication\n")
-cat("====================================================\n\n")
-cat("Project directory:\n")
-cat(project_dir, "\n\n")
-cat("Input Step 2A RDS:\n")
-cat(step2A_rds, "\n\n")
-cat("Original annotation recovery source:\n")
-cat(author_source_file, "\n\n")
-cat("Input cells: ", ncol(obj), "\n", sep = "")
-cat("\nResolution 0.4 cluster counts:\n")
 print(table(obj$myeloid_cluster_r04))
-cat("\nCorrected clustree resolutions:\n")
 print(cluster_number_tbl)
-cat("\nStep 2A clustering prefix:\n")
-cat(cluster_prefix, "\n")
-cat("\nRecovered original annotation column:\n")
-cat(author_col, "\n")
-cat("Recovery source type: ", author_source_type, "\n", sep = "")
-cat("Cell match method: ", author_match_method, "\n", sep = "")
-cat("\noriginal_V30 recovery:\n")
 print(author_recovery_summary)
-cat("\nAUCell matrix:\n")
-cat( nrow(expr_auc), " genes x ", ncol(expr_auc), " cells\n", sep = "" )
-cat("AUCell aucMaxRank: ", auc_max_rank, "\n", sep = "")
-cat("\nGene set availability:\n")
 print(gene_set_availability)
-cat("\nCluster 4 / 8 adjudication evidence:\n")
 print(evidence_tbl)
-cat("\nStep 2A provisional lineage framework:\n")
 print(provisional_lineage)
-cat("\nIMPORTANT INTERPRETATION RULES\n")
-cat("----------------------------------------\n")
-cat("1. Step 2B is still lineage purification only.\n")
-cat("2. Do NOT call any cluster DAM in this step.\n")
-cat("3. Do NOT call any cluster repair/scar in this step.\n")
-cat("4. Cluster 4 and cluster 8 must be reviewed using:\n")
-cat(" marker pattern + AUCell + ssGSEA + broad origin + original_V30 + real time/sample distribution.\n")
-cat("5. AUCell scores from gene sets of different sizes should not be compared as raw numbers alone.\n")
-cat(" Use the cluster-level Z-score heatmap and within-signature comparisons.\n")
-cat("6. This script does NOT create GSE162610_microglia_clean.rds.\n")
-cat(" Final clean extraction should be done only after Step 2B review.\n")
-cat("\nSaved enriched Step 2B object:\n")
-cat(step2B_rds, "\n")
-cat("\nSTEP 2B COMPLETE = TRUE\n")
 sink()
-message("====================================================")
-message("STEP 2B COMPLETE")
-message("Results:")
-message(out_dir)
-message("")
-message("Key outputs:")
-message("1) figures/01_corrected_myeloid_clustree_Step2A_resolutions_only.pdf")
-message("2) figures/03_expanded_lineage_marker_DotPlot.pdf")
-message("3) figures/04_AUCell_cluster_signature_heatmap.pdf")
-message("4) figures/06_cluster4_8_AUCell_violin.pdf")
-message("5) figures/07_pseudobulk_ssGSEA_signature_heatmap.pdf")
-message("6) tables/07_cluster4_8_adjudication_evidence.csv")
-message("7) 09_STEP2B_lineage_adjudication_report.txt")
-message("")
-message("本步不生成 final clean microglia RDS；")
-message("Step 2B status: complete")
-message("====================================================")

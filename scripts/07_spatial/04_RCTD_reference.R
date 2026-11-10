@@ -55,11 +55,6 @@ suppressPackageStartupMessages({
   library(spacexr)
 })
 log_lines <- character()
-log_message <- function(...) {
-  line <- paste0( "[", format(Sys.time(), "%Y-%m-%d %H:%M:%S"), "] ", paste0(...) )
-  cat(line, "\n")
-  log_lines <<- c(log_lines, line)
-}
 write_log <- function() {
   writeLines(log_lines, RUN_LOG, useBytes = TRUE)
 }
@@ -182,20 +177,14 @@ add_review <- function( check_id, category, description, observed, required, act
   checks <<- rbind( checks, data.table( check_id = as.character(check_id), category = as.character(category), description = as.character(description), status = "REVIEW", observed = as.character(observed), required = as.character(required), critical = FALSE, action_if_not_pass = as.character(action_if_not_pass) ), fill = TRUE )
 }
 write_fatal_report <- function(reason) {
-  report <- c( "============================================================", "GSE234774 Step 12C snRNA reference / RCTD input audit", "============================================================", paste0("Generated: ", format(Sys.time(), "%Y-%m-%d %H:%M:%S")), paste0("Output directory: ", OUTPUT_DIR), "", "FINAL_STATUS: STOP", "", "FATAL ERROR", paste0("- ", reason), "", "BOUNDARIES", "- No create.RCTD() or run.RCTD() was run.", "- No spatial spot was removed.", "- No target-program score was calculated.", "", "NEXT ACTION", "- review this report and 00_run_log.txt.", "- Do not proceed to Step 12D.", "============================================================" )
-  writeLines(report, OUT_REPORT, useBytes = TRUE)
-  log_message("FATAL ERROR: ", reason)
   write_log()
 }
 main <- function() {
   start_time <- Sys.time()
-  log_message("============================================================")
-  log_message("GSE234774 Step 12C started.")
-  log_message("============================================================")
   required_inputs <- c( step10D_object = STEP10D_OBJECT, step10G_object = STEP10G_OBJECT, step10G_report = STEP10G_REPORT, step12B_report = STEP12B_REPORT, step12B_spot_QC = STEP12B_SPOT_QC, step12B_capture_audit = STEP12B_CAPTURE_AUDIT, step12A2_asset_manifest = STEP12A2_ASSET_MANIFEST )
   input_exists <- file.exists(required_inputs)
   spatial_cache_exists <- dir.exists(SPATIAL_BPCELLS_DIR)
-  add_check( "C01", "input", "All required frozen inputs and the spatial BPCells cache exist.", all(input_exists) && spatial_cache_exists, paste0( paste( paste0(names(required_inputs), "=", input_exists), collapse = "; " ), "; spatial_BPCells=", spatial_cache_exists ), "All inputs TRUE", TRUE, "Restore frozen outputs; do not silently substitute files." )
+  add_check( "C01", "input", "All required frozen inputs and the spatial BPCells cache exist.", all(input_exists) && spatial_cache_exists, paste0( paste( paste0(names(required_inputs), "=", input_exists), collapse = "; " ), "; spatial_BPCells=", spatial_cache_exists ), "All inputs TRUE", TRUE, "Restore frozen outputs; silently substitute files." )
   if (!all(input_exists) || !spatial_cache_exists) {
     stop("At least one required Step 12C input is missing.", call. = FALSE)
   }
@@ -207,7 +196,7 @@ main <- function() {
     } else {
       "No status line"
     },
-    "PASS or PASS_WITH_REVIEW", TRUE, "Do not prepare RCTD inputs until Step 12B passes."
+    "PASS or PASS_WITH_REVIEW", TRUE, "prepare RCTD inputs until Step 12B passes."
   )
   if (!step12B_pass) {
     stop("Step 12B-FAST does not release Step 12C.", call. = FALSE)
@@ -220,7 +209,7 @@ main <- function() {
     } else {
       "No decision line"
     },
-    "A Step 10G PASS decision", TRUE, "Do not backfill provisional myeloid labels."
+    "A Step 10G PASS decision", TRUE, "backfill provisional myeloid labels."
   )
   if (!step10G_pass) {
     stop("Step 10G does not release its annotations.", call. = FALSE)
@@ -233,15 +222,14 @@ main <- function() {
   required_columns( asset_manifest, c( "capture_area_id", "position_member", "image_lowres_member", "scalefactor_member" ), "Step 12A2 asset manifest" )
   spot_qc[, qc_review_flag := as_logical_strict( qc_review_flag, "qc_review_flag" )]
   all_spot_rule_ok <- nrow(spot_qc) == EXPECTED_SPATIAL_SPOTS && !anyDuplicated(spot_qc$barcode) && uniqueN(spot_qc$capture_area_id) == EXPECTED_CAPTURE_AREAS && uniqueN(spot_qc$section_id) == EXPECTED_SECTIONS
-  add_check( "C04", "spatial_rule", "The frozen primary spatial query retains all 33,941 spots.", all_spot_rule_ok, paste0( "spots=", nrow(spot_qc), "; capture areas=", uniqueN(spot_qc$capture_area_id), "; sections=", uniqueN(spot_qc$section_id), "; retained review spots=", sum(spot_qc$qc_review_flag) ), "33,941 unique spots, 12 capture areas, 36 sections", TRUE, "Do not silently remove the five conservative review spots." )
+  add_check( "C04", "spatial_rule", "The frozen primary spatial query retains all 33,941 spots.", all_spot_rule_ok, paste0( "spots=", nrow(spot_qc), "; capture areas=", uniqueN(spot_qc$capture_area_id), "; sections=", uniqueN(spot_qc$section_id), "; retained review spots=", sum(spot_qc$qc_review_flag) ), "33,941 unique spots, 12 capture areas, 36 sections", TRUE, "silently remove the five conservative review spots." )
   if (!all_spot_rule_ok) {
     stop("The frozen all-spot rule was not reproduced.", call. = FALSE)
   }
-  log_message("[1/6] Loading Step 10D and Step 10G frozen objects.")
   atlas <- readRDS(STEP10D_OBJECT)
   myeloid <- readRDS(STEP10G_OBJECT)
   object_check <- object_valid(atlas) && object_valid(myeloid) && ncol(atlas) == EXPECTED_ATLAS_NUCLEI && ncol(myeloid) == EXPECTED_MYELOID_NUCLEI
-  add_check( "C05", "snRNA_object", "Step 10D and Step 10G objects reload with expected nucleus counts.", object_check, paste0( "atlas=", nrow(atlas), " x ", ncol(atlas), "; myeloid=", nrow(myeloid), " x ", ncol(myeloid) ), paste0( "atlas nuclei=", EXPECTED_ATLAS_NUCLEI, "; myeloid nuclei=", EXPECTED_MYELOID_NUCLEI ), TRUE, "Do not rebuild or reinterpret mismatched frozen objects." )
+  add_check( "C05", "snRNA_object", "Step 10D and Step 10G objects reload with expected nucleus counts.", object_check, paste0( "atlas=", nrow(atlas), " x ", ncol(atlas), "; myeloid=", nrow(myeloid), " x ", ncol(myeloid) ), paste0( "atlas nuclei=", EXPECTED_ATLAS_NUCLEI, "; myeloid nuclei=", EXPECTED_MYELOID_NUCLEI ), TRUE, "rebuild or reinterpret mismatched frozen objects." )
   if (!object_check) {
     stop("Frozen snRNA object check failed.", call. = FALSE)
   }
@@ -252,11 +240,10 @@ main <- function() {
   counts_layer <- single_counts_layer( atlas, "Step 10D atlas" )
   atlas_counts <- SeuratObject::LayerData( object = atlas, assay = "RNA", layer = counts_layer, fast = FALSE )
   counts_aligned <- identical(colnames(atlas_counts), colnames(atlas)) && identical(rownames(atlas_counts), rownames(atlas))
-  add_check( "C06", "snRNA_counts", "Step 10D counts are aligned to the atlas object.", counts_aligned, paste0( "layer=", counts_layer, "; dimensions=", nrow(atlas_counts), " x ", ncol(atlas_counts), "; class=", paste(class(atlas_counts), collapse = " | ") ), "Exact feature and nucleus order", TRUE, "Do not materialize a misaligned reference." )
+  add_check( "C06", "snRNA_counts", "Step 10D counts are aligned to the atlas object.", counts_aligned, paste0( "layer=", counts_layer, "; dimensions=", nrow(atlas_counts), " x ", ncol(atlas_counts), "; class=", paste(class(atlas_counts), collapse = " | ") ), "Exact feature and nucleus order", TRUE, "materialize a misaligned reference." )
   if (!counts_aligned) {
     stop("Step 10D counts are not aligned.", call. = FALSE)
   }
-  log_message("[2/6] Building broad RCTD labels.")
   atlas_meta <- atlas@meta.data
   atlas_meta$atlas_nucleus <- rownames(atlas_meta)
   major_map <- c( "Oligodendrocyte" = "Oligodendrocyte", "Neuron" = "Neuron", "Resident_microglia" = "Microglia", "Fibroblast" = "Fibroblast_VLMC", "Astrocyte" = "Astrocyte", "OPC" = "OPC", "Endothelial" = "Endothelial", "Ependymal" = "Ependymal", "NK_cell" = "NK_cell", "Pericyte" = "Pericyte" )
@@ -310,9 +297,8 @@ main <- function() {
   setorder(label_mapping, source_layer, source_label)
   ambiguous_n <- sum( grepl( "AMBIG|LOW", as.character( atlas_meta$major_lineage_candidate_confidence ), ignore.case = TRUE ) )
   if (ambiguous_n > 0L) {
-    add_review( "R01", "annotation", "Some Step 10D nuclei have ambiguous/low-confidence broad-lineage evidence.", paste0("nuclei=", ambiguous_n), "Use only broad lineage interpretation.", "Do not turn these labels into new fine biological claims." )
+    add_review( "R01", "annotation", "Some Step 10D nuclei have ambiguous/low-confidence broad-lineage evidence.", paste0("nuclei=", ambiguous_n), "Use only broad lineage interpretation.", "turn these labels into new fine biological claims." )
   }
-  log_message("[3/6] Balancing and sampling the reference.")
   eligible_meta <- atlas_meta[ atlas_meta$rctd_reference_eligible, , drop = FALSE ]
   rownames(eligible_meta) <- eligible_meta$atlas_nucleus
   cell_types <- sort(unique(eligible_meta$rctd_cell_type))
@@ -323,7 +309,7 @@ main <- function() {
     } else {
       paste( paste0( small_types, "=", eligible_counts[small_types] ), collapse = " | " )
     },
-    paste0( "At least ", MIN_NUCLEI_PER_RCTD_TYPE, " nuclei/type" ), TRUE, "Do not run RCTD with an unsupported rare type."
+    paste0( "At least ", MIN_NUCLEI_PER_RCTD_TYPE, " nuclei/type" ), TRUE, "run RCTD with an unsupported rare type."
   )
   if (length(small_types) > 0L) {
     stop("A reference type has fewer than 25 nuclei.", call. = FALSE)
@@ -346,15 +332,14 @@ main <- function() {
     )
   )
   sampling_ok <- all(sampling_summary$minimum_cell_rule_pass) && all(sampling_summary$maximum_cell_cap_pass) && sum(sampling_summary$sampled_nuclei) == length(sampled_cells)
-  add_check( "C10", "reference_sampling", "The sampled reference obeys the minimum and per-type cap.", sampling_ok, paste0( "types=", nrow(sampling_summary), "; sampled nuclei=", length(sampled_cells), "; min/type=", min(sampling_summary$sampled_nuclei), "; max/type=", max(sampling_summary$sampled_nuclei) ), paste0( MIN_NUCLEI_PER_RCTD_TYPE, "-", MAX_NUCLEI_PER_RCTD_TYPE, " nuclei/type" ), TRUE, "Do not build an undersized or unbounded reference." )
+  add_check( "C10", "reference_sampling", "The sampled reference obeys the minimum and per-type cap.", sampling_ok, paste0( "types=", nrow(sampling_summary), "; sampled nuclei=", length(sampled_cells), "; min/type=", min(sampling_summary$sampled_nuclei), "; max/type=", max(sampling_summary$sampled_nuclei) ), paste0( MIN_NUCLEI_PER_RCTD_TYPE, "-", MAX_NUCLEI_PER_RCTD_TYPE, " nuclei/type" ), TRUE, "build an undersized or unbounded reference." )
   if (!sampling_ok) {
     stop("Reference sampling check failed.", call. = FALSE)
   }
   low_library_types <- sampling_summary[ sampled_libraries < 2L, rctd_cell_type ]
   if (length(low_library_types) > 0L) {
-    add_review( "R02", "reference_sampling", "Some sampled broad types use fewer than two biological libraries.", paste(low_library_types, collapse = " | "), "Report limited reference diversity.", "Do not invent replicate labels." )
+    add_review( "R02", "reference_sampling", "Some sampled broad types use fewer than two biological libraries.", paste(low_library_types, collapse = " | "), "Report limited reference diversity.", "invent replicate labels." )
   }
-  log_message("[4/6] Auditing snRNA-spatial gene overlap.")
   spatial_counts <- BPCells::open_matrix_dir( SPATIAL_BPCELLS_DIR )
   if ( ncol(spatial_counts) != EXPECTED_SPATIAL_SPOTS || nrow(spatial_counts) <= 0L ) {
     stop("Spatial BPCells dimensions are unexpected.", call. = FALSE)
@@ -368,12 +353,11 @@ main <- function() {
   overlap_reference <- length(common_genes) / length(reference_genes)
   overlap_spatial <- length(common_genes) / length(spatial_genes)
   overlap_ok <- length(common_genes) >= MIN_COMMON_GENES && overlap_reference >= MIN_REFERENCE_OVERLAP_FRACTION && overlap_spatial >= MIN_SPATIAL_OVERLAP_FRACTION
-  add_check( "C11", "gene_overlap", "The snRNA and spatial matrices have sufficient exact shared genes.", overlap_ok, paste0( "common=", length(common_genes), "; reference fraction=", round(overlap_reference, 4), "; spatial fraction=", round(overlap_spatial, 4) ), paste0( ">=", MIN_COMMON_GENES, " genes and both fractions >=0.80" ), TRUE, "Do not run RCTD across mismatched identifiers." )
+  add_check( "C11", "gene_overlap", "The snRNA and spatial matrices have sufficient exact shared genes.", overlap_ok, paste0( "common=", length(common_genes), "; reference fraction=", round(overlap_reference, 4), "; spatial fraction=", round(overlap_spatial, 4) ), paste0( ">=", MIN_COMMON_GENES, " genes and both fractions >=0.80" ), TRUE, "run RCTD across mismatched identifiers." )
   if (!overlap_ok) {
     stop("Reference-spatial gene overlap is insufficient.", call. = FALSE)
   }
   gene_overlap <- data.table( metric = c( "reference_genes", "spatial_genes", "common_genes", "common_fraction_of_reference", "common_fraction_of_spatial", "reference_only_genes", "spatial_only_genes", "reference_only_examples", "spatial_only_examples" ), value = c( length(reference_genes), length(spatial_genes), length(common_genes), overlap_reference, overlap_spatial, length(setdiff(reference_genes, spatial_genes)), length(setdiff(spatial_genes, reference_genes)), collapse_unique( head(setdiff(reference_genes, spatial_genes), 30L) ), collapse_unique( head(setdiff(spatial_genes, reference_genes), 30L) ) ), interpretation = c( "Step 10D RNA count features", "Step 12B spatial BPCells features", "Exact overlap passed to RCTD", "Shared fraction of reference", "Shared fraction of spatial", "Not used in Reference", "Unavailable in reference", "Examples only", "Examples only" ) )
-  log_message("[5/6] Materializing sampled reference counts.")
   gene_index <- match(common_genes, reference_genes)
   cell_index <- match(sampled_cells, colnames(atlas_counts))
   if (anyNA(gene_index) || anyNA(cell_index)) {
@@ -396,7 +380,7 @@ main <- function() {
   reference_labels <- factor( sampled_meta[ colnames(reference_counts), "rctd_cell_type" ], levels = sort(unique(sampled_meta$rctd_cell_type)) )
   names(reference_labels) <- colnames(reference_counts)
   reference_input_ok <- nrow(reference_counts) >= MIN_COMMON_GENES && ncol(reference_counts) == length(reference_labels) && ncol(reference_counts) == length(reference_nUMI) && identical(names(reference_labels), colnames(reference_counts)) && identical(names(reference_nUMI), colnames(reference_counts))
-  add_check( "C12", "reference_matrix", "Reference counts, cell-type labels, and nUMI are exactly aligned.", reference_input_ok, paste0( "genes=", nrow(reference_counts), "; nuclei=", ncol(reference_counts), "; cell types=", nlevels(reference_labels), "; nonzero=", length(reference_counts@x) ), "Exact column alignment and >=10,000 genes", TRUE, "Do not construct a misaligned spacexr Reference." )
+  add_check( "C12", "reference_matrix", "Reference counts, cell-type labels, and nUMI are exactly aligned.", reference_input_ok, paste0( "genes=", nrow(reference_counts), "; nuclei=", ncol(reference_counts), "; cell types=", nlevels(reference_labels), "; nonzero=", length(reference_counts@x) ), "Exact column alignment and >=10,000 genes", TRUE, "construct a misaligned spacexr Reference." )
   if (!reference_input_ok) {
     stop("Reference input alignment failed.", call. = FALSE)
   }
@@ -407,11 +391,10 @@ main <- function() {
   saveRDS( rctd_reference, OUT_REFERENCE_RDS, compress = FALSE )
   saveRDS( sampled_meta_save, OUT_REFERENCE_METADATA_RDS, compress = FALSE )
   reference_saved <- file.exists(OUT_REFERENCE_RDS) && file_size_safe(OUT_REFERENCE_RDS) > 0 && file.exists(OUT_REFERENCE_METADATA_RDS) && file_size_safe(OUT_REFERENCE_METADATA_RDS) > 0
-  add_check( "C13", "reference_output", "The spacexr Reference and sampled metadata were saved.", reference_saved, paste0( "reference bytes=", file_size_safe(OUT_REFERENCE_RDS), "; metadata bytes=", file_size_safe(OUT_REFERENCE_METADATA_RDS) ), "Both nonempty", TRUE, "Do not proceed to Step 12D without a saved Reference." )
+  add_check( "C13", "reference_output", "The spacexr Reference and sampled metadata were saved.", reference_saved, paste0( "reference bytes=", file_size_safe(OUT_REFERENCE_RDS), "; metadata bytes=", file_size_safe(OUT_REFERENCE_METADATA_RDS) ), "Both nonempty", TRUE, "proceed to Step 12D without a saved Reference." )
   if (!reference_saved) {
     stop("Reference outputs could not be saved.", call. = FALSE)
   }
-  log_message("[6/6] Auditing 12 future full-mode RCTD queries.")
   capture_audit[ , capture_area_id := toupper( trimws(as.character(capture_area_id)) ) ]
   capture_audit[ , asset_linkage_status := toupper( trimws(as.character(asset_linkage_status)) ) ]
   capture_audit[ , coordinate_bounds_ok := as_logical_strict( coordinate_bounds_ok, "coordinate_bounds_ok" ) ]
@@ -425,7 +408,7 @@ main <- function() {
   query_index[, planned_RCTD_mode := "full"]
   query_index[, Step12D_action := paste( "Create one SpatialRNA query per capture area;", "then create.RCTD and run.RCTD(full)." ) ]
   query_ready <- nrow(query_index) == EXPECTED_CAPTURE_AREAS && sum(query_index$n_spots) == EXPECTED_SPATIAL_SPOTS && all(query_index$n_sections == 3L) && all(query_index$image_coordinate_linkage == "PASS") && all( query_index$processed_position_overlap_fraction == 1 ) && all( query_index$processed_in_tissue_overlap_fraction == 1 ) && all(query_index$coordinate_bounds_ok)
-  add_check( "C14", "query_audit", "All 12 all-spot queries are ready for later full-mode RCTD.", query_ready, paste0( "capture areas=", nrow(query_index), "; spots=", sum(query_index$n_spots), "; sections=", sum(query_index$n_sections), "; linkage PASS=", sum(query_index$image_coordinate_linkage == "PASS") ), "12 areas, 33,941 spots, 36 sections, complete linkage", TRUE, "Do not create SpatialRNA queries until all areas are complete." )
+  add_check( "C14", "query_audit", "All 12 all-spot queries are ready for later full-mode RCTD.", query_ready, paste0( "capture areas=", nrow(query_index), "; spots=", sum(query_index$n_spots), "; sections=", sum(query_index$n_sections), "; linkage PASS=", sum(query_index$image_coordinate_linkage == "PASS") ), "12 areas, 33,941 spots, 36 sections, complete linkage", TRUE, "create SpatialRNA queries until all areas are complete." )
   if (!query_ready) {
     stop("One or more future RCTD queries are not ready.", call. = FALSE)
   }
@@ -459,45 +442,15 @@ main <- function() {
   }
   fwrite(checks, OUT_CHECKS, bom = TRUE)
   elapsed <- round( as.numeric( difftime( Sys.time(), start_time, units = "mins" ) ), 3 )
-  report <- c( "============================================================", "GSE234774 Step 12C snRNA reference / RCTD input audit", "============================================================", paste0("Generated: ", format(Sys.time(), "%Y-%m-%d %H:%M:%S")), paste0("Output directory: ", OUTPUT_DIR), "", paste0("FINAL_STATUS: ", final_status), "", "FROZEN SPATIAL RULE", "- Primary analysis retains all 33,941 processed spots.", paste0( "- Conservative Step 12B review spots retained: ", sum(spot_qc$qc_review_flag), "." ), "- No separate spot-exclusion sensitivity branch was created.", "", "REFERENCE DESIGN", "- Backbone: Step 10D whole snRNA atlas.", "- Refined myeloid labels: exact Step 10G nucleus backfill.", "- All resident microglial states collapsed to Microglia.", "- BAM-like/macrophage-like non-resident states collapsed to BAM_macrophage.", "- Step 10G neuronal contaminant/doublet-like nuclei excluded.", "- The persistent inflammatory-remodeling target program is not a cell type.", paste0( "- Eligible nuclei before sampling: ", nrow(eligible_meta), "." ), paste0( "- Sampled reference nuclei: ", ncol(reference_counts), "." ), paste0( "- Broad RCTD cell types: ", nlevels(reference_labels), " [", paste(levels(reference_labels), collapse = ", "), "]." ), paste0( "- Per-type cap: ", MAX_NUCLEI_PER_RCTD_TYPE, "." ), "", "GENE SPACE", paste0("- Reference genes: ", length(reference_genes), "."), paste0("- Spatial genes: ", length(spatial_genes), "."), paste0("- Exact shared genes: ", length(common_genes), "."), paste0( "- Expressed shared genes in saved Reference: ", nrow(reference_counts), "." ), "", "SAVED REFERENCE", paste0("- Reference RDS: ", OUT_REFERENCE_RDS), paste0( "- Reference metadata RDS: ", OUT_REFERENCE_METADATA_RDS ), paste0("- Handoff RDS: ", OUT_HANDOFF_RDS), "", "FUTURE QUERIES", paste0("- Capture areas ready: ", nrow(query_index), "/12."), paste0( "- Spots ready: ", sum(query_index$n_spots), "/33,941." ), paste0( "- Sections represented: ", sum(query_index$n_sections), "/36." ), "- Planned Step 12D mode: full.", "- Step 12C did not call SpatialRNA, create.RCTD, or run.RCTD.", "", "CRITICAL CHECKS", paste0( "- PASS: ", nrow(checks[ critical == TRUE & status == "PASS" ]), "; FAIL: ", nrow(critical_failures) ) )
   if (nrow(critical_failures) > 0L) {
-    report <- c( report, "", "STOP REASONS", paste0( "- ", critical_failures$check_id, ": ", critical_failures$description, " Observed: ", critical_failures$observed, " Action: ", critical_failures$action_if_not_pass ) )
   }
   if (nrow(reviews) > 0L) {
-    report <- c( report, "", "REVIEW ITEMS", paste0( "- ", reviews$check_id, ": ", reviews$description, " Observed: ", reviews$observed, " Action: ", reviews$action_if_not_pass ) )
   }
-  report <- c( report, "", "INTERPRETATION", if (final_status == "STOP") {
-      "- Step 12C is not released. Do not run RCTD."
-    } else {
-      paste( "- Step 12C is technically complete.", "The saved broad-cell-type Reference and 12 query manifests", "are ready for Step 12D." )
-    },
-    "- RCTD labels estimate broad lineage abundance, not the target program.", "- Target scoring remains deferred until after Microglia-weight estimation.", "", "NEXT ACTION", if (final_status == "STOP") {
-      "- review the available report and audit outputs."
-    } else {
-      paste( "- Step 12D: create one SpatialRNA query per capture area,", "run full-mode RCTD, save normalized weights, and audit", "convergence and weight sums. Do not score the target program yet." )
-    },
-    "", "KEY OUTPUTS:", "- tables/01_input_and_field_audit.csv", "- tables/02_RCTD_reference_label_mapping.csv", "- tables/03_RCTD_reference_celltype_sampling_summary.csv", "- tables/04_reference_spatial_gene_overlap.csv", "- tables/05_RCTD_query_capture_area_index.csv", "- tables/09_STEP12C_audit_checks.csv", "- 10_STEP12C_FINAL_REPORT.txt", "", "LARGE INTERMEDIATE FILES", paste0("- ", OUT_REFERENCE_RDS), paste0("- ", OUT_REFERENCE_METADATA_RDS), paste0("- ", OUT_HANDOFF_RDS), "", paste0("TOTAL ELAPSED TIME: ", elapsed, " minutes"), "============================================================"
-  )
-  writeLines(report, OUT_REPORT, useBytes = TRUE)
   writeLines( capture.output(sessionInfo()), SESSION_INFO, useBytes = TRUE )
-  log_message("FINAL_STATUS: ", final_status)
-  log_message( "Reference genes x nuclei: ", nrow(reference_counts), " x ", ncol(reference_counts) )
-  log_message( "Broad cell types: ", nlevels(reference_labels) )
-  log_message( "Queries audited: ", nrow(query_index), "/12" )
-  log_message( "Total elapsed: ", elapsed, " minutes" )
   write_log()
-  cat("\n")
-  cat("============================================================\n")
-  cat("Step 12C completed: ", final_status, "\n", sep = "")
-  cat( "Reference: ", nrow(reference_counts), " genes x ", ncol(reference_counts), " nuclei\n", sep = "" )
-  cat( "Broad cell types: ", nlevels(reference_labels), "\n", sep = "" )
-  cat( "Queries audited: ", nrow(query_index), "/12\n", sep = "" )
-  cat("Open first: ", OUT_REPORT, "\n", sep = "")
-  cat("============================================================\n")
   invisible( list( final_status = final_status, reference_path = OUT_REFERENCE_RDS, metadata_path = OUT_REFERENCE_METADATA_RDS, handoff_path = OUT_HANDOFF_RDS, sampling_summary = sampling_summary, query_index = query_index, checks = checks ) )
 }
 tryCatch( main(), error = function(e) {
     write_fatal_report(conditionMessage(e))
-    message("Step 12C stopped: ", conditionMessage(e))
   }
 )

@@ -22,11 +22,7 @@ suppressPackageStartupMessages({
   library(ggplot2)
   library(patchwork)
 })
-cat("============================================================\n")
-cat("Step 1B | GSE162610 conservative QC filtering\n")
-cat("============================================================\n\n")
 pbmc <- readRDS(in_rds)
-cat("QC 前对象：", nrow(pbmc), "genes x", ncol(pbmc), "cells\n\n")
 required_meta <- c( "sample_id", "timepoint", "nFeature_RNA", "nCount_RNA", "percent.mt", "percent.HB" )
 if (!all(required_meta %in% colnames(pbmc@meta.data))) {
   stop( "Step 1A 对象缺少以下 metadata：", paste(setdiff(required_meta, colnames(pbmc@meta.data)), collapse = ", ") )
@@ -37,12 +33,6 @@ maxMT      <- 15
 maxHB      <- 1
 thresholds <- data.frame( metric = c( "nFeature_RNA", "nCount_RNA", "percent.mt", "percent.HB" ), rule = c( paste0(">=", minFeature), paste0(">=", minCount), paste0("<", maxMT), paste0("<", maxHB) ), rationale = c( "去除极低复杂度/低质量细胞", "去除极低 UMI 细胞", "保守排除高线粒体比例细胞；避免过度删除 SCI 激活细胞", "去除明显血红蛋白污染；本数据绝大多数细胞接近 0" ), stringsAsFactors = FALSE )
 fwrite( thresholds, file.path(tab_dir, "01_QC_thresholds.csv") )
-cat("本步骤 QC 阈值：\n")
-cat(" nFeature_RNA >=", minFeature, "\n")
-cat(" nCount_RNA >=", minCount, "\n")
-cat(" percent.mt <", maxMT, "\n")
-cat(" percent.HB <", maxHB, "\n")
-cat(" 不设置 nFeature / nCount 上限\n\n")
 md <- pbmc@meta.data
 md$cell <- rownames(md)
 md$fail_low_feature <- md$nFeature_RNA < minFeature
@@ -92,8 +82,6 @@ removed_cells <- md[ !md$QC_pass, c( "cell", "sample_id", "timepoint", "nFeature
 fwrite( removed_cells, file.path(tab_dir, "05_removed_cells_QC.csv") )
 pbmc_qc <- subset( pbmc, cells = rownames(md)[md$QC_pass] )
 pbmc_qc$QC_pass <- NULL
-cat("QC 后对象：", nrow(pbmc_qc), "genes x", ncol(pbmc_qc), "cells\n")
-cat( "总保留率：", round(100 * ncol(pbmc_qc) / ncol(pbmc), 2), "%\n\n" )
 md_after <- pbmc_qc@meta.data
 qc_after_summary <- do.call( rbind, lapply(split(md_after, md_after$sample_id), function(x) {
     data.frame( sample_id = unique(as.character(x$sample_id))[1], timepoint = unique(as.character(x$timepoint))[1], n_cells = nrow(x), median_nFeature = median(x$nFeature_RNA, na.rm = TRUE), median_nCount = median(x$nCount_RNA, na.rm = TRUE), median_percent_mt = median(x$percent.mt, na.rm = TRUE), median_percent_HB = median(x$percent.HB, na.rm = TRUE), stringsAsFactors = FALSE )
@@ -127,12 +115,6 @@ all_samples_preserved <- ( length(unique(pbmc_qc$sample_id)) == length(unique(pb
 all_timepoints_preserved <- ( length(unique(as.character(pbmc_qc$timepoint))) == length(unique(as.character(pbmc$timepoint))) )
 min_retention <- min( retention_sample$retention_pct, na.rm = TRUE )
 retention_warning <- min_retention < 70
-report <- c( "============================================================", "GSE162610 STEP 1B | CONSERVATIVE QC REPORT", "============================================================", paste0("Date: ", Sys.time()), "", "QC thresholds:", paste0(" nFeature_RNA >= ", minFeature), paste0(" nCount_RNA >= ", minCount), paste0(" percent.mt < ", maxMT), paste0(" percent.HB < ", maxHB), " No upper cutoff for nFeature_RNA or nCount_RNA.", "", paste0("Before QC: ", ncol(pbmc), " cells"), paste0("After QC: ", ncol(pbmc_qc), " cells"), paste0( "Removed: ", ncol(pbmc) - ncol(pbmc_qc), " cells" ), paste0( "Overall retention: ", round(100 * ncol(pbmc_qc) / ncol(pbmc), 2), "%" ), "", "Retention by sample:", paste0( " ", retention_sample$sample_id, " | ", retention_sample$timepoint, " | ", retention_sample$n_before, " -> ", retention_sample$n_after, " | retained ", retention_sample$retention_pct, "%" ), "", paste0( "All 10 samples preserved: ", all_samples_preserved ), paste0( "All 4 timepoints preserved: ", all_timepoints_preserved ), paste0( "Lowest sample retention: ", round(min_retention, 2), "%" ), paste0( "Retention warning (<70% in any sample): ", retention_warning ), "", "IMPORTANT:", "High nFeature/high nCount tails were intentionally retained.", "They will be evaluated in the next doublet-detection step.", "No normalization, PCA, clustering, or Harmony was performed here.", "", paste0( "STEP 1B PASS = ", all_samples_preserved && all_timepoints_preserved && !retention_warning ), "", "STATUS:", "Step 1C | Doublet detection / audit.", "============================================================" )
-writeLines( report, file.path( out_dir, "07_STEP1B_QC_report.txt" ) )
-cat(paste(report, collapse = "\n"))
-cat("\n\n")
 if ( all_samples_preserved && all_timepoints_preserved && !retention_warning ) {
-  cat("Step 1B status: PASS\n")
 } else {
-  cat("Step 1B status: REVIEW REQUIRED\n")
 }

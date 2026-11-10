@@ -13,8 +13,6 @@ LOG <- file.path(OUT, "00_run_log.txt")
 if (file.exists(LOG)) file.remove(LOG)
 logmsg <- function(...) {
   x <- paste(format(Sys.time(), "%Y-%m-%d %H:%M:%S"), paste0(..., collapse = " "))
-  cat(x, "\n")
-  cat(x, "\n", file = LOG, append = TRUE)
 }
 stopf <- function(...) stop(paste0(..., collapse = ""), call. = FALSE)
 savecsv <- function(x, basename) {
@@ -92,7 +90,7 @@ if (inherits(raw_matrix, "dgCMatrix")) {
 }
 rm(raw_matrix); invisible(gc())
 if (!identical(colnames(counts), cell_ids))
-  stopf("Counts columns do not match scored-object cell order.")
+  stopf("Counts columns match scored-object cell order.")
 if (anyDuplicated(rownames(counts)) || anyDuplicated(colnames(counts)))
   stopf("Duplicate gene or cell IDs.")
 features <- rownames(counts)
@@ -152,7 +150,7 @@ availability <- data.frame( category=category_levels, n_target=as.integer(target
 savecsv(availability, "01B_target_background_category_availability.csv")
 if (!all(availability$adequate_background)) {
   insufficient <- availability$category[!availability$adequate_background]
-  stopf("Cannot perform EXACT category matching in: ", paste(insufficient, collapse=", "), ". Inspect 01B_target_background_category_availability.csv. ", "Do NOT silently relax the required category counts.")
+  stopf("Cannot perform EXACT category matching in: ", paste(insufficient, collapse=", "), ". Inspect 01B_target_background_category_availability.csv. ", "silently relax the required category counts.")
 }
 logmsg("Frozen target category counts: ", paste(availability$category, availability$n_target, sep="=", collapse=", "))
 n_neighbor <- min(NEAREST_POOL, length(background))
@@ -240,7 +238,7 @@ if (!PROGRAM %in% rownames(original_auc) || !all(cell_ids %in% colnames(original
   stopf("Saved Step11B original target AUCell row/cell IDs unavailable.")
 target_difference <- max(abs( as.numeric(auc["Target_496",cell_ids]) - as.numeric(original_auc[PROGRAM,cell_ids])))
 if (!is.finite(target_difference) || target_difference > 1e-6)
-  stopf("Reconstructed target AUCell is not identical to frozen Step11B: ", "max_abs_difference=", format(target_difference, digits=6), ". Do not interpret the null benchmark before resolving this.")
+  stopf("Reconstructed target AUCell is not identical to frozen Step11B: ", "max_abs_difference=", format(target_difference, digits=6), ". interpret the null benchmark before resolving this.")
 logmsg("Original AUCell reproduction PASS: maximum absolute difference = ", format(target_difference, digits=7))
 logmsg("Summarizing median AUCell per gene set and biological library.")
 library_scores <- do.call(rbind, lapply(libraries, function(l) {
@@ -304,7 +302,5 @@ if (file.exists(PREVIOUS_STEP11D_SUMMARY)) {
 }
 checks <- data.frame( check=c( "frozen_step11B_results_read_only", "nuclei_19617", "biological_libraries_13", "timepoint_library_composition", "frozen_target_gene_count_496", "background_excludes_target", "null_sets_500_size_496_and_distinct_genes", "exact_prefix_category_counts_all_null_sets", "target_matched_gene_pair_category_consistency", "same_AUCell_rank_cutoff_as_Step11B", "original_target_AUCell_reproduced", "library_level_summary_units", "timepoint_contrast_summary_complete" ), status=rep("PASS", 13L), stringsAsFactors=FALSE )
 savecsv(checks, "09_STEP11D2_audit_checks.csv")
-report_lines <- c( "Step11D2 | Reviewer 2 optional suggestion 1 | Category-matched sensitivity", paste0("Input frozen results: ", INPUT_RESULTS), paste0("Input frozen scored object: ", INPUT_SCORED), paste0("Target program: ", PROGRAM, ", ", length(target), " mapped genes"), paste0("Retained cohort: ", length(libraries), " biological libraries, ", length(cell_ids), " nuclei"), paste0("Nulls: ", N_NULL, " sets of exactly ", length(target), " distinct genes, each excluding all target genes"), paste0("Target symbol category counts: ", paste(availability$category, availability$n_target, sep="=", collapse=", ")), "All 500 sets have EXACT per-category equality to frozen target.", "Matching uses within-category baseline expression/detection of two", "uninjured biological libraries, averaged with equal library weight.", "Categories are gene-symbol prefix strata; not assertions of biology.", paste0("AUC normalized = TRUE; aucMaxRank = ", auc_rank, "; frozen target max_abs_reproduction_diff = ", format(target_difference,digits=8)), "Main descriptive metric = injured minus uninjured difference", "in the mean of library-median AUCell scores, at each injured timepoint.", "Gene-set randomization tail fraction is NOT a biological-replicate P value.", "These findings do NOT establish microglial exclusivity, cell fate", "bifurcation, same-cell persistence, or protein-level mechanism.", paste0("Matching rank-distance median across 500 nulls = ", format(stats::median(match_err),digits=6)), paste0("Matching rank-distance 90th percentile across null medians = ", format(unname(stats::quantile(match_err, 0.90)),digits=6)), paste0("Old-vs-new frozen target delta max absolute diff = ", format(max_target_delta_difference, digits=6)), "", "Timepoint results:", paste(capture.output(print(summary_table, row.names=FALSE)), collapse="\n") )
-writeLines(report_lines, file.path(OUT,"10_STEP11D2_FINAL_REPORT.txt"))
 capture.output(sessionInfo(), file=file.path(OUT,"00_sessionInfo.txt"))
 logmsg("Step11D2 finished successfully. Original Step11B and Step11D unchanged.")

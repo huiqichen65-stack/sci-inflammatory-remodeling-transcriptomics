@@ -27,13 +27,8 @@ dir.create(tab_dir, recursive = TRUE, showWarnings = FALSE)
 if (!file.exists(input_rds)) {
   stop("找不到输入 RDS：\n", input_rds)
 }
-message("Reading: ", input_rds)
 obj <- readRDS(input_rds)
-message("[CHECKPOINT 1] RDS loaded successfully")
-message("Object class: ", paste(class(obj), collapse = ", "))
-message("Cells: ", ncol(obj), " | Features: ", nrow(obj))
 assay_names <- tryCatch( as.character(SeuratObject::Assays(obj)), error = function(e) {
-    message("Assays(obj) conversion failed: ", e$message)
     names(obj@assays)
   }
 )
@@ -41,27 +36,21 @@ if (is.null(assay_names) || length(assay_names) == 0) {
   assay_names <- names(obj@assays)
 }
 assay_names <- as.character(assay_names)
-message("Assays detected: ", paste(assay_names, collapse = ", "))
 if (!any(assay_names == "RNA")) {
   stop("输入对象中没有 RNA assay。检测到：", paste(assay_names, collapse = ", "))
 }
 DefaultAssay(obj) <- "RNA"
-message("[CHECKPOINT 2] DefaultAssay set to RNA")
 joinlayers_available <- exists( "JoinLayers", where = asNamespace("SeuratObject"), mode = "function", inherits = FALSE )
 if (isTRUE(joinlayers_available)) {
   obj <- tryCatch( {
-      message("Trying JoinLayers(RNA) ...")
       SeuratObject::JoinLayers(obj, assay = "RNA")
     },
     error = function(e) {
-      message("JoinLayers skipped safely: ", e$message)
       obj
     }
   )
 }
-message("[CHECKPOINT 3] Preparing metadata")
 meta <- tryCatch( obj[[]], error = function(e) {
-    message("obj[[]] failed: ", e$message)
     obj@meta.data
   }
 )
@@ -72,15 +61,12 @@ meta_names <- as.character(colnames(meta))
 if (is.null(meta_names) || length(meta_names) == 0) {
   stop("metadata 没有列名，无法继续 Step 2。")
 }
-message("Metadata columns: ", length(meta_names))
-message("[CHECKPOINT 4] Metadata loaded successfully")
 target_broad <- c("0", "17", "4", "8", "2")
 candidate_cluster_cols <- c( "seurat_clusters", "RNA_snn_res.0.4", "harmony_snn_res.0.4", grep("res\\.0\\.4$", meta_names, value = TRUE), grep("cluster", meta_names, value = TRUE, ignore.case = TRUE) )
 candidate_cluster_cols <- unique(as.character(candidate_cluster_cols))
 candidate_cluster_cols <- candidate_cluster_cols[ vapply(candidate_cluster_cols, function(z) any(meta_names == z), logical(1)) ]
-message("Candidate broad-cluster columns: ", paste(candidate_cluster_cols, collapse = ", "))
 if (length(candidate_cluster_cols) == 0) {
-  stop( "没有找到可识别的 cluster metadata 列。\n", "Check required" )
+  stop( "没有找到可识别的 cluster metadata 列。\n", "Check" )
 }
 score_cluster_col <- function(x) {
   vals_raw <- meta[[x]]
@@ -96,7 +82,6 @@ score_cluster_col <- function(x) {
 }
 cluster_scores <- vapply(candidate_cluster_cols, score_cluster_col, numeric(1))
 broad_cluster_col_raw <- candidate_cluster_cols[which.max(cluster_scores)]
-message("Best broad-cluster candidate: ", broad_cluster_col_raw, " | score = ", max(cluster_scores))
 broad_vals <- as.character(meta[[broad_cluster_col_raw]])
 has_all_targets <- all( vapply(target_broad, function(z) any(broad_vals == z, na.rm = TRUE), logical(1)) )
 if (!has_all_targets) {
@@ -106,7 +91,6 @@ if (!has_all_targets) {
   if (idents_have_targets) {
     obj$broad_cluster_step1 <- ident_vals
     broad_cluster_col <- "broad_cluster_step1"
-    message("Using current Idents as broad_cluster_step1")
   } else {
     stop( "无法确认 Step 1 broad cluster 列。\n", "最佳候选列：", broad_cluster_col_raw, "\n", "该列未同时包含 cluster 0,17,4,8,2。\n", "候选列：", paste(candidate_cluster_cols, collapse = ", ") )
   }
@@ -114,7 +98,6 @@ if (!has_all_targets) {
   obj$broad_cluster_step1 <- broad_vals
   broad_cluster_col <- "broad_cluster_step1"
 }
-message("[CHECKPOINT 5] Broad cluster source confirmed: ", broad_cluster_col)
 print(table(obj$broad_cluster_step1, useNA = "ifany"))
 find_first_col <- function(candidates, meta_names) {
   hit <- candidates[candidates %in% meta_names]
@@ -137,18 +120,13 @@ if (is.na(time_col)) {
 if (is.na(author_col)) {
   warning("没有自动识别到 original_V30；作者 annotation cross-check 将跳过。")
 }
-message("sample column = ", sample_col)
-message("time column = ", ifelse(is.na(time_col), "NOT FOUND", time_col))
-message("author column = ", ifelse(is.na(author_col), "NOT FOUND", author_col))
 cells_keep <- rownames(obj[[]])[ as.character(obj$broad_cluster_step1) %in% target_broad ]
 if (length(cells_keep) == 0) {
   stop("0/17/4/8/2 没有提取到任何细胞。")
 }
 myeloid <- subset(obj, cells = cells_keep)
 myeloid$broad_origin <- factor( as.character(myeloid$broad_cluster_step1), levels = c("0", "17", "4", "8", "2") )
-message("Step 2 starting pool:")
 print(table(myeloid$broad_origin))
-message("Total cells = ", ncol(myeloid))
 write.csv( as.data.frame(table(myeloid$broad_origin)), file.path(tab_dir, "00_step2_starting_pool_broad_cluster_counts.csv"), row.names = FALSE )
 DefaultAssay(myeloid) <- "RNA"
 VariableFeatures(myeloid) <- character(0)
@@ -163,13 +141,10 @@ pca_table <- data.frame( PC = seq_along(pca_var), variance = pca_var, cumulative
 write.csv( pca_table, file.path(tab_dir, "01_myeloid_PCA_variance.csv"), row.names = FALSE )
 npcs_use <- min(20, ncol(Embeddings(myeloid, "pca")))
 dims_use <- seq_len(npcs_use)
-message("RunHarmony by: ", sample_col)
 myeloid <- tryCatch( {
     RunHarmony( object = myeloid, group.by.vars = sample_col, reduction.use = "pca", dims.use = dims_use, theta = 1, max.iter.harmony = 20, verbose = TRUE )
   },
   error = function(e1) {
-    message("Harmony signature 1 failed: ", e1$message)
-    message("Trying alternate Harmony signature...")
     RunHarmony( object = myeloid, group.by.vars = sample_col, reduction = "pca", dims.use = dims_use, theta = 1, max.iter.harmony = 20, verbose = TRUE )
   }
 )
@@ -191,7 +166,6 @@ if (length(final_res_col_candidates) == 0) {
 final_res_col <- tail(final_res_col_candidates, 1)
 myeloid$myeloid_cluster_r04 <- as.character(myeloid[[final_res_col]][, 1])
 Idents(myeloid) <- "myeloid_cluster_r04"
-message("Myeloid-only clusters at resolution 0.4:")
 print(table(Idents(myeloid)))
 resident_genes <- c( "P2ry12", "Tmem119", "Sall1", "Fcrls", "Hexb", "Cx3cr1", "Siglech", "Gpr34", "P2ry13" )
 macrophage_genes <- c( "Ccr2", "Ly6c2", "Ms4a7", "Fn1", "Fcgr1", "S100a8", "S100a9", "Chil3", "Clec4n", "F13a1", "Arg1" )
@@ -201,10 +175,10 @@ resident_use <- intersect(resident_genes, all_rna_genes)
 macrophage_use <- intersect(macrophage_genes, all_rna_genes)
 cycling_use <- intersect(cycling_genes, all_rna_genes)
 if (length(resident_use) < 4) {
-  warning("Resident marker 命中少于 4 个，Check required")
+  warning("Resident marker 命中少于 4 个，Check")
 }
 if (length(macrophage_use) < 4) {
-  warning("Macrophage marker 命中少于 4 个，Check required")
+  warning("Macrophage marker 命中少于 4 个，Check")
 }
 myeloid <- AddModuleScore( myeloid, features = list(resident_use), name = "ResidentMG", assay = "RNA", search = FALSE )
 myeloid <- AddModuleScore( myeloid, features = list(macrophage_use), name = "InfiltratingMacro", assay = "RNA", search = FALSE )
@@ -226,7 +200,6 @@ clustree_prefix_candidates <- unique(sub("res\\.[0-9.]+$", "res.", res_cols))
 if (length(clustree_prefix_candidates) > 0) {
   clustree_prefix <- clustree_prefix_candidates[1]
   p_tree <- tryCatch( clustree(myeloid[[]], prefix = clustree_prefix), error = function(e) {
-      message("clustree failed: ", e$message)
       NULL
     }
   )
@@ -296,51 +269,11 @@ write.csv( classification_template, file.path(tab_dir, "06_lineage_classificatio
 saveRDS( myeloid, file.path( obj_dir, "GSE162610_step2A_myeloid_refined_multires.rds" ) )
 report_file <- file.path(out_dir, "07_step2A_run_report.txt")
 sink(report_file)
-cat("GSE162610 Step 2A | myeloid-only refinement\n")
-cat("====================================================\n\n")
-cat("Input RDS:\n", input_rds, "\n\n", sep = "")
-cat("Broad clusters included: 0, 17, 4, 8, 2\n")
-cat("Explicitly excluded from Step 2 pool: 6, 16, 9\n\n")
-cat("Total starting cells: ", ncol(myeloid), "\n", sep = "")
-cat("\nBroad-origin counts:\n")
 print(table(myeloid$broad_origin))
-cat("\nSample column: ", sample_col, "\n", sep = "")
-cat("Time column: ", ifelse(is.na(time_col), "NOT FOUND", time_col), "\n", sep = "")
-cat("Author annotation column: ", ifelse(is.na(author_col), "NOT FOUND", author_col), "\n", sep = "")
-cat("\nPCA dims used for Harmony: 1:", npcs_use, "\n", sep = "")
-cat("Harmony grouping variable: ", sample_col, "\n", sep = "")
-cat("Harmony theta: 1\n")
-cat("Harmony max.iter: 20\n")
-cat("\nResolutions tested:\n")
 print(resolutions)
-cat("\nResolution 0.4 cluster counts:\n")
 print(table(myeloid$myeloid_cluster_r04))
-cat("\nResident markers available:\n")
 print(resident_use)
-cat("\nMacrophage markers available:\n")
 print(macrophage_use)
-cat("\nCycling markers available:\n")
 print(cycling_use)
-cat("\nCluster-level lineage score summary:\n")
 print(cluster_scores_tbl)
-cat("\nIMPORTANT:\n")
-cat("- Step 2A does NOT define DAM.\n")
-cat("- Step 2A does NOT define repair/scar.\n")
-cat("- Step 2A only refines resident-derived microglia vs ambiguous myeloid vs infiltrating monocyte/macrophage.\n")
-cat("- Borderline clusters should remain ambiguous until marker + score + origin + sample/time + author annotation evidence is reviewed together.\n")
-cat("- AUCell/ssGSEA can be added in Step 2B only if the lineage boundary remains uncertain.\n")
 sink()
-message("====================================================")
-message("STEP 2A COMPLETE")
-message("Output folder: ", out_dir)
-message("Object folder: ", obj_dir)
-message("")
-message("Key outputs:")
-message("1) figures/01_myeloid_refinement_UMAP.pdf")
-message("2) figures/02_myeloid_clustree_resolution_sensitivity.pdf")
-message("3) figures/03_resident_vs_macrophage_marker_DotPlot.pdf")
-message("4) figures/05_cluster_lineage_score_heatmap.pdf")
-message("5) tables/03_top20_markers_per_myeloid_cluster_r04.csv")
-message("6) tables/05_cluster_crosschecks_origin_sample_time_author.csv")
-message("7) 07_step2A_run_report.txt")
-message("====================================================")

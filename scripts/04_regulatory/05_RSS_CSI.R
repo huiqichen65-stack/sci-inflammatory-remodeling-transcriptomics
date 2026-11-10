@@ -72,10 +72,6 @@ if (length(missing_packages) > 0L) {
 timestamp <- function() {
   format( Sys.time(), "%Y-%m-%d %H:%M:%S" )
 }
-msg <- function(...) {
-  cat( sprintf( "[%s] %s\n", timestamp(), paste0(..., collapse = "") ) )
-  flush.console()
-}
 safe_path <- function(path) {
   normalizePath( path, winslash = "/", mustWork = FALSE )
 }
@@ -240,11 +236,6 @@ collapse_top <- function( values, n = 10L ) {
   paste( utils::head( values, n ), collapse = " | " )
 }
 overall_start <- Sys.time()
-msg("==============================================================")
-msg("GSE162610 Step 7E | RSS and CSI regulon modules")
-msg("==============================================================")
-msg("Primary analysis: 215 large informative regulons.")
-msg("Sensitivity analysis: 284 informative regulons.")
 required_files <- c( METADATA_FILE, REGULON_SUMMARY_FILE, AUC_RDS_FILE, AUC_DISTRIBUTION_FILE, STEP7D_FINAL_DECISION_FILE )
 missing_files <- required_files[ !file.exists(required_files) ]
 if (length(missing_files) > 0L) {
@@ -257,7 +248,6 @@ step7d_pass <- any( step7d_decision$domain == "Overall Step 7D" & tolower( as.ch
 if (!step7d_pass) {
   abort_step( "Step 7D does not contain an Overall PASS decision." )
 }
-msg("Loading Step 7D AUCell matrix...")
 auc_all <- readRDS( AUC_RDS_FILE )
 if ( !is.matrix(auc_all) || nrow(auc_all) != EXPECTED_REGULONS || ncol(auc_all) != EXPECTED_CELLS ) {
   abort_step( paste0( "Unexpected AUC dimensions: ", paste( dim(auc_all), collapse = " x " ) ) )
@@ -293,8 +283,6 @@ analysis_sets$in_informative_284 <- analysis_sets$regulon %in%
 write_tsv( analysis_sets, ANALYSIS_SET_FILE )
 auc_primary <- auc_all[ primary_regulons, , drop = FALSE ]
 auc_informative <- auc_all[ informative_regulons, , drop = FALSE ]
-msg("Loading frozen cell metadata...")
-msg("Expected Step 7A columns: cell, step5CR_state, sample_id, timepoint, retained_step5BR_pseudotime, Y29_signed_progress.")
 metadata_raw <- data.table::fread( METADATA_FILE, data.table = FALSE, check.names = FALSE, showProgress = FALSE )
 cell_id_column <- find_column( metadata_raw, c( "CellID", "cell_id", "cell", "barcode", "barcodes", "rownames" ), required = FALSE )
 if (is.na(cell_id_column)) {
@@ -346,7 +334,6 @@ if (!state_count_pass) {
 metadata_audit <- data.frame( metric = c( "metadata_rows", "unique_cell_IDs", "exact_AUC_cell_order", "Shared_prebranch_cells", "Arm_1_cells", "Arm_2_cells", "unique_samples", "unique_timepoint_labels", "seven_dpi_cells", "finite_pseudotime_cells", "finite_Y29SignedProgress_cells", "resolved_cell_ID_column", "resolved_state_column", "resolved_sample_column", "resolved_timepoint_column", "resolved_pseudotime_column", "resolved_Y29_column" ), value = c( nrow(metadata), length(unique(metadata$CellID)), identical( metadata$CellID, colnames(auc_all) ), observed_state_counts[ "Shared_prebranch" ], observed_state_counts[ "Arm_1" ], observed_state_counts[ "Arm_2" ], length(unique(metadata$SampleID)), length(unique(metadata$Timepoint)), sum( metadata$TimepointDay == 7, na.rm = TRUE ), sum(is.finite(metadata$Pseudotime)), sum(is.finite(metadata$Y29SignedProgress)), cell_id_column, state_column, sample_column, timepoint_column, pseudotime_column, y29_column ), stringsAsFactors = FALSE )
 write_csv( metadata_audit, METADATA_AUDIT_FILE )
 rss_start <- Sys.time()
-msg("Calculating RSS for 215 primary regulons...")
 synthetic_activity <- matrix( c( 1, 1, 0, 0 ), nrow = 1L, dimnames = list( "synthetic", paste0( "cell", 1:4 ) ) )
 synthetic_labels <- c( "A", "A", "B", "B" )
 synthetic_rss <- calculate_rss( synthetic_activity, synthetic_labels, c( "A", "B" ) )
@@ -412,9 +399,7 @@ rss_sensitivity_audit <- do.call( rbind, lapply( STATE_ORDER, function(state) {
 )
 write_tsv( rss_sensitivity_audit, RSS_SENSITIVITY_AUDIT_FILE )
 rss_elapsed <- as.numeric( difftime( Sys.time(), rss_start, units = "secs" ) )
-msg( "RSS PASS in ", format_duration(rss_elapsed), "." )
 sample_start <- Sys.time()
-msg("Calculating sample-level Arm_1 versus Arm_2 directions...")
 metadata_dt <- data.table::as.data.table( metadata )
 sample_branch_counts <- metadata_dt[ BranchState %in% c( "Arm_1", "Arm_2" ), .N, by = .( SampleID, Timepoint, TimepointDay, BranchState ) ]
 sample_branch_count_wide <- data.table::dcast( sample_branch_counts, SampleID + Timepoint + TimepointDay ~ BranchState, value.var = "N", fill = 0 )
@@ -482,15 +467,12 @@ write_tsv( rss_top, RSS_TOP_FILE )
 observed_7dpi_samples <- length( unique( sample_delta$SampleID[ sample_delta$is_7dpi ] ) )
 sample_audit_pass <- observed_7dpi_samples >= REQUIRED_7DPI_SAMPLES
 sample_elapsed <- as.numeric( difftime( Sys.time(), sample_start, units = "secs" ) )
-msg( "Sample audit complete in ", format_duration(sample_elapsed), "; evaluable 7 dpi samples=", observed_7dpi_samples, "." )
 csi_start <- Sys.time()
-msg("Calculating Pearson correlation matrix...")
 regulon_correlation <- stats::cor( t(auc_primary), method = "pearson", use = "pairwise.complete.obs" )
 if ( any(!is.finite(regulon_correlation)) || max( abs( regulon_correlation - t(regulon_correlation) ) ) > 1e-10 ) {
   abort_step( "Regulon correlation matrix is non-finite or asymmetric." )
 }
 diag(regulon_correlation) <- 1
-msg("Calculating CSI matrix...")
 csi_matrix <- calculate_csi( regulon_correlation )
 csi_pass <- all(is.finite(csi_matrix)) && all( csi_matrix >= 0 & csi_matrix <= 1 ) && max( abs( csi_matrix - t(csi_matrix) ) ) <
     1e-12 && max( abs( diag(csi_matrix) - 1 ) ) <
@@ -505,7 +487,6 @@ upper_index <- which( upper.tri(csi_matrix), arr.ind = TRUE )
 csi_pairs <- data.frame( regulon_1 = rownames(csi_matrix)[ upper_index[ , 1 ] ], regulon_2 = colnames(csi_matrix)[ upper_index[ , 2 ] ], Pearson_correlation = regulon_correlation[ upper_index ], CSI = csi_matrix[ upper_index ], stringsAsFactors = FALSE )
 csi_pairs <- csi_pairs[ order( -csi_pairs$CSI, -csi_pairs$Pearson_correlation ), , drop = FALSE ]
 write_tsv( csi_pairs, CSI_PAIR_FILE )
-msg("Selecting CSI module count...")
 csi_distance <- stats::dist( csi_matrix, method = "euclidean" )
 csi_hclust <- stats::hclust( csi_distance, method = "average" )
 valid_k <- CSI_K_CANDIDATES[ CSI_K_CANDIDATES >= 2L & CSI_K_CANDIDATES < nrow(csi_matrix) ]
@@ -543,9 +524,7 @@ module_assignment$sample_direction_consistency_fraction <- sample_robustness_df[
 module_assignment <- module_assignment[ order( as.integer( sub( "^M", "", module_assignment$CSI_module ) ), -module_assignment$preferred_RSS ), , drop = FALSE ]
 write_tsv( module_assignment, MODULE_ASSIGNMENT_FILE )
 csi_elapsed <- as.numeric( difftime( Sys.time(), csi_start, units = "secs" ) )
-msg( "CSI PASS in ", format_duration(csi_elapsed), "; selected k=", chosen_k, "." )
 module_start <- Sys.time()
-msg("Calculating CSI module activity...")
 auc_row_mean <- rowMeans( auc_primary )
 auc_row_sd <- safe_row_sd( auc_primary )
 auc_z <- sweep( auc_primary, 1L, auc_row_mean, "-" )
@@ -591,7 +570,6 @@ module_summary <- do.call( rbind, module_summary_parts )
 write_tsv( module_summary, MODULE_SUMMARY_FILE )
 saveRDS( list( raw_mean_AUC_modules_by_cells = module_raw_activity, z_mean_modules_by_cells = module_z_activity, module_RSS = module_rss, module_assignment = module_assignment ), MODULE_SCORE_RDS, compress = TRUE )
 module_elapsed <- as.numeric( difftime( Sys.time(), module_start, units = "secs" ) )
-msg( "Module activity complete in ", format_duration(module_elapsed), "." )
 key_tf_parts <- list()
 for (current_tf in KEY_TFS) {
   matching <- module_assignment[ module_assignment$TF == current_tf, , drop = FALSE ]
@@ -679,29 +657,5 @@ top_text <- unlist( lapply( STATE_ORDER, function(state) {
     }
   )
 )
-report_lines <- c( "======================================================================", "GSE162610 | STEP 7E REPORT", "RSS state specificity and CSI regulon modules", "======================================================================", "", paste0( "Generated: ", timestamp() ), paste0( "Project root: ", PROJECT_ROOT ), paste0( "Overall Step 7E status: ", FINAL_STATUS ), "", "FORMAL SCOPE:", paste0( "Step 7E calculated RSS for Shared_prebranch, Arm_1 and Arm_2, ", "then calculated regulon-regulon CSI and CSI-based modules." ), paste0( "Arm_1 and Arm_2 remain neutral trajectory labels. No fate-driver ", "claim was made." ), "", "FROZEN INPUT:", paste0( "Cells: ", EXPECTED_CELLS, " (Shared_prebranch=116; Arm_1=2,289; Arm_2=1,798)" ), paste0( "All Step 7D regulons: ", EXPECTED_REGULONS ), paste0( "Primary regulons: ", length(primary_regulons), " (targets >= ", PRIMARY_MIN_TARGETS, "; informative)" ), paste0( "Sensitivity regulons: ", length(informative_regulons), " (all informative)" ), "", "RSS METHOD:", paste0( "RSS = 1 - Jensen-Shannon distance between each continuous AUCell ", "profile and each binary state-membership profile." ), paste0( "Synthetic perfect-specificity control RSS: ", synthetic_rss[ "synthetic", "A" ], " (PASS=", synthetic_rss_pass, ")" ), paste0( "Primary RSS range: ", min(rss_primary), " to ", max(rss_primary) ), "", "SAMPLE-LEVEL DIRECTION AUDIT:", paste0( "Minimum cells per arm per sample: ", MIN_SAMPLE_BRANCH_CELLS ), paste0( "Evaluable sample-timepoint units: ", nrow(evaluable_samples) ), paste0( "Evaluable 7 dpi biological samples: ", observed_7dpi_samples ), paste0( "This is a direction-consistency audit; cells were not treated as ", "independent biological replicates." ), "", "CSI METHOD:", paste0( "Pearson correlations were calculated across all 4,203 cells for ", "the 215 primary regulons." ), paste0( "CSI(A,B) is the fraction of other regulons k for which neither ", "cor(A,k) nor cor(B,k) exceeds cor(A,B)." ), paste0( "Clustering: Euclidean distance between CSI profiles; average linkage." ), paste0( "Chosen module count: ", chosen_k, ". ", chosen_k_reason ), paste0( "Fixed k=10 labels were exported as a sensitivity column." ), "", "TIMING:", paste0( "RSS: ", format_duration(rss_elapsed) ), paste0( "Sample audit: ", format_duration(sample_elapsed) ), paste0( "CSI and clustering: ", format_duration(csi_elapsed) ), paste0( "Module activity: ", format_duration(module_elapsed) ), paste0( "Total Step 7E: ", format_duration(overall_elapsed) ), "", "TOP RSS REGULONS BY STATE:", top_text, "RSS PRIMARY-VERSUS-SENSITIVITY AUDIT:", paste( capture.output( print( rss_sensitivity_audit, row.names = FALSE ) ), collapse = "\n" ), "", "CSI MODULE SUMMARY:", paste( capture.output( print( module_summary, row.names = FALSE ) ), collapse = "\n" ), "", "KEY TF RSS/CSI AUDIT:", paste( capture.output( print( key_tf_audit, row.names = FALSE ) ), collapse = "\n" ), "", "FINAL DECISION:", paste( capture.output( print( final_decision, row.names = FALSE ) ), collapse = "\n" ), "", "INTERPRETATION BOUNDARY:", paste0( "RSS-high regulons are state-associated, and CSI modules are ", "co-varying regulatory programs. Neither result proves pre-branch ", "activation or causal fate control." ), "", "NEXT ACTION:", if (FINAL_STATUS == "PASS") {
-    paste0( "Proceed to Step 7F: smooth regulon AUC along retained pseudotime ", "and Y_29 signed progress. A fate-driving candidate must separate ", "before or early after the branch point and before terminal programs." )
-  } else {
-    paste0( "Do not proceed to fate-timing analysis until the failed Step 7E ", "audit domain is resolved." )
-  },
-  "", "PRIMARY OUTPUTS:", paste0( "RSS primary table: ", safe_path(RSS_PRIMARY_LONG_FILE) ), paste0( "RSS top-state table: ", safe_path(RSS_TOP_FILE) ), paste0( "CSI module assignments: ", safe_path(MODULE_ASSIGNMENT_FILE) ), paste0( "CSI module-state summary: ", safe_path(MODULE_STATE_FILE) ), paste0( "Complete Step 7E RDS: ", safe_path(STEP7E_RESULTS_RDS) ), "", "KEY OUTPUTS:", "1) reports/Step7E_report.txt", "2) tables/04_RSS_top_regulons_by_state.tsv", "3) tables/07_CSI_module_assignments.tsv", "4) tables/08_CSI_module_state_summary.tsv", "5) tables/12_final_decision.csv"
-)
-writeLines( report_lines, con = REPORT_FILE, useBytes = TRUE )
 writeLines( capture.output( sessionInfo() ), con = SESSION_FILE, useBytes = TRUE )
 gc()
-msg("==============================================================")
-msg("STEP 7E COMPLETE")
-msg("==============================================================")
-msg("Step 7E status: ", FINAL_STATUS)
-msg( "RSS: ", nrow(rss_primary), " primary regulons x ", ncol(rss_primary), " states." )
-msg( "CSI: ", nrow(csi_matrix), " regulons; ", chosen_k, " selected modules." )
-msg( "Evaluable 7 dpi samples: ", observed_7dpi_samples, "." )
-msg( "Total time: ", format_duration(overall_elapsed) )
-msg( "Report: ", safe_path(REPORT_FILE) )
-msg("")
-msg("Key outputs:")
-msg("1) reports/Step7E_report.txt")
-msg("2) tables/04_RSS_top_regulons_by_state.tsv")
-msg("3) tables/07_CSI_module_assignments.tsv")
-msg("4) tables/08_CSI_module_state_summary.tsv")
-msg("5) tables/12_final_decision.csv")

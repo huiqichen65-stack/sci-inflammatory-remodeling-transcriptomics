@@ -47,9 +47,6 @@ suppressPackageStartupMessages({
 TIME_COLORS <- c( "1 dpi" = "#FC8D62", "3 dpi" = "#8DA0CB", "7 dpi" = "#E78AC3" )
 ROOT_COL <- "#D73027"
 BG_COL <- "#D9D9D9"
-msg <- function(...) {
-  cat( sprintf("[%s] ", format(Sys.time(), "%H:%M:%S")), ..., "\n", sep = "" )
-}
 capture_table <- function(x) {
   paste( capture.output( print( tibble::as_tibble(x), n = Inf, width = Inf ) ), collapse = "\n" )
 }
@@ -114,9 +111,6 @@ map_cells_to_components <- function( membership, closest_vertex, cell_names) {
   names(out) <- cell_names
   out
 }
-msg("====================================================")
-msg("GSE162610 Step 5B-R2 | single principal root + branch audit")
-msg("====================================================")
 if (!file.exists(INPUT_CDS)) {
   stop( paste0( "找不到Step5B-R CDS：\n", INPUT_CDS ), call. = FALSE )
 }
@@ -132,8 +126,6 @@ pg <- monocle3::principal_graph( cds )[["UMAP"]]
 if (is.null(pg)) {
   stop( "Existing Step5B-R CDS does not contain a UMAP principal graph.", call. = FALSE )
 }
-msg( "Existing injury graph: ", igraph::vcount(pg), " vertices / ", igraph::ecount(pg), " edges." )
-msg( "Graph connected components: ", igraph::components(pg)$no )
 required_meta <- c( TIME_COL, SAMPLE_COL, CLUSTER_COL, PRIMARY_ROOT_COL, "shared_transition_3dpi_highconf", "transition_status", REPAIR_SCORE_COL, SCAR_SCORE_COL )
 missing_meta <- required_meta[ !required_meta %in% colnames(obj[[]]) ]
 if (length(missing_meta) > 0) {
@@ -166,15 +158,10 @@ if (nrow(root_vertex_counts) == 0) {
   stop( "Primary root cells could not be mapped to principal vertices.", call. = FALSE )
 }
 ROOT_ANCHOR_VERTEX <- root_vertex_counts$principal_vertex[1]
-msg( "Primary root cells: ", length(primary_root_cells) )
-msg( "Primary root cells map to ", nrow(root_vertex_counts), " principal vertices." )
-msg( "Single objective root principal node: ", ROOT_ANCHOR_VERTEX, " (", root_vertex_counts$n_primary_root_cells[1], " primary root cells)" )
-msg( "Re-ordering SAME principal graph with root_pr_nodes = ", ROOT_ANCHOR_VERTEX )
 cds_single <- monocle3::order_cells( cds, reduction_method = "UMAP", root_pr_nodes = ROOT_ANCHOR_VERTEX )
 pt_single <- get_pseudotime_safe( cds_single )
 pt_single <- pt_single[ cds_cells ]
 finite_fraction <- mean( is.finite( pt_single ) )
-msg( "Finite single-root pseudotime fraction: ", round( 100 * finite_fraction, 2 ), "%" )
 cell_df <- tibble::tibble( cell = cds_cells, timepoint = as.character( obj[[TIME_COL, drop = TRUE]][ match( cds_cells, colnames(obj) ) ] ), sample = as.character( obj[[SAMPLE_COL, drop = TRUE]][ match( cds_cells, colnames(obj) ) ] ), cluster = as.character( obj[[CLUSTER_COL, drop = TRUE]][ match( cds_cells, colnames(obj) ) ] ), shared_transition_3dpi_highconf = as.logical( obj$shared_transition_3dpi_highconf[ match( cds_cells, colnames(obj) ) ] ), transition_status = as.character( obj$transition_status[ match( cds_cells, colnames(obj) ) ] ), repair_candidate_score = as.numeric( obj[[REPAIR_SCORE_COL, drop = TRUE]][ match( cds_cells, colnames(obj) ) ] ), scar_candidate_score = as.numeric( obj[[SCAR_SCORE_COL, drop = TRUE]][ match( cds_cells, colnames(obj) ) ] ), old_pseudotime = if ( is.null(old_pt) ) {
       NA_real_
     } else {
@@ -200,16 +187,11 @@ if (!all(is.na(cell_df$old_pseudotime))) {
   ok <- is.finite( cell_df$old_pseudotime ) & is.finite( cell_df$pseudotime_single_root )
   old_vs_single_spearman <- suppressWarnings( stats::cor( cell_df$old_pseudotime[ ok ], cell_df$pseudotime_single_root[ ok ], method = "spearman" ) )
 }
-msg( "Cell-level true-time Spearman: ", round( cell_level_time_spearman, 4 ) )
-msg( "Sample-level true-time Spearman: ", round( sample_level_time_spearman, 4 ) )
-msg( "1 -> 3 -> 7 dpi medians monotonic: ", time_monotonic )
-msg( "Old cell-root vs single-node pseudotime Spearman: ", round( old_vs_single_spearman, 4 ) )
 degree_vec <- igraph::degree( pg )
 branch_vertices <- names( degree_vec[ degree_vec >= 3 ] )
 leaf_vertices <- names( degree_vec[ degree_vec == 1 ] )
 root_dist <- igraph::distances( pg, v = ROOT_ANCHOR_VERTEX, to = igraph::V(pg) )
 graph_vertex_table <- tibble::tibble( vertex = names( degree_vec ), degree = as.integer( degree_vec ), is_root_anchor = names(degree_vec) == ROOT_ANCHOR_VERTEX, is_branch = names(degree_vec) %in% branch_vertices, is_leaf = names(degree_vec) %in% leaf_vertices, graph_distance_from_root = as.numeric( root_dist[ 1, names( degree_vec ) ] ) )
-msg( "Degree>=3 branch vertices: ", length( branch_vertices ) )
 branchpoint_rows <- list()
 branch_component_rows <- list()
 branch_cache <- list()
@@ -260,9 +242,7 @@ primary_branchpoint <- NA_character_
 if ( nrow( branchpoint_summary ) > 0 && any( branchpoint_summary$candidate_bifurcation, na.rm = TRUE ) ) {
   candidate_rows <- branchpoint_summary |> dplyr::filter( candidate_bifurcation ) |> dplyr::arrange( dplyr::desc( near_transition_cells ), dplyr::desc( min_top2_7dpi_cells ), graph_distance_from_root )
   primary_branchpoint <- candidate_rows$branch_vertex[1]
-  msg( "Objective primary bifurcation candidate: ", primary_branchpoint )
 } else {
-  msg( "No branch point satisfies the predefined two-major-7dpi-arm criterion." )
 }
 cell_df$branch_arm <- NA_character_
 cell_df$major_late_arm <- FALSE
@@ -299,7 +279,6 @@ obj$step5BR2_single_root_pseudotime[ idx_obj ] <- cell_df$pseudotime_single_root
 obj$step5BR2_branch_arm[ idx_obj ] <- cell_df$branch_arm
 obj$step5BR2_major_late_arm[ idx_obj ] <- cell_df$major_late_arm
 obj$step5BR2_primary_branchpoint <- ifelse( is.na( primary_branchpoint ), NA_character_, primary_branchpoint )
-msg( "Creating Fig5BR2_01_single_principal_root_pseudotime.pdf..." )
 p1a <- monocle3::plot_cells( cds_single, reduction_method = "UMAP", color_cells_by = TIME_COL, show_trajectory_graph = TRUE, label_cell_groups = FALSE, label_leaves = TRUE, label_branch_points = TRUE, graph_label_size = 3, cell_size = 0.45 ) + ggplot2::scale_color_manual( values = TIME_COLORS ) + ggplot2::ggtitle( paste0( "Same graph oriented from single principal root ", ROOT_ANCHOR_VERTEX ) )
 p1b <- monocle3::plot_cells( cds_single, reduction_method = "UMAP", color_cells_by = "pseudotime", show_trajectory_graph = TRUE, label_cell_groups = FALSE, label_leaves = TRUE, label_branch_points = TRUE, graph_label_size = 3, cell_size = 0.45 ) + ggplot2::ggtitle( "Single-principal-node pseudotime" )
 pt_plot <- cell_df |> dplyr::filter( is.finite( pseudotime_single_root ) ) |> dplyr::mutate( timepoint = factor( timepoint, levels = INJURY_TIME_LEVELS, ordered = TRUE ) )
@@ -310,7 +289,6 @@ p1d <- ggplot2::ggplot( ref_plot, ggplot2::aes( x = reference_state, y = pseudot
 grDevices::pdf( OUT_FIG1, width = 14, height = 10, useDingbats = FALSE )
 print( (p1a | p1b) / (p1c | p1d) + patchwork::plot_annotation( title = "Step 5B-R2 | Single-principal-root orientation" ) )
 grDevices::dev.off()
-msg( "Creating Fig5BR2_02_corrected_branch_topology_audit.pdf..." )
 if (nrow(branchpoint_summary) > 0) {
   p2a_df <- branchpoint_summary |> dplyr::select( branch_vertex, topology_downstream_components, cell_supported_downstream_components ) |> tidyr::pivot_longer( cols = c( topology_downstream_components, cell_supported_downstream_components ), names_to = "component_type", values_to = "n_components" ) |> dplyr::mutate( component_type = dplyr::recode( component_type, topology_downstream_components = "Topology components", cell_supported_downstream_components = "Cell-supported components" ) )
   p2a <- ggplot2::ggplot( p2a_df, ggplot2::aes( x = branch_vertex, y = n_components, fill = component_type ) ) + ggplot2::geom_col( position = "dodge", width = 0.70 ) + ggplot2::labs( title = "Branch deletion: topology versus actual cell support", x = "Principal-graph branch vertex", y = "Downstream components", fill = NULL ) + ggplot2::theme_classic( base_size = 11 )
@@ -332,7 +310,6 @@ if (nrow(branchpoint_summary) > 0) {
 grDevices::pdf( OUT_FIG2, width = 14, height = 10, useDingbats = FALSE )
 print( (p2a | p2b) / (p2c | p2d) + patchwork::plot_annotation( title = "Step 5B-R2 | Corrected branch-topology audit" ) )
 grDevices::dev.off()
-msg( "Creating Fig5BR2_03_objective_branch_arms.pdf..." )
 if (!is.na(primary_branchpoint)) {
   SummarizedExperiment::colData( cds_single )$step5BR2_branch_arm_display <- ifelse( is.na( cell_df$branch_arm ), "Unassigned", cell_df$branch_arm )
   p3a <- monocle3::plot_cells( cds_single, reduction_method = "UMAP", color_cells_by = "step5BR2_branch_arm_display", show_trajectory_graph = TRUE, label_cell_groups = FALSE, label_leaves = TRUE, label_branch_points = TRUE, graph_label_size = 3, cell_size = 0.45 ) + ggplot2::ggtitle( paste0( "Objective branch arms from ", primary_branchpoint ) )
@@ -352,7 +329,6 @@ if (!is.na(primary_branchpoint)) {
 grDevices::pdf( OUT_FIG3, width = 14, height = 10, useDingbats = FALSE )
 print( (p3a | p3b) / (p3c | p3d) + patchwork::plot_annotation( title = "Step 5B-R2 | Objective downstream branch arms" ) )
 grDevices::dev.off()
-msg( "Creating Fig5BR2_04_posthoc_repair_scar_by_arm.pdf..." )
 SummarizedExperiment::colData( cds_single )$repair_minus_scar <- cell_df$repair_minus_scar
 p4a <- monocle3::plot_cells( cds_single, reduction_method = "UMAP", color_cells_by = REPAIR_SCORE_COL, show_trajectory_graph = TRUE, label_cell_groups = FALSE, label_leaves = FALSE, label_branch_points = TRUE, graph_label_size = 3, cell_size = 0.45 ) + ggplot2::ggtitle( "Post-hoc repair-related program" )
 p4b <- monocle3::plot_cells( cds_single, reduction_method = "UMAP", color_cells_by = SCAR_SCORE_COL, show_trajectory_graph = TRUE, label_cell_groups = FALSE, label_leaves = FALSE, label_branch_points = TRUE, graph_label_size = 3, cell_size = 0.45 ) + ggplot2::ggtitle( "Post-hoc scar-related program" )
@@ -366,7 +342,6 @@ if ( !is.na( primary_branchpoint ) && nrow( branch_program_sample_summary ) > 0 
 grDevices::pdf( OUT_FIG4, width = 14, height = 10, useDingbats = FALSE )
 print( (p4a | p4b) / (p4c | p4d) + patchwork::plot_annotation( title = "Step 5B-R2 | Step4 programs after corrected topology audit" ) )
 grDevices::dev.off()
-msg( "Creating Fig5BR2_05_old_vs_single_root_orientation.pdf..." )
 if (!all(is.na(cell_df$old_pseudotime))) {
   compare_df <- cell_df |> dplyr::filter( is.finite( old_pseudotime ), is.finite( pseudotime_single_root ) )
   p5a <- ggplot2::ggplot( compare_df, ggplot2::aes( x = old_pseudotime, y = pseudotime_single_root ) ) + ggplot2::geom_point( size = 0.45, alpha = 0.25 ) + ggplot2::labs( title = "Old 225-cell-root versus single-principal-node pseudotime", subtitle = paste0( "Spearman = ", round( old_vs_single_spearman, 4 ) ), x = "Previous Step5B-R pseudotime", y = "Single-root-node pseudotime" ) + ggplot2::theme_classic( base_size = 11 )
@@ -383,7 +358,6 @@ p5d <- ggplot2::ggplot( sample_summary, ggplot2::aes( x = true_day, y = median_p
 grDevices::pdf( OUT_FIG5, width = 14, height = 10, useDingbats = FALSE )
 print( (p5a | p5b) / (p5c | p5d) + patchwork::plot_annotation( title = "Step 5B-R2 | Orientation and root-topology audit" ) )
 grDevices::dev.off()
-msg( "Writing Table5BR2_single_root_branch_audit.xlsx..." )
 parameter_tbl <- tibble::tibble( parameter = c( "Existing CDS cells", "Existing graph vertices", "Existing graph edges", "Existing graph connected components", "Original primary root cells", "Original root principal vertices", "Single root principal node", "Single-root finite pseudotime fraction", "Single-root cell-level true-time Spearman", "Single-root sample-level true-time Spearman", "Single-root 1->3->7 medians monotonic", "Old-vs-single-root pseudotime Spearman", "Degree>=3 branch vertices", "Objective primary bifurcation" ), value = c( ncol(cds_single), igraph::vcount(pg), igraph::ecount(pg), igraph::components(pg)$no, length(primary_root_cells), nrow(root_vertex_counts), ROOT_ANCHOR_VERTEX, finite_fraction, cell_level_time_spearman, sample_level_time_spearman, time_monotonic, old_vs_single_spearman, length(branch_vertices), ifelse( is.na( primary_branchpoint ), "None", primary_branchpoint ) ) )
 wb <- openxlsx::createWorkbook()
 safe_add_sheet( wb, "Parameters", parameter_tbl )
@@ -401,43 +375,4 @@ safe_add_sheet( wb, "Cell_results", cell_df )
 openxlsx::saveWorkbook( wb, OUT_XLSX, overwrite = TRUE )
 saveRDS( cds_single, OUT_CDS, compress = TRUE )
 saveRDS( obj, OUT_RDS, compress = TRUE )
-msg( "Writing Step5BR2_report.txt..." )
-report_lines <- c( "======================================================================", "GSE162610 | STEP 5B-R2 REPORT", "Single-principal-root orientation + corrected branch-topology audit", "======================================================================", "", "SCOPE:", "The Step5B-R principal graph was reused WITHOUT relearning.", "Only pseudotime orientation and branch-component mapping were re-evaluated.", "", "-------------------------- EXISTING GRAPH ------------------------------", paste0( "Cells: ", ncol(cds_single) ), paste0( "Graph vertices: ", igraph::vcount(pg) ), paste0( "Graph edges: ", igraph::ecount(pg) ), paste0( "Connected components: ", igraph::components(pg)$no ), "", "---------------------- SINGLE PRINCIPAL ROOT ---------------------------", paste0( "Original Step5B-R primary root cells: ", length(primary_root_cells) ), paste0( "Principal vertices occupied by those root cells: ", nrow(root_vertex_counts) ), paste0( "Single objective root principal node: ", ROOT_ANCHOR_VERTEX ), "", "Original root-cell distribution across principal vertices:", capture_table( root_vertex_counts ), "", "---------------------- SINGLE-ROOT TIME QC -----------------------------", paste0( "Finite pseudotime fraction: ", round( 100 * finite_fraction, 2 ), "%" ), paste0( "Cell-level true-time/pseudotime Spearman: ", round( cell_level_time_spearman, 4 ) ), paste0( "Sample-level true-time/median-pseudotime Spearman: ", round( sample_level_time_spearman, 4 ) ), paste0( "1 -> 3 -> 7 dpi medians strictly monotonic: ", time_monotonic ), paste0( "Previous cell-root vs single-node pseudotime Spearman: ", round( old_vs_single_spearman, 4 ) ), "", "Pseudotime by true time:", capture_table( time_summary ), "", "Formal biological references:", capture_table( reference_summary ), "", "-------------------- CORRECTED BRANCH AUDIT ---------------------------", "Critical implementation rule:", "  cell barcode -> closest principal vertex -> component membership", "is now mapped explicitly with the CELL barcode retained as the vector name.", "", "This distinguishes:", "  1. graph-topology components after deleting a degree>=3 vertex;", "  2. components that actually contain mapped biological cells;", "  3. major late arms containing >=100 total and >=100 7 dpi cells.", "", if ( nrow( branchpoint_summary ) > 0 ) {
-    paste0( "Branch-point summary:\n", capture_table( branchpoint_summary ) )
-  } else {
-    "No degree>=3 branch vertices detected."
-  },
-  "", if ( nrow( branch_component_summary ) > 0 ) {
-    paste0( "Per-component cell support:\n", capture_table( branch_component_summary ) )
-  } else {
-    "No downstream component table generated."
-  },
-  "", paste0( "Objective primary bifurcation: ", ifelse( is.na( primary_branchpoint ), "None satisfying predefined two-major-7dpi-arm criterion", primary_branchpoint ) ), "", "--------------------- POST-HOC REPAIR / SCAR --------------------------", "Repair/scar scores were not used to orient the graph or select branchpoints.", if ( nrow( branch_program_summary ) > 0 ) {
-    capture_table( branch_program_summary )
-  } else {
-    "No arm-level program comparison because no objective bifurcation was assigned."
-  },
-  "", "--------------------------- DECISION RULE ------------------------------", "Interpretation after Step5B-R2:", "  A. If the corrected audit now reveals >=2 large cell-supported late arms,", "     inspect whether the branch point is biologically positioned near the", "     3 dpi shared-transition state before any repair/scar naming.", "  B. If graph topology has side components but they contain few/no cells,", "     they are graph stubs and should not be called biological fate branches.", "  C. If no branch point has two substantial 7 dpi arms even after corrected", "     mapping, the current dataset does not support a discrete two-arm", "     repair/scar bifurcation under this Monocle topology.", "", "Formal outputs:", paste0("  ", OUT_FIG1), paste0("  ", OUT_FIG2), paste0("  ", OUT_FIG3), paste0("  ", OUT_FIG4), paste0("  ", OUT_FIG5), paste0("  ", OUT_XLSX), paste0("  ", OUT_CDS), paste0("  ", OUT_RDS), paste0("  ", OUT_REP), paste0("  ", OUT_SESS)
-)
-writeLines( report_lines, OUT_REP, useBytes = TRUE )
 writeLines( capture.output( sessionInfo() ), OUT_SESS, useBytes = TRUE )
-msg("====================================================")
-msg("STEP 5B-R2 COMPLETE")
-msg("====================================================")
-msg( "Single principal root node: ", ROOT_ANCHOR_VERTEX )
-msg( "Cell-level true-time Spearman: ", round( cell_level_time_spearman, 4 ) )
-msg( "Sample-level true-time Spearman: ", round( sample_level_time_spearman, 4 ) )
-msg( "1->3->7 dpi medians monotonic: ", time_monotonic )
-msg( "Old vs single-root pseudotime Spearman: ", round( old_vs_single_spearman, 4 ) )
-msg( "Degree>=3 branch vertices: ", length( branch_vertices ) )
-msg( "Objective primary bifurcation: ", ifelse( is.na( primary_branchpoint ), "NONE", primary_branchpoint ) )
-msg("")
-msg("Key outputs:")
-msg("  1) Fig5BR2_01_single_principal_root_pseudotime.pdf")
-msg("  2) Fig5BR2_02_corrected_branch_topology_audit.pdf")
-msg("  3) Fig5BR2_03_objective_branch_arms.pdf")
-msg("  4) Fig5BR2_04_posthoc_repair_scar_by_arm.pdf")
-msg("  5) Fig5BR2_05_old_vs_single_root_orientation.pdf")
-msg("  6) Step5BR2_report.txt")
-msg("")
-msg("这一轮先判定真实拓扑，不进入branch-specific DEG。")

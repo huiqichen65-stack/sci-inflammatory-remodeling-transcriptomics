@@ -2,7 +2,6 @@ rm(list = ls())
 gc()
 options( stringsAsFactors = FALSE, width = 240, future.globals.maxSize = 24 * 1024^3, timeout = 1800 )
 set.seed(20260802)
-cat("\nR parser check PASS: the complete Step8A file was parsed by source().\n")
 PROJECT_ROOT <- Sys.getenv("GLIA_PROJECT_ROOT", unset = normalizePath(".", winslash = "/", mustWork = FALSE))
 EXPECTED_ATLAS_CELLS <- 62842L
 EXPECTED_CLEAN_MICROGLIA_CELLS <- 19958L
@@ -64,9 +63,6 @@ timestamp <- function() {
 }
 safe_path <- function(x) {
   normalizePath( x, winslash = "/", mustWork = FALSE )
-}
-msg <- function(...) {
-  cat( paste0(...), "\n" )
 }
 write_csv_utf8 <- function(x, file) {
   data.table::fwrite( x, file = file, sep = ",", quote = TRUE, na = "NA" )
@@ -220,10 +216,6 @@ add_decision_row <- function( decision_list, domain, pass, status_if_fail = "REV
 }
 run_step8A <- function() {
   overall_start <- Sys.time()
-  msg("==============================================================")
-  msg("GSE162610 Step 8A | CellChat input preparation and preflight")
-  msg("==============================================================")
-  msg("No communication probability will be computed in Step8A.")
   required_files <- c( ATLAS_RDS_FILE, CLEAN_MICROGLIA_RDS_FILE, FROZEN_BRANCH_META_FILE, STEP7G_DECISION_FILE, STEP7G_SIGNATURE_TABLE_FILE, STEP7G_CLOSURE_FILE )
   missing_files <- required_files[ !file.exists( required_files ) ]
   input_audit <- data.frame( role = c( "Full GSE162610 atlas with broad annotation", "Validated clean microglia object", "Frozen Step7A 4203-cell metadata", "Step7G final decision", "Step7G candidate signature table", "Step7G timing-candidate closure table" ), path = safe_path( required_files ), exists = file.exists( required_files ), size_bytes = ifelse( file.exists(required_files), file.info(required_files)$size, NA_real_ ), stringsAsFactors = FALSE )
@@ -231,13 +223,11 @@ run_step8A <- function() {
   if (length(missing_files) > 0L) {
     stop( paste0( "Required Step8A input file(s) are missing:\n", paste( safe_path(missing_files), collapse = "\n" ) ) )
   }
-  msg("[1/12] Checking Step7G PASS gate...")
   step7g_decision <- data.table::fread( STEP7G_DECISION_FILE, data.table = FALSE, showProgress = FALSE )
   step7g_pass <- decision_pass( step7g_decision, "Overall Step 7G" )
   if (!step7g_pass) {
     stop( "Step7G does not contain an Overall PASS decision." )
   }
-  msg("[2/12] Loading the full GSE162610 atlas...")
   atlas <- readRDS( ATLAS_RDS_FILE )
   if (!inherits(atlas, "Seurat")) {
     stop( "The full atlas input is not a Seurat object." )
@@ -254,7 +244,6 @@ run_step8A <- function() {
   if (length(missing_atlas_meta) > 0L) {
     stop( paste0( "The atlas object is missing required metadata: ", paste( missing_atlas_meta, collapse = ", " ) ) )
   }
-  msg("[3/12] Loading the validated clean-microglia cell set...")
   clean_microglia_object <- readRDS( CLEAN_MICROGLIA_RDS_FILE )
   if (!inherits(clean_microglia_object, "Seurat")) {
     stop( "The clean-microglia input is not a Seurat object." )
@@ -264,7 +253,6 @@ run_step8A <- function() {
   gc()
   clean_microglia_in_atlas <- intersect( clean_microglia_cells, atlas_cells )
   clean_microglia_missing_from_atlas <- setdiff( clean_microglia_cells, atlas_cells )
-  msg("[4/12] Mapping the exact frozen Step7 branch cells...")
   frozen_meta <- data.table::fread( FROZEN_BRANCH_META_FILE, data.table = FALSE, showProgress = FALSE )
   frozen_cell_column <- extract_cell_column( frozen_meta )
   frozen_state_column <- detect_column( frozen_meta, candidates = c( "step5CR_state", "BranchState", "branch_state", "state" ), required = TRUE, description = "frozen branch-state column" )
@@ -288,7 +276,6 @@ run_step8A <- function() {
   frozen_cells_missing_from_atlas <- setdiff( frozen_cells, atlas_cells )
   frozen_cells_in_clean_microglia <- intersect( frozen_cells, clean_microglia_cells )
   frozen_not_in_clean_microglia <- setdiff( frozen_cells, clean_microglia_cells )
-  msg("[5/12] Constructing lineage-safe neutral CellChat labels...")
   atlas_meta$sample_id <- as.character( atlas_meta$sample_id )
   atlas_meta$timepoint_raw <- as.character( atlas_meta$timepoint )
   atlas_meta$timepoint_standard <- standardize_timepoint( atlas_meta$timepoint_raw )
@@ -340,7 +327,6 @@ run_step8A <- function() {
   write_csv_utf8( cluster_reconstruction_audit, CLUSTER_RECONSTRUCTION_FILE )
   label_mapping <- data.frame( source_rule = c( "Validated clean microglia not in frozen trajectory", "Frozen Step7 Shared_prebranch", "Frozen Step7 Arm_1", "Frozen Step7 Arm_2", names(broad_group_map), "Non-clean broad Microglia/Myeloid_general/Macrophage_Monocyte", "Unresolved broad annotation" ), cellchat_group = c( "Microglia_other", "Microglia_Shared_prebranch", "Microglia_Arm_1", "Microglia_Arm_2", unname(broad_group_map), "Other_myeloid", "Excluded_unknown" ), interpretation = c( "Resident microglia outside the frozen 4203-cell trajectory; neutral background group", "Frozen common prebranch microglia", "Frozen neutral branch label; no repair claim", "Frozen neutral branch label; no scar claim", rep( "Broad recipient-cell class reconstructed from verified Step1F cluster mapping", length(broad_group_map) ), "Myeloid cells not contained in the validated resident-microglia set", "Excluded from formal CellChat input" ), stringsAsFactors = FALSE )
   write_csv_utf8( label_mapping, LABEL_MAPPING_FILE )
-  msg("[6/12] Auditing timepoint, sample and group coverage...")
   analysis_meta <- atlas_meta[ atlas_meta$include_step8_timecourse, , drop = FALSE ]
   group_time_counts <- as.data.frame( table( analysis_meta$timepoint_standard, analysis_meta$cellchat_group ), stringsAsFactors = FALSE )
   colnames(group_time_counts) <- c( "timepoint", "cellchat_group", "n_cells" )
@@ -369,7 +355,6 @@ run_step8A <- function() {
   write_csv_utf8( eligibility_table, ELIGIBILITY_FILE )
   metadata_output <- atlas_meta[ , unique( c( "cell", "sample_id", "timepoint_raw", "timepoint_standard", "cluster_provisional", "cluster_key", "broad_type_suggestion_original", "broad_type_reconstructed", "is_clean_microglia", "frozen_branch_state", "cellchat_group", "include_step8_timecourse", "include_step8_formal_branch", intersect( c( "original_V30", "original_V30_step1F", "final_lineage_label", "microglia_state" ), colnames(atlas_meta) ) ) ), drop = FALSE ]
   write_tsv_gz( metadata_output, CELL_METADATA_FILE )
-  msg("[7/12] Auditing the normalized RNA expression layer...")
   DefaultAssay( atlas ) <- "RNA"
   expression_data <- get_rna_data( atlas )
   expression_dimensions <- dim( expression_data )
@@ -397,7 +382,6 @@ run_step8A <- function() {
   }
   canonical_mouse_markers <- c( "P2ry12", "Tmem119", "Apoe", "Ccl3", "Col1a1", "Aldh1l1", "Pdgfra", "Pecam1" )
   canonical_mouse_markers_present <- intersect( canonical_mouse_markers, rownames(expression_data) )
-  msg("[8/12] Auditing CellChat API and CellChatDB.mouse...")
   cellchat_version <- as.character( packageVersion( "CellChat" ) )
   required_cellchat_functions <- c( "createCellChat", "subsetData", "identifyOverExpressedGenes", "identifyOverExpressedInteractions", "computeCommunProb", "filterCommunication", "computeCommunProbPathway", "aggregateNet", "subsetCommunication", "mergeCellChat", "netAnalysis_computeCentrality" )
   function_available <- vapply( required_cellchat_functions, function(function_name) {
@@ -434,7 +418,6 @@ run_step8A <- function() {
   colnames(annotation_summary) <- c( "database_category", "n_interactions" )
   database_audit <- rbind( data.frame( metric = c( "CellChat_version", "database_name", "interaction_rows", "complex_rows", "unique_ligand_entities", "unique_receptor_entities", "expanded_ligand_component_genes", "expanded_receptor_component_genes", "database_signaling_genes", "database_signaling_genes_in_atlas", "database_gene_overlap_fraction", "normalized_RNA_genes", "normalized_RNA_cells" ), value = as.character( c( cellchat_version, "CellChatDB.mouse", nrow(interaction_table), nrow(complex_table), length(unique(interaction_table$ligand)), length(unique(interaction_table$receptor)), length(db_ligand_genes), length(db_receptor_genes), length(db_signaling_genes), length(db_genes_present), round(db_overlap_fraction, 6), nrow(expression_data), ncol(expression_data) ) ), stringsAsFactors = FALSE ), data.frame( metric = paste0( "category__", annotation_summary$database_category ), value = as.character( annotation_summary$n_interactions ), stringsAsFactors = FALSE ) )
   write_csv_utf8( database_audit, DATABASE_AUDIT_FILE )
-  msg("[9/12] Running a non-inferential CellChat smoke test...")
   preferred_smoke_groups <- c( "Microglia_Arm_1", "Microglia_Arm_2", "Astrocyte", "Fibroblast", "Pericyte_VSMC", "Endothelial", "OPC", "Oligodendrocyte", "Neuron", "Other_myeloid" )
   seven_dpi_meta <- analysis_meta[ analysis_meta$timepoint_standard == "7dpi", , drop = FALSE ]
   seven_dpi_group_counts <- sort( table( seven_dpi_meta$cellchat_group ), decreasing = TRUE )
@@ -496,7 +479,6 @@ run_step8A <- function() {
   }
   rm( smoke_expression, smoke_meta )
   gc()
-  msg("[10/12] Connecting Step7G candidate targets to mouse ligand genes...")
   signature_summary <- data.table::fread( STEP7G_SIGNATURE_TABLE_FILE, data.table = FALSE, showProgress = FALSE )
   closure_table <- data.table::fread( STEP7G_CLOSURE_FILE, data.table = FALSE, showProgress = FALSE )
   required_signature_columns <- c( "signature_name", "TF", "regulon", "signature_type", "mechanistic_priority", "genes" )
@@ -562,7 +544,6 @@ run_step8A <- function() {
     candidate_ligand_catalog <- candidate_ligand_catalog[ order( priority_rank, candidate_ligand_catalog$TF, -abs( candidate_ligand_catalog$delta_mean_Arm2_minus_Arm1_7dpi ), candidate_ligand_catalog$gene ), , drop = FALSE ]
   }
   write_tsv( candidate_ligand_catalog, CANDIDATE_LIGAND_FILE )
-  msg("[11/12] Generating Step8A audit figures...")
   group_time_plot_data <- group_time_counts
   group_time_plot_data$timepoint <- factor( group_time_plot_data$timepoint, levels = FORMAL_TIMEPOINTS )
   group_time_plot_data$cellchat_group <- factor( group_time_plot_data$cellchat_group, levels = rev( sort( unique( group_time_plot_data$cellchat_group ) ) ) )
@@ -571,7 +552,7 @@ run_step8A <- function() {
   ggsave( FIG_GROUP_COMPOSITION, p_group_composition, width = 9, height = max( 7, 0.35 * length( unique( group_time_plot_data$cellchat_group ) ) + 2 ), limitsize = FALSE )
   branch_time_plot_data <- group_time_counts[ group_time_counts$cellchat_group %in% c( "Microglia_Shared_prebranch", "Microglia_Arm_1", "Microglia_Arm_2" ), , drop = FALSE ]
   branch_time_plot_data$timepoint <- factor( branch_time_plot_data$timepoint, levels = FORMAL_TIMEPOINTS )
-  p_branch_time <- ggplot( branch_time_plot_data, aes( x = timepoint, y = n_cells, fill = cellchat_group ) ) + geom_col( position = position_dodge( width = 0.8 ), width = 0.72 ) + geom_text( aes( label = n_cells ), position = position_dodge( width = 0.8 ), vjust = -0.3, size = 3 ) + labs( title = "Frozen neutral microglia branch cells by real timepoint", subtitle = "Counts are descriptive and do not rename Arm_1 or Arm_2", x = NULL, y = "Cells", fill = NULL ) + theme_bw( base_size = 11 ) + theme( panel.grid.major.x = element_blank() )
+  p_branch_time <- ggplot( branch_time_plot_data, aes( x = timepoint, y = n_cells, fill = cellchat_group ) ) + geom_col( position = position_dodge( width = 0.8 ), width = 0.72 ) + geom_text( aes( label = n_cells ), position = position_dodge( width = 0.8 ), vjust = -0.3, size = 3 ) + labs( title = "Frozen neutral microglia branch cells by real timepoint", subtitle = "Counts are descriptive and rename Arm_1 or Arm_2", x = NULL, y = "Cells", fill = NULL ) + theme_bw( base_size = 11 ) + theme( panel.grid.major.x = element_blank() )
   ggsave( FIG_BRANCH_TIME, p_branch_time, width = 8, height = 5 )
   candidate_ligand_figure_created <- FALSE
   if ( nrow(candidate_ligand_catalog) > 0L && all( c( "mean_Microglia_Arm_1_7dpi", "mean_Microglia_Arm_2_7dpi" ) %in% colnames(candidate_ligand_catalog) ) ) {
@@ -592,7 +573,6 @@ run_step8A <- function() {
       candidate_ligand_figure_created <- TRUE
     }
   }
-  msg("[12/12] Writing the formal Step8A decision...")
   branch_7dpi_counts <- setNames( rep( 0L, 2L ), c( "Microglia_Arm_1", "Microglia_Arm_2" ) )
   branch_7dpi_observed <- group_time_counts[ group_time_counts$timepoint == "7dpi" & group_time_counts$cellchat_group %in% names(branch_7dpi_counts), , drop = FALSE ]
   branch_7dpi_counts[ branch_7dpi_observed$cellchat_group ] <- branch_7dpi_observed$n_cells
@@ -658,35 +638,12 @@ run_step8A <- function() {
   overall_elapsed <- as.numeric( difftime( Sys.time(), overall_start, units = "mins" ) )
   branch_counts_report <- as.data.frame( frozen_count_table, stringsAsFactors = FALSE )
   colnames(branch_counts_report) <- c( "frozen_state", "n_cells" )
-  report_lines <- c( "======================================================================", "GSE162610 | STEP 8A REPORT", "CellChat input construction and preflight", "======================================================================", "", paste0( "Generated: ", timestamp() ), paste0( "Project root: ", safe_path(PROJECT_ROOT) ), paste0( "Overall Step 8A status: ", FINAL_STATUS ), paste0( "Elapsed time: ", round(overall_elapsed, 2), " min" ), "", "FORMAL SCOPE:", paste0( "Step8A created lineage-safe CellChat metadata and validated the ", "installed CellChat mouse database/API." ), paste0( "No communication probability, pathway network or ligand-receptor ", "significance test was performed." ), "", "FULL ATLAS:", paste0( nrow(atlas), " genes x ", ncol(atlas), " cells" ), paste0( "Time-course CellChat cohort (1/3/7 dpi, non-excluded groups): ", nrow(analysis_meta), " cells" ), "", "MICROGLIA LABEL SAFETY:", paste0( "Validated clean microglia: ", length(clean_microglia_cells), "; mapped to atlas: ", length(clean_microglia_in_atlas) ), paste0( "Frozen branch cells: ", length(frozen_cells), "; mapped to atlas: ", length(frozen_cells_in_atlas), "; all inside clean microglia: ", length(frozen_not_in_clean_microglia) == 0L ), paste( capture.output( print( branch_counts_report, row.names = FALSE ) ), collapse = "\n" ), "", "CELLCHAT LABELS:", paste0( "Non-microglia broad labels were reconstructed from the verified ", "Step1F cluster_provisional 0-18 mapping rather than the historical ", "cell-level broad_type_suggestion column." ), paste0( "All ", length( observed_cluster_keys ), " Step1F clusters and ", nrow( atlas_meta ), " atlas cells were assigned a reconstructed broad type." ), paste0( "Frozen senders: Microglia_Shared_prebranch, Microglia_Arm_1, ", "Microglia_Arm_2." ), paste0( "Validated resident microglia outside the frozen trajectory were ", "retained as Microglia_other." ), paste0( "Non-clean broad myeloid cells were retained neutrally as Other_myeloid." ), "", "TIMEPOINT ELIGIBILITY:", paste( capture.output( print( eligibility_table, row.names = FALSE ) ), collapse = "\n" ), "", "FORMAL BRANCH COMPARISON:", paste0( "Arm_1 and Arm_2 sender comparison is pre-specified as a formal ", "7 dpi analysis because branch identity is frozen from the Step5C-R ", "trajectory and late branch support is strongest at 7 dpi." ), paste0( "The 1 -> 3 -> 7 dpi analysis will evaluate overall pathway/network ", "transition using whatever groups meet the minimum-cell threshold ", "at each timepoint." ), "", "CELLCHAT ENVIRONMENT:", paste0( "CellChat version: ", cellchat_version ), paste0( "Required API pass: ", cellchat_api_pass ), paste0( "CellChatDB.mouse interactions: ", nrow(interaction_table) ), paste0( "Expanded database signaling genes represented in atlas: ", length(db_genes_present), " / ", length(db_signaling_genes), " (", round( 100 * db_overlap_fraction, 2 ), "%)" ), paste0( "Technical createCellChat/subsetData smoke test: ", smoke_test_message ), "", "FROZEN STEP8B SETTINGS:", paste0( "Run CellChat separately for 1 dpi, 3 dpi and 7 dpi; then merge." ), paste0( "Mouse database; all signaling categories; triMean; raw.use=TRUE; ", "population.size=FALSE; distance.use=FALSE; min.cells=", MIN_CELLS_PER_GROUP, "." ), paste0( "population.size=FALSE is deliberate because GSE162610 contains ", "cell-enriched libraries and observed cell proportions are not a clean ", "measure of tissue abundance." ), "", "STEP7G TARGET-LIGAND HYPOTHESIS CATALOG:", paste0( nrow(candidate_ligand_catalog), " TF-signature-ligand rows were found in CellChatDB.mouse and the atlas." ), paste0( "These rows only connect motif-supported candidate targets to known ", "ligand entities. They are not inferred interactions and do not prove ", "TF-to-ligand regulation." ), "", "FINAL DECISION:", paste( capture.output( print( final_decision, row.names = FALSE ) ), collapse = "\n" ), "", "INTERPRETATION BOUNDARY:", "Use Arm_1 and Arm_2 throughout Step8. Do not rename them repair/scar yet.", paste0( "CellChat will test branch-associated signaling differences, not ", "transcriptional or functional causality." ), paste0( "Top ligand-receptor results will require sample consistency, recipient ", "program support, later spatial proximity and external validation." ), "", "NEXT ACTION:", if ( identical( FINAL_STATUS, "PASS" ) ) {
-      paste0( "Proceed to Step8B: run separate 1 dpi, 3 dpi and 7 dpi CellChat ", "objects, merge them, and perform the formal 7 dpi Arm_1 vs Arm_2 ", "outgoing-signaling comparison." )
-    } else {
-      paste0( "Review the failed Step8A decision rows before running CellChat. ", "Do not start full inference until the label/package/input issue is resolved." )
-    },
-    "", "PRIMARY OUTPUTS:", paste0( "Step1F cluster reconstruction audit: ", safe_path(CLUSTER_RECONSTRUCTION_FILE) ), paste0( "Cell metadata: ", safe_path(CELL_METADATA_FILE) ), paste0( "Group x time counts: ", safe_path(GROUP_TIME_COUNT_FILE) ), paste0( "Candidate regulon-ligand catalog: ", safe_path(CANDIDATE_LIGAND_FILE) ), paste0( "Input manifest RDS: ", safe_path(MANIFEST_RDS_FILE) ), "", "KEY OUTPUTS:", "1) reports/Step8A_report.txt", "2) tables/03_cellchat_group_counts_by_timepoint.csv", "3) tables/04_cellchat_group_counts_by_sample.csv", "4) tables/06_candidate_regulon_ligand_catalog.tsv", "5) tables/08_final_decision.csv", "======================================================================"
-  )
-  writeLines( report_lines, con = REPORT_FILE, useBytes = TRUE )
   capture.output( sessionInfo(), file = SESSION_FILE )
-  msg("")
-  msg("==============================================================")
-  msg("GSE162610 STEP 8A COMPLETE")
-  msg("==============================================================")
-  msg("Status: ", FINAL_STATUS)
-  msg("Report: ", safe_path(REPORT_FILE))
-  msg("Manifest: ", safe_path(MANIFEST_RDS_FILE))
-  msg("")
-  msg("Key outputs:")
-  msg("1) reports/Step8A_report.txt")
-  msg("2) tables/03_cellchat_group_counts_by_timepoint.csv")
-  msg("3) tables/04_cellchat_group_counts_by_sample.csv")
-  msg("4) tables/06_candidate_regulon_ligand_catalog.tsv")
-  msg("5) tables/08_final_decision.csv")
   invisible( manifest )
 }
 STEP8A_RESULT <- tryCatch( run_step8A(), error = function(e) {
-    error_lines <- c( "======================================================================", "GSE162610 | STEP 8A ERROR", "======================================================================", paste0( "Time: ", timestamp() ), paste0( "Message: ", conditionMessage(e) ), "", paste0( "Failed call: ", paste( deparse( conditionCall(e) ), collapse = " " ) ), "", "Do not rerun earlier Step7 analyses.", "Fix only the Step8A input/package/metadata issue reported above." )
+    error_lines <- c( "======================================================================", "GSE162610 | STEP 8A ERROR", "======================================================================", paste0( "Time: ", timestamp() ), paste0( "Message: ", conditionMessage(e) ), "", paste0( "Failed call: ", paste( deparse( conditionCall(e) ), collapse = " " ) ), "", "rerun earlier Step7 analyses.", "Fix only the Step8A input/package/metadata issue reported above." )
     writeLines( error_lines, con = ERROR_FILE, useBytes = TRUE )
-    message( paste( error_lines, collapse = "\n" ) )
     stop( e )
   }
 )

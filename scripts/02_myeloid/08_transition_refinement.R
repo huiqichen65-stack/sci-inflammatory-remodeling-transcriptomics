@@ -43,10 +43,6 @@ comparison_tile_cols <- c( "Early 1 dpi vs Homeostatic"              = "#8DD3C7"
 stage_cols <- c( "Early_activation" = "#FC8D62", "Transition_3dpi"  = "#8DA0CB", "Late_DAM_7dpi"    = "#E78AC3" )
 comparison_point_cols <- c( "C1_Early_vs_Homeostatic" = "#D95F02", "C2_Transition_vs_Early"  = "#7570B3", "C3_DAM_vs_Transition"    = "#1B9E77" )
 hm_colors <- colorRampPalette( c("#2166AC", "#F7F7F7", "#B2182B") )(101)
-message("====================================================")
-message("GSE162610 Step 3E | non-cycling transition refinement")
-message("====================================================")
-message("Reading: ", input_rds)
 obj <- readRDS(input_rds)
 if (!inherits(obj, "Seurat")) stop("输入对象不是 Seurat object。")
 DefaultAssay(obj) <- "RNA"
@@ -68,7 +64,7 @@ write.csv( state_summary, file.path(tab_dir, "01_step3E_state_summary.csv"), row
 state_audit <- obj[[]] %>% dplyr::filter(!is.na(step3E_state)) %>% dplyr::count(step3E_state, timepoint, sample_id, step3A_cluster_r04, name = "n_cells")
 write.csv( state_audit, file.path(tab_dir, "02_step3E_state_cell_audit.csv"), row.names = FALSE )
 if (any(state_summary$n_cells < 100)) {
-  stop("至少一个Step3E state细胞数 <100，See output")
+  stop("至少一个Step3E state细胞数 <100，Check")
 }
 if (any(state_summary$n_samples < 2)) {
   stop("至少一个Step3E state来自 <2个biological samples，不宜继续比较。")
@@ -110,7 +106,6 @@ deg_list <- list()
 for (nm in names(comparisons)) {
   case <- unname(comparisons[[nm]]["case"])
   ref  <- unname(comparisons[[nm]]["ref"])
-  message("DEG: ", comparison_display[[nm]])
   dd <- run_deg(obj_stage, case = case, ref = ref)
   dd$comparison <- nm
   dd$comparison_display <- comparison_display[[nm]]
@@ -185,7 +180,6 @@ stage_gene_lists <- list( Early_activation = early_sig$gene, Transition_3dpi  = 
 go_all <- list()
 kegg_all <- list()
 for (stage_nm in names(stage_gene_lists)) {
-  message("GO/KEGG ORA: ", stage_nm)
   id_map <- symbol_to_entrez(stage_gene_lists[[stage_nm]])
   if (nrow(id_map) < 10) {
     warning(stage_nm, ": mapped genes <10; ORA skipped.")
@@ -235,7 +229,6 @@ make_ranked_entrez <- function(deg_df) {
 gsea_kegg_all <- list()
 gsea_go_all <- list()
 for (nm in names(deg_list)) {
-  message("GSEA: ", comparison_display[[nm]])
   rank_list <- make_ranked_entrez(deg_list[[nm]])
   if (length(rank_list) < 100) {
     warning(nm, ": rank list <100; GSEA skipped.")
@@ -276,7 +269,6 @@ make_gsea_plot( gsea_go_combined, "Step 3E GSEA GO-BP overview", file.path(fig_d
 pseudobulk_run <- FALSE
 pb_deg_list <- list()
 if (requireNamespace("edgeR", quietly = TRUE)) {
-  message("edgeR detected: running pseudobulk validation...")
   get_counts <- function(sobj) {
     x <- tryCatch(GetAssayData(sobj, assay = "RNA", layer = "counts"), error = function(e) NULL)
     if (is.null(x)) x <- tryCatch(GetAssayData(sobj, assay = "RNA", slot = "counts"), error = function(e) NULL)
@@ -337,7 +329,6 @@ if (requireNamespace("edgeR", quietly = TRUE)) {
     case <- unname(comparisons[[nm]]["case"])
     ref  <- unname(comparisons[[nm]]["ref"])
     pb <- tryCatch( run_pb(case, ref, nm), error = function(e) {
-        message( "Pseudobulk edgeR failed for ", nm, ": ", conditionMessage(e) )
         NULL
       }
     )
@@ -348,7 +339,6 @@ if (requireNamespace("edgeR", quietly = TRUE)) {
   }
   if (length(pb_deg_list) == length(comparisons)) pseudobulk_run <- TRUE
 } else {
-  message("edgeR not installed: pseudobulk skipped safely.")
 }
 pb_concordance <- data.frame()
 if (length(pb_deg_list) > 0) {
@@ -369,51 +359,12 @@ if (length(pb_deg_list) > 0) {
 saveRDS( obj_stage, file.path(out_dir, "GSE162610_step3E_noncycling_transition_refined.rds") )
 report_file <- file.path(out_dir, "17_STEP3E_noncycling_transition_refinement_report.txt")
 sink(report_file)
-cat("GSE162610 Step 3E | non-cycling transition refinement\n")
-cat("====================================================\n\n")
-cat("Input RDS:\n", input_rds, "\n\n", sep = "")
-cat("Selected states:\n")
 print(state_summary)
-cat("\nState cell audit (top rows):\n")
 print(utils::head(state_audit, 20))
-cat("\nPairwise comparisons:\n")
-cat("C1 Early_activated_1dpi vs Homeostatic_root\n")
-cat("C2 Shared_transition_3dpi vs Early_activated_1dpi\n")
-cat("C3 Established_DAM_7dpi vs Shared_transition_3dpi\n")
-cat("\nDEG count summary:\n")
 print(deg_summary)
-cat("\nSignature summary:\n")
 print(sig_summary)
-cat("\nGO rows: ", nrow(go_combined), "\n", sep = "")
-cat("KEGG rows: ", nrow(kegg_combined), "\n", sep = "")
-cat("GSEA GO rows: ", nrow(gsea_go_combined), "\n", sep = "")
-cat("GSEA KEGG rows: ", nrow(gsea_kegg_combined), "\n", sep = "")
-cat("Pseudobulk run: ", pseudobulk_run, "\n", sep = "")
 if (nrow(pb_concordance) > 0) {
   pb_summary <- pb_concordance %>% dplyr::group_by(comparison) %>% dplyr::summarise( n_genes = dplyr::n(), direction_concordance = mean(direction_concordant, na.rm = TRUE), .groups = "drop" )
-  cat("\nCell vs pseudobulk direction concordance:\n")
   print(pb_summary)
 }
-cat("\nIMPORTANT\n")
-cat("1. This step refines the shared activated/DAM-like transition after removing the dominant whole-timepoint cell-cycle effect.\n")
-cat("2. No repair/scar labels are assigned here.\n")
-cat("3. No Monocle is run here.\n")
-cat("4. All figures in this script use explicit colors (not black defaults).\n")
-cat("5. Review C2 and C3 carefully before Step 4.\n")
 sink()
-message("====================================================")
-message("STEP 3E COMPLETE")
-message("Results: ", out_dir)
-message("")
-message("ALL FIGURES IN THIS VERSION USE EXPLICIT COLORS.")
-message("Multi-volcano red/blue fix applied.")
-message("")
-message("Key outputs:")
-message("1) figures/02_step3E_multiVolcano_colored.pdf")
-message("2) figures/03_step3E_signature_heatmap_colored.pdf")
-message("3) figures/04_step3E_GO_BP_overview_colored.pdf （若生成）")
-message("4) figures/06_step3E_GSEA_KEGG_overview_colored.pdf （若生成）")
-message("5) tables/09_step3E_signature_summary.csv")
-message("6) figures/08_step3E_cell_vs_pseudobulk_concordance_colored.pdf （若edgeR已运行）")
-message("7) 17_STEP3E_noncycling_transition_refinement_report.txt")
-message("====================================================")

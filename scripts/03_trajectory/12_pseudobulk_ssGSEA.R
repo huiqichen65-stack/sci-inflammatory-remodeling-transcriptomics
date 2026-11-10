@@ -37,9 +37,6 @@ suppressPackageStartupMessages({
   library(ggplot2)
   library(patchwork)
 })
-msg <- function(...) {
-  cat( sprintf("[%s] ", format(Sys.time(), "%H:%M:%S")), ..., "\n", sep = "" )
-}
 capture_table <- function(x) {
   paste( capture.output( print( tibble::as_tibble(x), n = Inf, width = Inf ) ), collapse = "\n" )
 }
@@ -74,16 +71,13 @@ row_zscore <- function(mat) {
 run_ssgsea_compatible <- function( expression_matrix, gene_sets) {
   exports <- getNamespaceExports( "GSVA" )
   if ("ssgseaParam" %in% exports) {
-    msg( "Using current GSVA ssgseaParam() interface." )
     param <- GSVA::ssgseaParam( exprData = as.matrix(expression_matrix), geneSets = gene_sets, minSize = MIN_DETECTED_GENES, maxSize = MAX_GENESET_SIZE, alpha = 0.25, normalize = TRUE )
     serial_param <- BiocParallel::SerialParam( progressbar = FALSE )
     ans <- tryCatch( GSVA::gsva( param, verbose = FALSE, BPPARAM = serial_param ), error = function(e) {
-        msg( "GSVA call with BPPARAM failed; retrying serial default: ", conditionMessage(e) )
         GSVA::gsva( param, verbose = FALSE )
       }
     )
   } else {
-    msg( "Using legacy GSVA direct ssGSEA interface." )
     ans <- GSVA::gsva( expr = as.matrix(expression_matrix), gset.idx.list = gene_sets, method = "ssgsea", kcdf = "Gaussian", abs.ranking = TRUE, min.sz = MIN_DETECTED_GENES, max.sz = MAX_GENESET_SIZE, ssgsea.norm = TRUE, parallel.sz = 1, verbose = FALSE )
   }
   as.matrix(ans)
@@ -103,9 +97,6 @@ get_go_gene_sets <- function( specifications, expressed_genes) {
   )
   list( gene_sets = gene_sets, mapping = mapping )
 }
-msg("====================================================")
-msg("GSE162610 Step 6E | pseudobulk ssGSEA")
-msg("====================================================")
 if (!file.exists(INPUT_STEP6A)) {
   stop( paste0( "找不到Step6A结果：", INPUT_STEP6A ), call. = FALSE )
 }
@@ -148,7 +139,6 @@ if ( any( sample_branch_counts$n_branches != 2 ) ) {
 }
 pb_meta <- pb_meta |> dplyr::arrange( sample, branch )
 pb_logcpm <- pb_logcpm[ , pb_meta$pb_group, drop = FALSE ]
-msg( "Pseudobulk matrix: ", nrow(pb_logcpm), " genes x ", ncol(pb_logcpm), " sample-branch profiles" )
 print( pb_meta[ , required_meta_cols, drop = FALSE ] )
 go_specs <- tibble::tribble( ~GO_ID,      ~program,                         ~category,                 ~expected_direction, "GO:0006119", "Oxidative_phosphorylation",      "Energy_metabolism",       "Arm_1", "GO:0042775", "Mitochondrial_ATP_synthesis",    "Energy_metabolism",       "Arm_1", "GO:0006909", "Phagocytosis",                   "Clearance_lysosome",       "Arm_1", "GO:0006911", "Phagocytosis_engulfment",        "Clearance_lysosome",       "Arm_1", "GO:0007040", "Lysosome_organization",          "Clearance_lysosome",       "Arm_1", "GO:0016042", "Lipid_catabolic_process",        "Lipid_handling",           "Arm_1", "GO:0033344", "Cholesterol_efflux",              "Lipid_handling",           "Arm_1", "GO:0042060", "Wound_healing",                  "Tissue_support",           "Arm_1", "GO:0001525", "Angiogenesis",                   "Tissue_support",           "Arm_1", "GO:0006954", "Inflammatory_response",          "Inflammation",             "Arm_2", "GO:0001816", "Cytokine_production",            "Inflammation",             "Arm_2", "GO:0033209", "TNF_mediated_signaling",         "Inflammation",             "Arm_2", "GO:0051092", "NFkB_activation",                "Inflammation",             "Arm_2", "GO:0032496", "Response_to_LPS",                "Innate_immune_response",    "Arm_2", "GO:0006956", "Complement_activation",          "Innate_immune_response",    "Arm_2", "GO:0097190", "Apoptotic_signaling",            "Stress_cell_death",        "Arm_2", "GO:0006979", "Response_to_oxidative_stress",   "Stress_cell_death",        "Arm_2", "GO:0030198", "Extracellular_matrix_organization", "Matrix_TGFb",           "Arm_2", "GO:0007179", "TGFb_receptor_signaling",        "Matrix_TGFb",              "Arm_2" )
 go_data <- get_go_gene_sets( specifications = go_specs, expressed_genes = rownames(pb_logcpm) )
@@ -175,15 +165,13 @@ gene_set_audit <- tibble::tibble( program = names(gene_sets_all), detected_genes
 print( gene_set_audit |> dplyr::select( program, category, detected_genes, retained_for_ssGSEA ) )
 gene_sets_use <- gene_sets_all[ gene_set_audit$program[ gene_set_audit$retained_for_ssGSEA ] ]
 if (length(gene_sets_use) < 8) {
-  stop( paste0( "Only ", length(gene_sets_use), " gene sets passed the detected-size criterion; do not continue." ), call. = FALSE )
+  stop( paste0( "Only ", length(gene_sets_use), " gene sets passed the detected-size criterion; continue." ), call. = FALSE )
 }
-msg( "Running ssGSEA for ", length(gene_sets_use), " pre-specified programs..." )
 ssgsea_scores <- run_ssgsea_compatible( expression_matrix = pb_logcpm, gene_sets = gene_sets_use )
 if ( !all( colnames(pb_logcpm) %in% colnames(ssgsea_scores) ) ) {
-  stop( "ssGSEA score columns do not match the input pseudobulk profiles.", call. = FALSE )
+  stop( "ssGSEA score columns match the input pseudobulk profiles.", call. = FALSE )
 }
 ssgsea_scores <- ssgsea_scores[ , colnames(pb_logcpm), drop = FALSE ]
-msg( "ssGSEA complete: ", nrow(ssgsea_scores), " programs x ", ncol(ssgsea_scores), " pseudobulks" )
 score_long <- as.data.frame( t(ssgsea_scores) ) |> tibble::rownames_to_column( "pb_group" ) |> tidyr::pivot_longer( cols = -pb_group, names_to = "program", values_to = "ssGSEA_score" ) |> dplyr::left_join( pb_meta |> dplyr::select( pb_group, sample, branch ), by = "pb_group" ) |> dplyr::left_join( program_metadata, by = "program" ) |> dplyr::group_by( program ) |> dplyr::mutate( centered_score = ssGSEA_score - mean( ssGSEA_score, na.rm = TRUE ) ) |> dplyr::ungroup()
 score_wide <- score_long |> dplyr::select( program, category, expected_direction, sample, branch, ssGSEA_score ) |> tidyr::pivot_wider( names_from = branch, values_from = ssGSEA_score )
 required_score_cols <- c( "Arm_1", "Arm_2" )
@@ -245,19 +233,4 @@ saveRDS( result_object, OUT_RDS, compress = TRUE )
 robust_programs <- program_summary |> dplyr::filter( same_direction_all_samples ) |> dplyr::arrange( dplyr::desc( abs( mean_Arm_1_minus_Arm_2 ) ) )
 expected_supported <- program_summary |> dplyr::filter( expected_direction != "Neutral", same_direction_all_samples, observed_direction == expected_direction ) |> dplyr::arrange( category, dplyr::desc( abs( mean_Arm_1_minus_Arm_2 ) ) )
 discordant_programs <- program_summary |> dplyr::filter( !same_direction_all_samples ) |> dplyr::arrange( category, program )
-report_lines <- c( "======================================================================", "GSE162610 | STEP 6E REPORT", "7 dpi sample-level pseudobulk ssGSEA", "======================================================================", "", "FORMAL POSITION:", "Step6E scores pre-specified branch-independent programs in the four", "7 dpi sample x branch pseudobulk profiles.", "Arm_1/Arm_2 DEGs were not used to construct these gene sets.", "", "INPUT:", paste0( "Expression matrix: ", nrow(pb_logcpm), " genes x ", ncol(pb_logcpm), " pseudobulks" ), paste0( "Biological samples: ", paste( levels(pb_meta$sample), collapse = ", " ) ), "", "METHOD:", "ssGSEA was run on Step6A TMM-normalized logCPM.", paste0( "GSVA version: ", as.character( utils::packageVersion("GSVA") ) ), "Current ssgseaParam() interface was used when available.", "GO functional sets were obtained from local mouse GOALL annotation.", "Homeostatic/DAM-like panels are descriptive state-context signatures.", "", "STATISTICAL LIMITATION:", "Only two 7 dpi biological samples are available.", "No formal sample-level p-values were calculated.", "Primary robustness is defined as the same Arm_1-Arm_2 direction in both", "biological samples.", "", "GENE-SET AUDIT:", capture_table( gene_set_audit |> dplyr::select( program, category, expected_direction, detected_genes, retained_for_ssGSEA ) ), "", "PROGRAM DIRECTION SUMMARY:", capture_table( program_summary ), "", "SAME-DIRECTION PROGRAMS:", capture_table( robust_programs ), "", "PRE-SPECIFIED DIRECTION SUPPORTED:", capture_table( expected_supported ), "", "DIRECTIONALLY DISCORDANT PROGRAMS:", capture_table( discordant_programs ), "", "INTERPRETATION RULE:", "1. Prioritize within-sample paired direction over absolute score magnitude.", "2. Require the same direction in both biological samples.", "3. Interpret coherent program families, not one isolated gene set.", "4. State-context signatures do not independently prove repair/scar function.", "5. Do not use ssGSEA alone to assign terminal fate names.", "", "STEP6E PASS CRITERIA:", "1. Adequate detected gene-set sizes.", "2. Key programs show the same Arm_1/Arm_2 direction in both samples.", "3. Arm_2 inflammatory programs and/or Arm_1 metabolic/clearance programs", "   agree with Step6A/Step6C-R without using their DEGs as score genes.", "4. Major conclusions are based on program families.", "", "STATUS:", "After Step6E interpretation, integrate all Step6 evidence and proceed to", "Step7 pySCENIC regulon discovery.", "", "OUTPUTS:", OUT_FIG1, OUT_FIG2, OUT_FIG3, OUT_FIG4, OUT_XLSX, OUT_RDS, OUT_REP, OUT_SESS )
-writeLines( report_lines, OUT_REP, useBytes = TRUE )
 writeLines( capture.output( sessionInfo() ), OUT_SESS, useBytes = TRUE )
-msg("====================================================")
-msg("STEP 6E COMPLETE")
-msg("====================================================")
-msg( "Gene sets retained: ", length(gene_sets_use) )
-msg( "Programs with same direction in both samples: ", sum( program_summary$same_direction_all_samples, na.rm = TRUE ), "/", nrow(program_summary) )
-msg( "Programs matching pre-specified direction: ", sum( program_summary$matches_expected_direction & program_summary$expected_direction != "Neutral", na.rm = TRUE ) )
-msg("")
-msg("Key outputs:")
-msg("1) figures/Fig6E_01_pseudobulk_ssGSEA_heatmap.pdf")
-msg("2) figures/Fig6E_02_paired_branch_scores.pdf")
-msg("3) figures/Fig6E_03_within_sample_branch_effects.pdf")
-msg("4) figures/Fig6E_04_program_direction_summary.pdf")
-msg("5) Step6E_report.txt")

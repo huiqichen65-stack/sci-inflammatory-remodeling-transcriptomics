@@ -36,23 +36,13 @@ if (file.exists(run_log)) {
   file.remove(run_log)
 }
 output_object_path <- file.path( rds_dir, "GSE234774_step10D_major_lineage_annotation_evidence_BPCells.rds" )
-log_message <- function(...) {
-  message_text <- paste0(...)
-  timestamp <- format( Sys.time(), "%Y-%m-%d %H:%M:%S" )
-  line <- paste0( "[", timestamp, "] ", message_text )
-  cat(line, "\n")
-  cat( line, "\n", file = run_log, append = TRUE )
-}
 write_csv_safe <- function( x, filename ) {
   path <- file.path( tables_dir, filename )
   utils::write.csv( x, path, row.names = FALSE, na = "" )
-  log_message( "Wrote: ", path )
   invisible(path)
 }
 stop_with_report <- function(reason) {
   report_path <- file.path( output_dir, "10_STEP10D_FINAL_REPORT.txt" )
-  report <- c( "GSE234774 STEP 10D MARKER-FIRST MAJOR-LINEAGE ANNOTATION", "============================================================", paste0( "Run time: ", format( Sys.time(), "%Y-%m-%d %H:%M:%S" ) ), paste0( "Output directory: ", output_dir ), "", "FINAL DECISION: STOP", "", paste0( "Reason: ", reason ), "", "Do not freeze major-lineage labels or extract resident microglia." )
-  writeLines( report, report_path, useBytes = TRUE )
   stop( reason, call. = FALSE )
 }
 safe_package_version <- function(package_name) {
@@ -113,7 +103,6 @@ safe_matrix_zscore_by_gene <- function(expression_matrix) {
   zscores[ !is.finite( zscores ) ] <- 0
   zscores
 }
-log_message( "Starting package preflight." )
 required_packages <- c( "Matrix", "data.table", "ggplot2", "patchwork", "scales", "Seurat", "SeuratObject" )
 missing_packages <- required_packages[ !vapply( required_packages, requireNamespace, quietly = TRUE, FUN.VALUE = logical(1) ) ]
 if (length(missing_packages) > 0L) {
@@ -133,7 +122,6 @@ write_csv_safe( package_versions, "00_package_versions.csv" )
 if (!file.exists( input_object_path )) {
   stop_with_report( paste0( "Input Step 10C object not found: ", input_object_path ) )
 }
-log_message( "Loading Step 10C comparison object." )
 obj <- readRDS( input_object_path )
 if (!inherits( obj, "Seurat" )) {
   stop_with_report( "Input RDS is not a Seurat object." )
@@ -204,7 +192,6 @@ if ( any( panel_availability$present_n < 2L ) ) {
   failed_panels <- panel_availability$panel[ panel_availability$present_n < 2L ]
   stop_with_report( paste0( "Fewer than two markers were resolved for panel(s): ", paste( failed_panels, collapse = ", " ), "." ) )
 }
-log_message( "Calculating curated marker expression and detection using all singlets." )
 all_present_curated_features <- unique( unlist( marker_panels_present, use.names = FALSE ) )
 cluster_factor <- factor( as.character( obj@meta.data[ , FROZEN_CLUSTER_COLUMN ] ), levels = cluster_levels )
 cluster_index <- as.integer( cluster_factor )
@@ -216,7 +203,7 @@ curated_counts <- SeuratObject::LayerData( object = obj, assay = "RNA", layer = 
 curated_data <- methods::as( curated_data, "dgCMatrix" )
 curated_counts <- methods::as( curated_counts, "dgCMatrix" )
 if ( !identical( colnames( curated_data ), colnames(obj) ) || !identical( colnames( curated_counts ), colnames(obj) ) ) {
-  stop_with_report( "Curated expression matrices do not align with the Seurat cell order." )
+  stop_with_report( "Curated expression matrices align with the Seurat cell order." )
 }
 sum_expression_by_cluster <- as.matrix( curated_data %*% cluster_indicator )
 mean_expression_by_cluster <- sweep( sum_expression_by_cluster, MARGIN = 2L, STATS = cluster_sizes, FUN = "/" )
@@ -291,7 +278,6 @@ for (panel_name in rownames( panel_score_matrix )) {
   output_column <- paste0( "score_", panel_name )
   cluster_review_table[ , output_column ] <- panel_score_matrix[ panel_name, cluster_review_table$cluster ]
 }
-log_message( "Running FindAllMarkers on downsampled cells per frozen cluster." )
 set.seed(SEED)
 all_markers <- Seurat::FindAllMarkers( object = obj, assay = "RNA", slot = "data", only.pos = TRUE, test.use = "wilcox", logfc.threshold = MARKER_LOGFC_THRESHOLD, min.pct = MARKER_MIN_PCT, min.diff.pct = MARKER_MIN_DIFF_PCT, return.thresh = MARKER_RETURN_P_ADJ, max.cells.per.ident = MAX_CELLS_PER_CLUSTER_FOR_MARKERS, random.seed = SEED, densify = FALSE, verbose = TRUE )
 if ( is.null( all_markers ) || nrow( all_markers ) == 0L ) {
@@ -308,7 +294,6 @@ fold_change_column <- fold_change_column[[1L]]
 all_markers$cluster <- as.character( all_markers$cluster )
 all_markers_path <- file.path( tables_dir, "03_all_positive_cluster_markers.csv.gz" )
 data.table::fwrite( all_markers, file = all_markers_path, sep = ",", quote = TRUE, na = "NA", compress = "gzip" )
-log_message( "Wrote: ", all_markers_path )
 marker_table <- data.table::as.data.table( all_markers )
 marker_table[ , marker_is_mt_ribo_hb := grepl( "^(mt-|Rpl|Rps|Hb[ab])", gene, ignore.case = TRUE ) ]
 marker_table_rankable <- marker_table[ marker_is_mt_ribo_hb == FALSE ]
@@ -344,7 +329,6 @@ if ( anyNA( obj$major_lineage_candidate ) || anyNA( obj$major_lineage_candidate_
   stop_with_report( "Review-only candidate labels were not mapped to every nucleus." )
 }
 obj@misc$GSE234774_step10D <- list( input_object = normalizePath( input_object_path, winslash = "/", mustWork = TRUE ), frozen_reduction = FROZEN_REDUCTION, frozen_umap = FROZEN_UMAP, frozen_cluster_column = FROZEN_CLUSTER_COLUMN, frozen_resolution = 0.2, cluster_count = EXPECTED_N_CLUSTERS, marker_assay = "RNA", marker_layer = data_layer_name, marker_test = "wilcox", max_cells_per_cluster = MAX_CELLS_PER_CLUSTER_FOR_MARKERS, marker_logfc_threshold = MARKER_LOGFC_THRESHOLD, candidate_labels_frozen = FALSE, resident_microglia_frozen = FALSE, author_labels_used_for_assignment = FALSE, harmony_used_for_expression = FALSE, arm1_arm2_scoring_run = FALSE, completed_at = as.character( Sys.time() ) )
-log_message( "Creating major-lineage marker figures." )
 neural_glial_requested <- marker_panels_present[ c( "Astrocyte", "Oligodendrocyte", "OPC", "Ependymal", "Neuron", "Schwann_cell" ) ]
 vascular_stromal_requested <- marker_panels_present[ c( "Endothelial", "Pericyte", "Vascular_smooth_muscle", "Fibroblast" ) ]
 immune_requested <- marker_panels_present[ c( "Resident_microglia", "Monocyte_macrophage", "Border_associated_macrophage", "Neutrophil", "Dendritic", "T_cell", "NK_cell", "B_cell" ) ]
@@ -357,7 +341,6 @@ print( Seurat::DotPlot( object = obj, features = neural_glial_plot_panels, assay
 print( Seurat::DotPlot( object = obj, features = vascular_stromal_plot_panels, assay = "RNA", group.by = FROZEN_CLUSTER_COLUMN, cluster.idents = FALSE, dot.scale = 6 ) + Seurat::RotatedAxis() + ggplot2::labs( title = "Vascular and stromal marker evidence", x = NULL, y = "Frozen Harmony cluster" ) + ggplot2::theme( axis.text.x = ggplot2::element_text( size = 8 ) ) )
 print( Seurat::DotPlot( object = obj, features = immune_plot_panels, assay = "RNA", group.by = FROZEN_CLUSTER_COLUMN, cluster.idents = FALSE, dot.scale = 6 ) + Seurat::RotatedAxis() + ggplot2::labs( title = "Immune and myeloid marker evidence", x = NULL, y = "Frozen Harmony cluster" ) + ggplot2::theme( axis.text.x = ggplot2::element_text( size = 8 ) ) )
 grDevices::dev.off()
-log_message( "Wrote: ", major_dotplot_path )
 candidate_levels <- unique( cluster_review_table$top_panel )
 obj$major_lineage_candidate <- factor( obj$major_lineage_candidate, levels = sort( candidate_levels ) )
 obj$major_lineage_candidate_confidence <- factor( obj$major_lineage_candidate_confidence, levels = c( "HIGH", "MODERATE", "AMBIGUOUS" ) )
@@ -380,8 +363,6 @@ grDevices::pdf( myeloid_pdf_path, width = 20, height = 11, onefile = TRUE )
 print( Seurat::DotPlot( object = obj, features = myeloid_plot_panels, assay = "RNA", group.by = FROZEN_CLUSTER_COLUMN, cluster.idents = FALSE, dot.scale = 6 ) + Seurat::RotatedAxis() + ggplot2::labs( title = paste( "Resident microglia versus infiltrating/BAM/neutrophil/DC", "marker evidence" ), x = NULL, y = "Frozen Harmony cluster" ) + ggplot2::theme( axis.text.x = ggplot2::element_text( size = 8 ) ) )
 print( Seurat::FeaturePlot( object = obj, features = myeloid_feature_resolved, reduction = FROZEN_UMAP, order = TRUE, raster = TRUE, ncol = 4 ) & ggplot2::theme( plot.title = ggplot2::element_text( size = 10 ) ) )
 grDevices::dev.off()
-log_message( "Wrote: ", myeloid_pdf_path )
-log_message( "Saving Step 10D annotation-evidence object." )
 saveRDS( obj, output_object_path, compress = FALSE )
 reload_obj <- tryCatch( readRDS( output_object_path ), error = function(error_object) {
     error_object
@@ -407,34 +388,12 @@ candidate_summary <- candidate_summary[ order( -n_cells, top_panel ) ]
 candidate_lines <- paste0( candidate_summary$top_panel, ": ", candidate_summary$n_clusters, " clusters; ", candidate_summary$n_cells, " nuclei; confidence H/M/A=", candidate_summary$high_confidence, "/", candidate_summary$moderate_confidence, "/", candidate_summary$ambiguous )
 myeloid_review_summary <- data.table::as.data.table( cluster_review_table )[ , .( clusters = paste( cluster, collapse = "," ), n_clusters = .N, n_cells = sum( n_cells ) ), by = myeloid_review_class ]
 myeloid_lines <- paste0( myeloid_review_summary$myeloid_review_class, ": clusters=", myeloid_review_summary$clusters, "; n_clusters=", myeloid_review_summary$n_clusters, "; nuclei=", myeloid_review_summary$n_cells )
-report_lines <- c( "GSE234774 STEP 10D MARKER-FIRST MAJOR-LINEAGE ANNOTATION", "============================================================", paste0( "Run time: ", format( Sys.time(), "%Y-%m-%d %H:%M:%S" ) ), paste0( "Input object: ", input_object_path ), paste0( "Output directory: ", output_dir ), "", paste0( "FINAL DECISION: ", final_decision ), "", "FROZEN CLUSTERING INPUT", paste0( "Reduction: ", FROZEN_REDUCTION ), paste0( "UMAP: ", FROZEN_UMAP ), paste0( "Cluster column: ", FROZEN_CLUSTER_COLUMN ), paste0( "Clusters: ", length( cluster_levels ) ), "", "MARKER DISCOVERY", "Assay: RNA", paste0( "Expression layer: ", data_layer_name ), "Test: Wilcoxon rank-sum; positive markers only", paste0( "Maximum marker-test cells per cluster: ", MAX_CELLS_PER_CLUSTER_FOR_MARKERS ), paste0( "log2FC threshold: ", MARKER_LOGFC_THRESHOLD ), paste0( "Minimum detected fraction: ", MARKER_MIN_PCT ), "Harmony embeddings were not used as expression values.", "", "REVIEW-ONLY CANDIDATE SUMMARY", candidate_lines, "", "MYELOID REVIEW SUMMARY", myeloid_lines, "", "INTERPRETATION BOUNDARIES", "1. Candidate labels are generated from cluster marker-panel scores and are not final annotations.", "2. Top positive markers, DotPlots, FeaturePlots, UMAP location, and author-label cross-checks must be reviewed together.", "3. Activated resident microglia can lose homeostatic markers; low P2ry12/Tmem119 alone is not sufficient to call infiltrating macrophages.", "4. Monocyte/macrophage, BAM, neutrophil, and dendritic evidence must be considered before freezing a resident-microglia set.", "5. Ambiguous myeloid clusters must remain separate rather than being forced into resident or infiltrating labels.", "6. No cluster was removed, and no resident-microglia object was frozen.", "7. No GSE162610 Arm_1/Arm_2 signature was scored or redefined.", "", "PRIMARY EVIDENCE OBJECT", output_object_path, "", "NEXT DECISION AFTER FILE REVIEW", "Freeze major-lineage labels cluster by cluster.", "Then construct a clean resident-microglia candidate set while retaining an explicit ambiguous-myeloid compartment." )
 if ( final_decision == "STOP" ) {
   failed <- audit_checks[ audit_checks$required_for_pass & audit_checks$status != "PASS", , drop = FALSE ]
-  report_lines <- c( report_lines, "", "STOP REASONS" )
   for ( index in seq_len( nrow( failed ) ) ) {
-    report_lines <- c( report_lines, paste0( index, ". ", failed$check[ index ], " -- ", failed$detail[ index ] ) )
   }
 }
 report_path <- file.path( output_dir, "10_STEP10D_FINAL_REPORT.txt" )
-writeLines( report_lines, report_path, useBytes = TRUE )
-log_message( "Final decision: ", final_decision )
-log_message( "Final report: ", report_path )
-cat("\n")
-cat("============================================================\n")
-cat("GSE234774 STEP 10D COMPLETED\n")
-cat( "FINAL DECISION:", final_decision, "\n" )
-cat( "Output:", output_dir, "\n" )
-cat("Primary evidence object:\n")
-cat( " ", output_object_path, "\n", sep = "" )
-cat("Key outputs:\n")
-cat(" 1) figures/01_major_lineage_marker_DotPlots.pdf\n")
-cat(" 2) figures/02_UMAP_candidate_annotation_review.pdf\n")
-cat(" 3) figures/03_myeloid_resident_infiltrating_marker_review.pdf\n")
-cat(" 4) tables/04_top30_positive_markers_by_cluster.csv\n")
-cat(" 5) tables/05_cluster_annotation_review_table.csv\n")
-cat(" 6) tables/09_STEP10D_audit_checks.csv\n")
-cat(" 7) 10_STEP10D_FINAL_REPORT.txt\n")
-cat("============================================================\n")
 if ( final_decision == "STOP" ) {
   stop( "GSE234774 Step 10D decision is STOP. Review the final report.", call. = FALSE )
 }

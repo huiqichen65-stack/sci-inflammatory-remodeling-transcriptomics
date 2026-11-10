@@ -1,7 +1,6 @@
 rm(list = ls())
 gc()
 options( stringsAsFactors = FALSE, width = 240, warn = 1, timeout = 86400 )
-cat("R parser check PASS: the complete Step 7F file was parsed by source().\n")
 set.seed(20260802)
 PROJECT_ROOT <- Sys.getenv("GLIA_PROJECT_ROOT", unset = normalizePath(".", winslash = "/", mustWork = FALSE))
 EXPECTED_CELLS <- 4203L
@@ -68,10 +67,6 @@ if (!requireNamespace("data.table", quietly = TRUE)) {
 }
 timestamp <- function() {
   format( Sys.time(), "%Y-%m-%d %H:%M:%S" )
-}
-msg <- function(...) {
-  cat( sprintf( "[%s] %s\n", timestamp(), paste0(..., collapse = "") ) )
-  flush.console()
 }
 safe_path <- function(path) {
   normalizePath( path, winslash = "/", mustWork = FALSE )
@@ -354,11 +349,6 @@ classify_regulon_timing <- function( row, formal_terminal_reference ) {
   "ambiguous_timing"
 }
 overall_start <- Sys.time()
-msg("==============================================================")
-msg("GSE162610 Step 7F | regulon fate-timing analysis")
-msg("==============================================================")
-msg("Formal timing model is centered on Y_29.")
-msg("Retained Step5B-R pseudotime is used as an orthogonal descriptive audit.")
 required_files <- c( METADATA_FILE, AUC_RDS_FILE, STEP7D_DECISION_FILE, STEP7E_RDS_FILE, STEP7E_DECISION_FILE )
 missing_files <- required_files[ !file.exists( required_files ) ]
 if (length(missing_files) > 0L) {
@@ -376,7 +366,6 @@ if (!step7d_pass) {
 if (!step7e_pass) {
   abort_step( "Step 7E does not have an Overall PASS decision." )
 }
-msg("Loading the continuous regulon AUC matrix...")
 auc_all <- readRDS( AUC_RDS_FILE )
 if ( !is.matrix(auc_all) || nrow(auc_all) != EXPECTED_REGULONS || ncol(auc_all) != EXPECTED_CELLS ) {
   abort_step( paste0( "Unexpected AUCell dimensions: ", paste( dim(auc_all), collapse = " x " ) ) )
@@ -456,7 +445,6 @@ write_csv( metadata_audit, METADATA_AUDIT_FILE )
 pre_grid <- seq( min( metadata$Y29_signed_progress[ metadata$step5CR_state == "Shared_prebranch" ] ), 0, length.out = PRE_GRID_N )
 post_grid <- seq( 0, max( metadata$Y29_postbranch_progress ), length.out = POST_GRID_N )
 model_start <- Sys.time()
-msg( "Fitting Y_29 timing models for ", length(primary_regulons), " primary regulons..." )
 regulon_fit_list <- vector( "list", length(primary_regulons) )
 names(regulon_fit_list) <- primary_regulons
 regulon_rows <- vector( "list", length(primary_regulons) )
@@ -470,7 +458,6 @@ for ( regulon_index in seq_along(primary_regulons) ) {
     regulon_rows[[regulon_index]] <- data.frame( regulon = regulon_name, model_success = FALSE, model_error = fit_result$error, progressive_shape_p = NA_real_, branch_deviation_p = NA_real_, adjusted_r_squared = NA_real_, residual_sd = NA_real_, prebranch_common_delta = NA_real_, prebranch_common_delta_z = NA_real_, Y29_difference = NA_real_, Y29_difference_z = NA_real_, late_difference = NA_real_, terminal_effect_z = NA_real_, late_direction = NA_character_, onset_threshold = NA_real_, onset_progress_raw = NA_real_, stringsAsFactors = FALSE )
   }
   if ( regulon_index %% 25L == 0L ) {
-    msg( "  completed ", regulon_index, "/", length(primary_regulons) )
   }
 }
 regulon_master <- do.call( rbind, regulon_rows )
@@ -482,8 +469,6 @@ model_elapsed <- as.numeric( difftime( Sys.time(), model_start, units = "secs" )
 model_success_fraction <- mean( regulon_master$model_success )
 model_audit <- data.frame( metric = c( "primary_regulons", "successful_models", "failed_models", "model_success_fraction", "progressive_q_le_0.05", "branch_deviation_q_le_0.05", "qualified_onset_detected", "Arm_1_late_direction", "Arm_2_late_direction", "model_elapsed_seconds" ), value = c( nrow(regulon_master), sum(regulon_master$model_success), sum(!regulon_master$model_success), model_success_fraction, sum( regulon_master$progressive_shape_q <= PROGRESSIVE_Q_MAX, na.rm = TRUE ), sum( regulon_master$branch_deviation_q <= BRANCH_Q_MAX, na.rm = TRUE ), sum( is.finite( regulon_master$onset_progress_qualified ) ), sum( regulon_master$late_direction == "Arm_1", na.rm = TRUE ), sum( regulon_master$late_direction == "Arm_2", na.rm = TRUE ), model_elapsed ), stringsAsFactors = FALSE )
 write_csv( model_audit, MODEL_AUDIT_FILE )
-msg( "Regulon models complete in ", format_duration(model_elapsed), "; success fraction=", round( model_success_fraction, 4 ), "." )
-msg("Fitting Step6B gene-program timing models...")
 step6b_module_names <- sub( "^step6B_mean_norm_score__", "", module_score_columns )
 step6b_score_matrix <- t( as.matrix( metadata[ , module_score_columns, drop = FALSE ] ) )
 rownames(step6b_score_matrix) <- step6b_module_names
@@ -573,7 +558,6 @@ if (length(formal_reference_values) > 0L) {
 step6b_timing$formal_terminal_reference_progress <- formal_terminal_reference
 step6b_timing$terminal_reference_source <- terminal_reference_source
 write_tsv( step6b_timing, TERMINAL_MODULE_FILE )
-msg("Fitting Step7E CSI regulatory-module timing models...")
 csi_module_matrix <- as.matrix( step7e$CSI_module_raw_activity )
 if ( ncol(csi_module_matrix) != EXPECTED_CELLS ) {
   abort_step( "Step 7E CSI module activity has an unexpected cell count." )
@@ -678,7 +662,6 @@ key_candidate_table <- regulon_master[ regulon_master$TF %in% KEY_TFS, , drop = 
 key_candidate_table$priority_group <- ifelse( key_candidate_table$TF %in% ARM2_PRIORITY_TFS, "Arm2_priority", ifelse( key_candidate_table$TF %in% TRANSITION_STRESS_TFS, "transition_stress", "Arm1_identity_retention" ) )
 key_candidate_table <- key_candidate_table[ order( match( key_candidate_table$priority_group, c( "Arm2_priority", "transition_stress", "Arm1_identity_retention" ) ), is.na( key_candidate_table$onset_progress_qualified ), key_candidate_table$onset_progress_qualified, key_candidate_table$progressive_shape_q ), , drop = FALSE ]
 write_tsv( key_candidate_table, KEY_CANDIDATE_FILE )
-msg("Calculating retained-pseudotime correlations...")
 pseudotime_rows <- list()
 for ( regulon_index in seq_along(primary_regulons) ) {
   regulon_name <- primary_regulons[ regulon_index ]
@@ -690,7 +673,6 @@ for ( regulon_index in seq_along(primary_regulons) ) {
 }
 pseudotime_correlations <- do.call( rbind, pseudotime_rows )
 write_tsv( pseudotime_correlations, PSEUDOTIME_COR_FILE )
-msg("Building sample-balanced trajectory bins for key analytes...")
 key_regulons <- key_candidate_table$regulon
 key_regulon_matrix <- auc_primary[ key_regulons, , drop = FALSE ]
 key_regulon_bins <- build_sample_balanced_bins( key_regulon_matrix, metadata, "regulon_AUC" )
@@ -698,7 +680,6 @@ step6b_bins <- build_sample_balanced_bins( step6b_score_matrix, metadata, "Step6
 csi_bins <- build_sample_balanced_bins( csi_module_matrix, metadata, "CSI_regulatory_module" )
 all_bins <- data.table::rbindlist( list( key_regulon_bins, step6b_bins, csi_bins ), use.names = TRUE, fill = TRUE )
 data.table::fwrite( all_bins, file = BINNED_TRAJECTORY_FILE, sep = "\t", quote = FALSE, na = "", compress = "gzip" )
-msg("Generating Step 7F figures...")
 key_plot_table <- key_candidate_table[ key_candidate_table$model_success, , drop = FALSE ]
 key_plot_table <- key_plot_table[ order( match( key_plot_table$priority_group, c( "Arm2_priority", "transition_stress", "Arm1_identity_retention" ) ), is.na( key_plot_table$onset_progress_qualified ), key_plot_table$onset_progress_qualified ), , drop = FALSE ]
 grDevices::pdf( FIG_KEY_CURVES, width = 12, height = 9, onefile = TRUE )
@@ -818,39 +799,5 @@ top_early_arm2 <- regulon_master[ grepl( "^early_.*Arm2", regulon_master$timing_
 top_early_arm2 <- top_early_arm2[ order( top_early_arm2$onset_progress_qualified, -abs( top_early_arm2$terminal_effect_z ) ), , drop = FALSE ]
 top_early_arm1 <- regulon_master[ regulon_master$timing_classification == "early_Arm1_identity_retention_candidate_not_fate_driver", , drop = FALSE ]
 top_early_arm1 <- top_early_arm1[ order( top_early_arm1$onset_progress_qualified, -abs( top_early_arm1$terminal_effect_z ) ), , drop = FALSE ]
-report_lines <- c( "======================================================================", "GSE162610 | STEP 7F REPORT", "Regulon AUC fate-timing around Y_29", "======================================================================", "", paste0( "Generated: ", timestamp() ), paste0( "Project root: ", PROJECT_ROOT ), paste0( "Overall Step 7F status: ", FINAL_STATUS ), "", "FORMAL SCOPE:", paste0( "Step 7F fitted branchpoint-centered continuous-AUC models for all ", EXPECTED_PRIMARY_REGULONS, " primary regulons." ), paste0( "The formal model matched the Step5C-R structure: sample + common ", "signed-progress spline + anchored branch contrast + branch-by-postprogress ", "spline interaction." ), paste0( "Retained Step5B-R pseudotime was used as an orthogonal descriptive ", "correlation and sample-balanced trajectory audit." ), "", "FROZEN INPUT:", paste0( "Cells: ", EXPECTED_CELLS, " (Shared_prebranch=116; Arm_1=2,289; Arm_2=1,798)" ), paste0( "Primary regulons: ", EXPECTED_PRIMARY_REGULONS ), paste0( "Step6B module-score columns: ", length( module_score_columns ) ), "", "MODEL QUALITY:", paste0( "Successful regulon models: ", sum( regulon_master$model_success ), "/", EXPECTED_PRIMARY_REGULONS, " (", round( 100 * model_success_fraction, 1 ), "%)" ), paste0( "Progressive-shape q<=0.05: ", sum( regulon_master$progressive_shape_q <= PROGRESSIVE_Q_MAX, na.rm = TRUE ) ), paste0( "Stable branch-deviation q<=0.05: ", sum( regulon_master$branch_deviation_q <= BRANCH_Q_MAX, na.rm = TRUE ) ), paste0( "Qualified onset detected: ", sum( is.finite( regulon_master$onset_progress_qualified ) ) ), "", "ONSET DEFINITION:", paste0( "The onset was the earliest run of at least ", MIN_CONSECUTIVE_GRID_POINTS, " post-Y_29 grid points with the terminal direction and an absolute ", "Arm_1-minus-Arm_2 difference exceeding max(", ONSET_RELATIVE_TERMINAL_FRACTION, " x late difference, ", ONSET_RESIDUAL_SD_FRACTION, " x residual SD)." ), paste0( "A qualified onset additionally required progressive q<=", PROGRESSIVE_Q_MAX, ", branch-deviation q<=", BRANCH_Q_MAX, " and absolute late effect >=", MIN_TERMINAL_EFFECT_Z, " residual SD." ), "", "TERMINAL PROGRAM REFERENCE:", paste0( "Reference source: ", terminal_reference_source ), paste0( "Earliest formal terminal-program onset: ", ifelse( is.finite( formal_terminal_reference ), round( formal_terminal_reference, 4 ), "NA" ) ), paste( capture.output( print( step6b_timing, row.names = FALSE ) ), collapse = "\n" ), "", "TIMING CLASSIFICATION COUNTS:", paste( capture.output( print( classification_counts, row.names = FALSE ) ), collapse = "\n" ), "", "EARLY ARM_2 FATE-TIMING CANDIDATES:", if ( nrow(top_early_arm2) > 0L ) {
-    paste( capture.output( print( utils::head( top_early_arm2[ , c( "TF", "regulon", "onset_progress_qualified", "terminal_effect_z", "prebranch_common_trend", "seven_dpi_direction_consistent", "CSI_module", "timing_classification" ), drop = FALSE ], 30L ), row.names = FALSE ) ), collapse = "\n" )
-  } else {
-    "None met all Step 7F timing criteria."
-  },
-  "", "EARLY ARM_1 / IDENTITY-RETENTION CANDIDATES:", if ( nrow(top_early_arm1) > 0L ) {
-    paste( capture.output( print( utils::head( top_early_arm1[ , c( "TF", "regulon", "onset_progress_qualified", "terminal_effect_z", "prebranch_common_trend", "seven_dpi_direction_consistent", "CSI_module", "timing_classification" ), drop = FALSE ], 30L ), row.names = FALSE ) ), collapse = "\n" )
-  } else {
-    "None met the early identity-retention timing criteria."
-  },
-  "", "KEY CANDIDATE AUDIT:", paste( capture.output( print( key_candidate_table[ , c( "priority_group", "TF", "regulon", "RSS_preferred_state", "late_direction", "progressive_shape_q", "branch_deviation_q", "onset_progress_qualified", "onset_category", "terminal_effect_z", "prebranch_common_trend", "lead_before_formal_terminal_program", "seven_dpi_direction_consistent", "sample_direction_consistency_fraction", "CSI_module", "timing_classification" ), drop = FALSE ], row.names = FALSE ) ), collapse = "\n" ), "", "FINAL DECISION:", paste( capture.output( print( final_decision, row.names = FALSE ) ), collapse = "\n" ), "", "INTERPRETATION BOUNDARY:", paste0( "An early Step 7F candidate has timing evidence only. It must not yet be ", "called a fate driver. Step 7G must show direction-consistent overlap of ", "its motif-supported targets with progressive genes, strong progressive ", "genes, dynamic modules and branch markers." ), paste0( "Arm_1 candidates remain identity-retention or metabolic/lipid-handling ", "candidates unless a distinct Arm_1 terminal program is demonstrated." ), "", "NEXT ACTION:", if ( FINAL_STATUS == "PASS" ) {
-    paste0( "Proceed to Step 7G: intersect regulon targets with the 212 progressive ", "genes, 172 strong progressive genes, Step6B dynamic modules and Step6A ", "high-confidence branch markers." )
-  } else {
-    paste0( "Do not proceed to Step 7G until the failed Step 7F audit domain is resolved." )
-  },
-  "", "PRIMARY OUTPUTS:", paste0( "Regulon timing master: ", safe_path( REGULON_MASTER_FILE ) ), paste0( "Key candidate timing: ", safe_path( KEY_CANDIDATE_FILE ) ), paste0( "Terminal module timing: ", safe_path( TERMINAL_MODULE_FILE ) ), paste0( "Complete Step 7F RDS: ", safe_path( RESULT_RDS_FILE ) ), "", "KEY OUTPUTS:", "1) reports/Step7F_report.txt", "2) tables/04_key_candidate_fate_timing.tsv", "3) tables/05_Step6B_terminal_module_timing.tsv", "4) figures/Fig7F_01_key_regulon_Y29_timing_curves.pdf", "5) tables/08_final_decision.csv"
-)
-writeLines( report_lines, con = REPORT_FILE, useBytes = TRUE )
 writeLines( capture.output( sessionInfo() ), con = SESSION_FILE, useBytes = TRUE )
 gc()
-msg("==============================================================")
-msg("STEP 7F COMPLETE")
-msg("==============================================================")
-msg("Step 7F status: ", FINAL_STATUS)
-msg( "Successful regulon models: ", sum( regulon_master$model_success ), "/", EXPECTED_PRIMARY_REGULONS )
-msg( "Qualified regulon onsets: ", sum( is.finite( regulon_master$onset_progress_qualified ) ) )
-msg( "Formal terminal-program reference: ", ifelse( is.finite( formal_terminal_reference ), round( formal_terminal_reference, 4 ), "NA" ) )
-msg( "Total time: ", format_duration( overall_elapsed ) )
-msg( "Report: ", safe_path( REPORT_FILE ) )
-msg("")
-msg("Key outputs:")
-msg("1) reports/Step7F_report.txt")
-msg("2) tables/04_key_candidate_fate_timing.tsv")
-msg("3) tables/05_Step6B_terminal_module_timing.tsv")
-msg("4) figures/Fig7F_01_key_regulon_Y29_timing_curves.pdf")
-msg("5) tables/08_final_decision.csv")

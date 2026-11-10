@@ -52,11 +52,6 @@ OUTPUT_RUN_LOG <- file.path(
 )
 dir.create(OUTPUT_DIR, recursive = TRUE, showWarnings = FALSE)
 run_log <- character()
-log_message <- function(...) {
-  text <- paste0(...)
-  cat(text, "\n")
-  run_log <<- c(run_log, text)
-}
 write_log <- function() {
   writeLines(run_log, OUTPUT_RUN_LOG, useBytes = TRUE)
 }
@@ -104,30 +99,9 @@ required_columns_present <- function(table, required_columns, table_name) {
   invisible(TRUE)
 }
 write_fatal_report <- function(error_message) {
-  report <- c(
-    "============================================================",
-    "GSE234774 Step 12A2 asset manifest repair",
-    "============================================================",
-    paste0("Generated: ", format(Sys.time(), "%Y-%m-%d %H:%M:%S")),
-    paste0("Input directory: ", INPUT_DIR),
-    paste0("Output directory: ", OUTPUT_DIR),
-    "",
-    "FINAL_STATUS: STOP",
-    "",
-    "FATAL ERROR",
-    paste0("- ", error_message),
-    "",
-        "============================================================"
-  )
-  writeLines(report, OUTPUT_FINAL_REPORT, useBytes = TRUE)
-  log_message("FATAL ERROR: ", error_message)
   write_log()
 }
 main <- function() {
-  log_message("============================================================")
-  log_message("Step 12A2 asset manifest repair started")
-  log_message("Generated: ", format(Sys.time(), "%Y-%m-%d %H:%M:%S"))
-  log_message("============================================================")
   required_files <- c(
     asset_manifest = INPUT_ASSET_MANIFEST,
     position_audit = INPUT_POSITION_AUDIT,
@@ -238,7 +212,7 @@ main <- function() {
     expected_capture_areas
   )) {
     stop(
-      "The Step 12A2 tables do not contain the expected 12 spatial 2D ",
+      "The Step 12A2 tables contain the expected 12 spatial 2D ",
       "capture areas. Observed: ",
       paste(sort(asset_manifest$capture_area_id), collapse = " | ")
     )
@@ -505,149 +479,7 @@ main <- function() {
   if (length(original_status_line) == 0L) {
     original_status_line <- "FINAL_STATUS: <not found in original report>"
   }
-  report <- c(
-    "============================================================",
-    "GSE234774 Step 12A2 asset manifest repair",
-    "============================================================",
-    paste0("Generated: ", format(Sys.time(), "%Y-%m-%d %H:%M:%S")),
-    paste0("Original Step 12A2 directory: ", INPUT_DIR),
-    paste0("Repair output directory: ", OUTPUT_DIR),
-    "",
-    paste0("FINAL_STATUS: ", final_status),
-    "",
-    "REPAIR SCOPE",
-    "- This was a table-level status repair only.",
-    "- No expression matrix was reread.",
-    "- RAW.tar was not extracted again.",
-    "- No Seurat object was created.",
-    "- No normalization, clustering, RCTD, target scoring, or spatial statistics were run.",
-    "",
-    "ORIGINAL RESULT",
-    paste0("- ", original_status_line[1L]),
-    "- Original C19 reported complete=0/12.",
-    paste0(
-      "- Original manifest position_readable=FALSE despite direct successful ",
-      "position audits in ",
-      original_false_fail_count,
-      "/12 capture areas."
-    ),
-    "",
-    "DIRECT POSITION EVIDENCE",
-    paste0(
-      "- position_read_status=PASS: ",
-      sum(position_audit$position_read_status == "PASS"),
-      "/",
-      nrow(position_audit)
-    ),
-    paste0(
-      "- unique position barcodes: ",
-      sum(position_audit$position_barcode_unique),
-      "/",
-      nrow(position_audit)
-    ),
-    paste0(
-      "- valid processed barcode prefixes: ",
-      sum(position_audit$processed_prefix_valid),
-      "/",
-      nrow(position_audit)
-    ),
-    paste0(
-      "- processed-to-position overlap=100%: ",
-      sum(position_audit$processed_in_position_fraction == 1),
-      "/",
-      nrow(position_audit)
-    ),
-    paste0(
-      "- processed-to-in-tissue overlap=100%: ",
-      sum(position_audit$processed_in_tissue_fraction == 1),
-      "/",
-      nrow(position_audit)
-    ),
-    "",
-    "REPAIRED RESULT",
-    paste0(
-      "- Capture areas repaired: ",
-      repaired_count,
-      "/",
-      nrow(repaired_manifest)
-    ),
-    paste0(
-      "- position_readable=TRUE: ",
-      sum(repaired_manifest$position_readable),
-      "/",
-      nrow(repaired_manifest)
-    ),
-    paste0(
-      "- linkage_complete=TRUE: ",
-      sum(repaired_manifest$linkage_complete),
-      "/",
-      nrow(repaired_manifest)
-    ),
-    "- C19 has been changed from FAIL to PASS based on direct position-read and barcode-overlap evidence.",
-    "",
-    "REVIEW ITEMS",
-    if (nrow(review_items) > 0L) {
-      paste0(
-        "- ",
-        review_items$check_id,
-        ": ",
-        review_items$description,
-        " Action: ",
-        review_items$action_if_not_pass
-      )
-    } else {
-      "- None."
-    },
-    "",
-    "INTERPRETATION",
-    "- Step 12A2 is technically complete.",
-    "- The 12 processed spatial 2D capture areas have complete expression-coordinate-image-scalefactor linkage.",
-    "- The 36 condition-specific sections remain the section-level units defined in the repaired metadata audit.",
-    "- Age, severity, and treatment remain source-metadata review items and must not be invented.",
-    "",
-        paste(
-      "- Proceed to Step 12B: construct each capture-area spatial object",
-      "separately, attach the audited image/coordinate assets, and perform",
-      "section-aware technical QC."
-    ),
-    "",
-    "OUTPUTS",
-    "- 01_repaired_2d_capture_area_asset_manifest.csv",
-    "- 02_position_readability_repair_evidence.csv",
-    "- 09_STEP12A2_REPAIRED_audit_checks.csv",
-    "- 10_STEP12A2_REPAIRED_FINAL_REPORT.txt",
-    "============================================================"
-  )
-  writeLines(
-    report,
-    OUTPUT_FINAL_REPORT,
-    useBytes = TRUE
-  )
-  log_message("Original C19 status: ", original_c19$status)
-  log_message("Repaired C19 status: PASS")
-  log_message(
-    "Complete capture areas after repair: ",
-    sum(repaired_manifest$linkage_complete),
-    "/",
-    nrow(repaired_manifest)
-  )
-  log_message("FINAL_STATUS: ", final_status)
-  log_message("Output directory: ", OUTPUT_DIR)
   write_log()
-  cat("\n")
-  cat("============================================================\n")
-  cat("Step 12A2 asset manifest repair completed\n")
-  cat("FINAL_STATUS: ", final_status, "\n", sep = "")
-  cat(
-    "Complete capture areas: ",
-    sum(repaired_manifest$linkage_complete),
-    "/",
-    nrow(repaired_manifest),
-    "\n",
-    sep = ""
-  )
-  cat("Open first: ", OUTPUT_FINAL_REPORT, "\n", sep = "")
-  cat("============================================================\n")
   invisible(
     list(
       final_status = final_status,
@@ -661,9 +493,5 @@ tryCatch(
   main(),
   error = function(e) {
     write_fatal_report(conditionMessage(e))
-    message(
-      "Step 12A2 asset manifest repair stopped: ",
-      conditionMessage(e)
-    )
   }
 )

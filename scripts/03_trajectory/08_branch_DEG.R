@@ -46,9 +46,6 @@ suppressPackageStartupMessages({
   library(patchwork)
   library(edgeR)
 })
-msg <- function(...) {
-  cat( sprintf("[%s] ", format(Sys.time(), "%H:%M:%S")), ..., "\n", sep = "" )
-}
 capture_table <- function(x) {
   paste( capture.output( print( tibble::as_tibble(x), n = Inf, width = Inf ) ), collapse = "\n" )
 }
@@ -93,9 +90,6 @@ choose_umap <- function(obj) {
   }
   hit
 }
-msg("====================================================")
-msg("GSE162610 Step 6A | 7 dpi branch-specific DEG")
-msg("====================================================")
 if (!file.exists(INPUT_STEP5CR)) {
   stop( paste0("找不到Step5C-R结果：", INPUT_STEP5CR), call. = FALSE )
 }
@@ -113,7 +107,6 @@ if (length(missing_step5) > 0) {
 if ( !TIME_COL %in% colnames(obj[[]]) || !SAMPLE_COL %in% colnames(obj[[]]) ) {
   stop( "Seurat对象缺少timepoint或sample_id metadata。", call. = FALSE )
 }
-msg("Frozen Step5 branchpoint: ", step5cr$branchpoint)
 timepoint <- as.character( obj[[TIME_COL, drop = TRUE]] )
 names(timepoint) <- colnames(obj)
 sample_id <- as.character( obj[[SAMPLE_COL, drop = TRUE]] )
@@ -130,10 +123,6 @@ obj7$step6A_branch[colnames(obj7) %in% arm2_7] <- "Arm_2"
 obj7$step6A_branch <- factor( obj7$step6A_branch, levels = c("Arm_2", "Arm_1") )
 obj7$step6A_sample <- as.character( obj7[[SAMPLE_COL, drop = TRUE]] )
 cell_summary <- obj7[[]] |> tibble::rownames_to_column("cell") |> dplyr::count( step6A_sample, step6A_branch, name = "n_cells" )
-msg("7 dpi Arm_1 cells: ", length(arm1_7))
-msg("7 dpi Arm_2 cells: ", length(arm2_7))
-msg("7 dpi total branch cells: ", length(cells7))
-msg("Biological samples: ", paste(sort(unique(obj7$step6A_sample)), collapse = ", "))
 print(cell_summary)
 sample_branch_check <- cell_summary |> dplyr::group_by(step6A_sample) |> dplyr::summarise( n_branches = dplyr::n_distinct(step6A_branch), min_cells = min(n_cells), .groups = "drop" )
 if (any(sample_branch_check$n_branches < 2)) {
@@ -143,7 +132,6 @@ if (any(sample_branch_check$min_cells < 50)) {
   stop("At least one sample x branch group has <50 cells.", call. = FALSE)
 }
 UMAP_USE <- choose_umap(obj7)
-msg("Using validated UMAP: ", UMAP_USE)
 emb <- Seurat::Embeddings( obj7, reduction = UMAP_USE )
 umap_df <- tibble::tibble( cell = rownames(emb), UMAP_1 = emb[, 1], UMAP_2 = emb[, 2], branch = as.character(obj7$step6A_branch), sample = as.character(obj7$step6A_sample) )
 p1a <- ggplot2::ggplot( umap_df, ggplot2::aes( UMAP_1, UMAP_2, color = branch ) ) + ggplot2::geom_point( size = 0.65, alpha = 0.70 ) + ggplot2::labs( title = "7 dpi topology-defined terminal branches", subtitle = paste0( "Frozen from Step 5; branchpoint = ", step5cr$branchpoint ), color = "Branch" ) + ggplot2::theme_classic(base_size = 11)
@@ -151,14 +139,9 @@ p1b <- ggplot2::ggplot( umap_df, ggplot2::aes( UMAP_1, UMAP_2, color = branch ) 
 grDevices::pdf( OUT_FIG1, width = 12, height = 6, useDingbats = FALSE )
 print(p1a | p1b)
 grDevices::dev.off()
-msg("Running cell-level Wilcoxon: Arm_1 vs Arm_2...")
 cell_deg <- run_cell_deg( obj7, ident1 = "Arm_1", ident2 = "Arm_2" )
 cell_deg <- cell_deg |> dplyr::mutate( cell_significant = BH_FDR <= CELL_FDR_MAX & abs(avg_log2FC) >= CELL_ABS_LOG2FC_MIN, cell_direction = dplyr::case_when( avg_log2FC > 0 ~ "Arm_1", avg_log2FC < 0 ~ "Arm_2", TRUE ~ "Neutral" ) )
-msg( "Cell-level significant genes: ", sum(cell_deg$cell_significant, na.rm = TRUE) )
-msg( "  Arm_1-up: ", sum( cell_deg$cell_significant & cell_deg$avg_log2FC > 0, na.rm = TRUE ) )
-msg( "  Arm_2-up: ", sum( cell_deg$cell_significant & cell_deg$avg_log2FC < 0, na.rm = TRUE ) )
 samples7 <- sort( unique(obj7$step6A_sample) )
-msg( "Running replicate-specific Wilcoxon analyses: ", paste(samples7, collapse = ", ") )
 replicate_deg_list <- list()
 for (smp in samples7) {
   cells_smp <- colnames(obj7)[ obj7$step6A_sample == smp ]
@@ -175,14 +158,13 @@ replicate_deg_long <- dplyr::bind_rows( replicate_deg_list )
 replicate_fc_wide <- replicate_deg_long |> dplyr::select( gene_id, sample, avg_log2FC ) |> tidyr::pivot_wider( names_from = sample, values_from = avg_log2FC, names_prefix = "repFC_" )
 rep_fc_cols <- grep( "^repFC_", colnames(replicate_fc_wide), value = TRUE )
 replicate_consistency <- replicate_fc_wide |> dplyr::rowwise() |> dplyr::mutate( n_rep_available = sum( is.finite( c_across( dplyr::all_of(rep_fc_cols) ) ) ), same_direction = n_rep_available == length(rep_fc_cols) && ( all( c_across( dplyr::all_of(rep_fc_cols) ) > 0 ) || all( c_across( dplyr::all_of(rep_fc_cols) ) < 0 ) ), all_rep_absFC_ge_0.10 = n_rep_available == length(rep_fc_cols) && all( abs( c_across( dplyr::all_of(rep_fc_cols) ) ) >= REPLICATE_ABS_LOG2FC_MIN ), min_abs_repFC = ifelse( n_rep_available > 0, min( abs( c_across( dplyr::all_of(rep_fc_cols) ) ), na.rm = TRUE ), NA_real_ ) ) |> dplyr::ungroup()
-msg("Building sample x branch raw-count pseudobulk...")
 obj7$step6A_pb_group <- paste0( "g", obj7$step6A_sample, "__", as.character(obj7$step6A_branch) )
 counts_mat <- tryCatch( Seurat::GetAssayData( obj7, assay = "RNA", layer = "counts" ), error = function(e) NULL )
 if (is.null(counts_mat)) {
   counts_mat <- Seurat::GetAssayData( obj7, assay = "RNA", slot = "counts" )
 }
 if (ncol(counts_mat) != ncol(obj7)) {
-  stop( "Raw-count matrix columns do not match the 7 dpi Seurat object.", call. = FALSE )
+  stop( "Raw-count matrix columns match the 7 dpi Seurat object.", call. = FALSE )
 }
 pb_group_vector <- as.character(obj7$step6A_pb_group)
 names(pb_group_vector) <- colnames(obj7)
@@ -204,15 +186,11 @@ rownames(pb_meta) <- pb_meta$pb_group
 if ( anyNA(pb_meta$sample) || anyNA(pb_meta$branch) ) {
   stop( "Failed to parse exact pseudobulk sample/branch labels.", call. = FALSE )
 }
-msg("Pseudobulk columns: ", ncol(pb_counts))
-msg( "Pseudobulk library sizes: ", paste( colnames(pb_counts), Matrix::colSums(pb_counts), sep = "=", collapse = "; " ) )
 print(pb_meta)
-msg("Running paired/sample-blocked edgeR: ~ sample + branch...")
 y <- edgeR::DGEList( counts = pb_counts )
 design <- stats::model.matrix( ~ sample + branch, data = pb_meta )
 rownames(design) <- pb_meta$pb_group
 keep <- edgeR::filterByExpr( y, design = design )
-msg( "Pseudobulk genes retained by filterByExpr: ", sum(keep), "/", length(keep) )
 y <- y[ keep, , keep.lib.sizes = FALSE ]
 y <- edgeR::calcNormFactors(y)
 pb_logcpm <- edgeR::cpm( y, log = TRUE, prior.count = 2 )
@@ -233,7 +211,6 @@ pb_deg <- tryCatch( {
   error = function(e) {
     pb_fit_ok <<- FALSE
     edgeR_method <<- "LRT_fallback"
-    msg( "QLF failed; trying edgeR GLM-LRT fallback: ", conditionMessage(e) )
     y2 <- edgeR::estimateDisp( y, design, robust = FALSE )
     fit <- edgeR::glmFit( y2, design )
     coef_name <- grep( "^branchArm_1$", colnames(design), value = TRUE )
@@ -247,7 +224,6 @@ pb_deg <- tryCatch( {
   }
 )
 pb_deg <- pb_deg |> dplyr::transmute( gene_id = as.character(gene_id), pb_logFC = as.numeric(logFC), pb_logCPM = as.numeric(logCPM), pb_PValue = as.numeric(PValue), pb_FDR = as.numeric(FDR), pb_direction = dplyr::case_when( pb_logFC > 0 ~ "Arm_1", pb_logFC < 0 ~ "Arm_2", TRUE ~ "Neutral" ), pb_strict = pb_FDR <= PB_FDR_STRICT & abs(pb_logFC) >= PB_ABS_LOG2FC_STRICT )
-msg( "edgeR pseudobulk strict genes (FDR<=", PB_FDR_STRICT, ", |logFC|>=", PB_ABS_LOG2FC_STRICT, "): ", sum(pb_deg$pb_strict, na.rm = TRUE) )
 pb_effect_list <- list()
 for (smp in levels(pb_meta$sample)) {
   c1 <- rownames(pb_meta)[ pb_meta$sample == smp & pb_meta$branch == "Arm_1" ]
@@ -267,10 +243,6 @@ highconf <- master |> dplyr::filter( high_confidence_branch_marker )
 strict_pb <- master |> dplyr::filter( strict_pseudobulk_supported )
 arm1_high <- highconf |> dplyr::filter( final_direction == "Arm_1-biased" )
 arm2_high <- highconf |> dplyr::filter( final_direction == "Arm_2-biased" )
-msg( "High-confidence branch markers: ", nrow(highconf) )
-msg( "  Arm_1-biased: ", nrow(arm1_high) )
-msg( "  Arm_2-biased: ", nrow(arm2_high) )
-msg( "Strict pseudobulk-supported: ", nrow(strict_pb) )
 volcano_tbl <- master |> dplyr::mutate( volcano_group = dplyr::case_when( high_confidence_branch_marker & cell_avg_log2FC > 0 ~ "Arm_1-biased high-confidence", high_confidence_branch_marker & cell_avg_log2FC < 0 ~ "Arm_2-biased high-confidence", cell_significant ~ "Cell-level only", TRUE ~ "Not significant" ), neglog10FDR = -log10( pmax( cell_BH_FDR, 1e-300 ) ) ) |> dplyr::filter( is.finite(cell_avg_log2FC), is.finite(neglog10FDR) )
 label_arm1 <- volcano_tbl |> dplyr::filter( volcano_group == "Arm_1-biased high-confidence", !technical_like ) |> dplyr::arrange( cell_BH_FDR, dplyr::desc(cell_avg_log2FC) ) |> dplyr::slice_head( n = TOP_LABEL_PER_DIRECTION )
 label_arm2 <- volcano_tbl |> dplyr::filter( volcano_group == "Arm_2-biased high-confidence", !technical_like ) |> dplyr::arrange( cell_BH_FDR, cell_avg_log2FC ) |> dplyr::slice_head( n = TOP_LABEL_PER_DIRECTION )
@@ -352,27 +324,4 @@ result_object <- list( step5_branchpoint = step5cr$branchpoint, arm1_7dpi_cells 
 saveRDS( result_object, OUT_RDS, compress = TRUE )
 top_arm1 <- arm1_high |> dplyr::filter(!technical_like) |> dplyr::select( gene_id, cell_avg_log2FC, cell_BH_FDR, min_abs_repFC, pb_logFC, pb_FDR, strict_pseudobulk_supported ) |> dplyr::slice_head(n = 30)
 top_arm2 <- arm2_high |> dplyr::filter(!technical_like) |> dplyr::select( gene_id, cell_avg_log2FC, cell_BH_FDR, min_abs_repFC, pb_logFC, pb_FDR, strict_pseudobulk_supported ) |> dplyr::slice_head(n = 30)
-report_lines <- c( "======================================================================", "GSE162610 | STEP 6A REPORT", "7 dpi Arm_1 vs Arm_2 branch-specific DEG", "======================================================================", "", "FORMAL POSITION:", "Step 6A is the first functional-comparison step after trajectory bifurcation.", "Repair/scar candidate scores were NOT used to select cells or DEGs.", "", "FROZEN TOPOLOGY:", paste0("Step5 branchpoint: ", step5cr$branchpoint), paste0("7 dpi Arm_1 cells: ", length(arm1_7)), paste0("7 dpi Arm_2 cells: ", length(arm2_7)), "", "BIOLOGICAL SAMPLE SUPPORT:", capture_table(cell_summary), "", "METHOD 1 | CELL-LEVEL:", "Seurat Wilcoxon Arm_1 vs Arm_2.", paste0( "Formal cell-level threshold: BH-FDR <= ", CELL_FDR_MAX, " and |avg_log2FC| >= ", CELL_ABS_LOG2FC_MIN ), paste0( "Cell-level significant genes: ", sum(master$cell_significant, na.rm = TRUE) ), "", "METHOD 2 | BIOLOGICAL-REPLICATE AUDIT:", "Arm_1 vs Arm_2 was repeated independently within each 7 dpi sample.", paste0( "High-confidence markers require the same direction in BOTH samples and ", "|sample-specific avg_log2FC| >= ", REPLICATE_ABS_LOG2FC_MIN, " in both." ), "", "METHOD 3 | SAMPLE-BLOCKED PSEUDOBULK:", "Raw counts were aggregated by biological sample x branch.", "edgeR design: ~ sample + branch.", paste0("edgeR method used: ", edgeR_method), "Because only two 7 dpi biological samples are available, pseudobulk p/FDR", "is treated as sensitivity support rather than the sole definition of truth.", "", "FINAL STEP6A EVIDENCE:", paste0( "High-confidence branch markers: ", nrow(highconf) ), paste0( "Arm_1-biased high-confidence genes: ", nrow(arm1_high) ), paste0( "Arm_2-biased high-confidence genes: ", nrow(arm2_high) ), paste0( "Strict pseudobulk-supported genes: ", nrow(strict_pb) ), "", "EVIDENCE CASCADE:", capture_table(evidence_counts), "", "TOP ARM_1-BIASED HIGH-CONFIDENCE GENES:", capture_table(top_arm1), "", "TOP ARM_2-BIASED HIGH-CONFIDENCE GENES:", capture_table(top_arm2), "", "INTERPRETATION RULE:", "At this step retain neutral names Arm_1-biased and Arm_2-biased.", "Do NOT rename them repair-biased/scar-biased until Step6 pathway/module", "analysis shows coherent functional separation.", "", "STATUS:", "After Step6A PASS, proceed to Step6B dynamic branch modules, then GO/KEGG/GSEA.", "", "FILES TO REVIEW:", OUT_FIG1, OUT_FIG2, OUT_FIG3, OUT_FIG4, OUT_FIG5, OUT_FIG6, OUT_XLSX, OUT_RDS, OUT_REP )
-writeLines( report_lines, OUT_REP, useBytes = TRUE )
 writeLines( capture.output(sessionInfo()), OUT_SESS, useBytes = TRUE )
-msg("====================================================")
-msg("STEP 6A COMPLETE")
-msg("====================================================")
-msg("7 dpi Arm_1 cells: ", length(arm1_7))
-msg("7 dpi Arm_2 cells: ", length(arm2_7))
-msg( "Cell-level significant genes: ", sum(master$cell_significant, na.rm = TRUE) )
-msg( "High-confidence branch markers: ", nrow(highconf) )
-msg( "Arm_1-biased high-confidence: ", nrow(arm1_high) )
-msg( "Arm_2-biased high-confidence: ", nrow(arm2_high) )
-msg( "Strict pseudobulk-supported genes: ", nrow(strict_pb) )
-msg("")
-msg("Key outputs:")
-msg("1) figures/Fig6A_01_7dpi_Arm1_Arm2_UMAP.pdf")
-msg("2) figures/Fig6A_02_celllevel_volcano.pdf")
-msg("3) figures/Fig6A_03_replicate_concordance.pdf")
-msg("4) figures/Fig6A_04_pseudobulk_MDS.pdf")
-msg("5) figures/Fig6A_05_highconfidence_pseudobulk_heatmap.pdf")
-msg("6) figures/Fig6A_06_evidence_cascade.pdf")
-msg("7) Step6A_report.txt")
-msg("")
-msg("精确基因列表见 Table6A_7dpi_branch_specific_DEG.xlsx")

@@ -10,11 +10,6 @@ dir.create(out_dir, recursive = TRUE, showWarnings = FALSE)
 dir.create(fig_dir, recursive = TRUE, showWarnings = FALSE)
 dir.create(tab_dir, recursive = TRUE, showWarnings = FALSE)
 log_file <- file.path(out_dir, "00_run_log.txt")
-log_msg <- function(...) {
-  x <- paste0(...)
-  cat(x, "\n")
-  cat( paste0(format(Sys.time(), "%Y-%m-%d %H:%M:%S"), " | ", x, "\n"), file = log_file, append = TRUE )
-}
 writeLines( paste0("GSE162610 Step 1C-v2 run started: ", Sys.time()), log_file )
 if (!file.exists(in_rds)) {
   stop("找不到 Step 1B 对象：\n", in_rds)
@@ -40,41 +35,28 @@ suppressPackageStartupMessages({
   library(scDblFinder)
   library(SummarizedExperiment)
 })
-log_msg("============================================================")
-log_msg("Step 1C-v2 | GSE162610 scDblFinder")
-log_msg("============================================================")
-log_msg("Reading Seurat object ...")
 pbmc <- readRDS(in_rds)
-log_msg( "Input object: ", nrow(pbmc), " genes x ", ncol(pbmc), " cells" )
 required_meta <- c( "sample_id", "timepoint", "nFeature_RNA", "nCount_RNA", "percent.mt", "percent.HB" )
 if (!all(required_meta %in% colnames(pbmc@meta.data))) {
   stop( "对象缺少 metadata：", paste( setdiff(required_meta, colnames(pbmc@meta.data)), collapse = ", " ) )
 }
 sample_ids <- sort(unique(as.character(pbmc$sample_id)))
-log_msg("Detected biological samples: ", length(sample_ids))
-log_msg(paste0("  ", sample_ids, collapse = "\n"))
 if (length(sample_ids) != 10) {
-  warning("当前不是预期的 10 个 sample_id，Check required")
+  warning("当前不是预期的 10 个 sample_id，Check")
 }
-log_msg("Extracting RNA counts ...")
 counts <- GetAssayData( object = pbmc, assay = "RNA", layer = "counts" )
-log_msg( "Counts matrix: ", nrow(counts), " genes x ", ncol(counts), " cells" )
 if (!identical(colnames(counts), colnames(pbmc))) {
   stop("Counts barcode 顺序与 Seurat 对象不一致。")
 }
-log_msg("Building SingleCellExperiment ...")
 sce <- SingleCellExperiment( assays = list(counts = counts) )
 colData(sce)$sample_id <- as.character(pbmc$sample_id)
 colData(sce)$timepoint <- as.character(pbmc$timepoint)
 rm(counts)
 gc()
-log_msg("Running scDblFinder by sample_id ...")
-log_msg("Doublet detection running.")
 t0 <- Sys.time()
 sce <- scDblFinder( sce, samples = "sample_id", clusters = TRUE, dbr = NULL, verbose = TRUE )
 t1 <- Sys.time()
 runtime_min <- as.numeric( difftime(t1, t0, units = "mins") )
-log_msg( "scDblFinder completed. Runtime = ", round(runtime_min, 2), " min" )
 needed_cols <- c( "scDblFinder.score", "scDblFinder.class" )
 if (!all(needed_cols %in% colnames(colData(sce)))) {
   stop( "scDblFinder 完成，但没有找到预期输出列：", paste( setdiff( needed_cols, colnames(colData(sce)) ), collapse = ", " ) )
@@ -82,7 +64,6 @@ if (!all(needed_cols %in% colnames(colData(sce)))) {
 df_score <- colData(sce)$scDblFinder.score
 df_class <- as.character( colData(sce)$scDblFinder.class )
 table_class <- table(df_class)
-log_msg( "Classification: ", paste( names(table_class), as.integer(table_class), collapse = " | " ) )
 if (!identical(colnames(sce), colnames(pbmc))) {
   stop("SCE barcode 顺序与 Seurat 对象不一致。")
 }
@@ -131,16 +112,6 @@ all_samples_preserved <- ( length(unique(pbmc_singlet$sample_id)) == length(uniq
 all_timepoints_preserved <- ( length( unique(as.character(pbmc_singlet$timepoint)) ) == length( unique(as.character(pbmc$timepoint)) ) )
 overall_doublet_pct <- round( 100 * (ncol(pbmc) - ncol(pbmc_singlet)) / ncol(pbmc), 2 )
 rate_warning <- any( summary_sample$detected_doublet_pct > 15 | summary_sample$detected_doublet_pct < 0.05 )
-report <- c( "============================================================", "GSE162610 STEP 1C-v2 | scDblFinder REPORT", "============================================================", paste0("Date: ", Sys.time()), paste0("Runtime (min): ", round(runtime_min, 2)), "", paste0("Input cells: ", ncol(pbmc)), paste0("Singlets retained: ", ncol(pbmc_singlet)), paste0( "Doublets removed: ", ncol(pbmc) - ncol(pbmc_singlet) ), paste0( "Overall detected doublet rate: ", overall_doublet_pct, "%" ), "", "Doublet rate by sample:", paste0( " ", summary_sample$sample_id, " | ", summary_sample$timepoint, " | total=", summary_sample$n_total, " | doublet=", summary_sample$n_doublet, " | rate=", summary_sample$detected_doublet_pct, "%" ), "", paste0( "All 10 samples preserved: ", all_samples_preserved ), paste0( "All 4 timepoints preserved: ", all_timepoints_preserved ), paste0( "Rate warning (>15% or <0.05% in any sample): ", rate_warning ), "", "IMPORTANT:", "scDblFinder was run with sample_id as independent capture.", "No formal downstream normalization/Harmony has been performed.", "", paste0( "STEP 1C PASS = ", all_samples_preserved && all_timepoints_preserved && !rate_warning ), "", "STATUS:", "Step 1D | Formal LogNormalize + HVG + PCA before Harmony.", "============================================================" )
-writeLines( report, file.path( out_dir, "04_STEP1C_scDblFinder_report.txt" ) )
-log_msg("Final report written.")
-log_msg( "Singlets retained: ", ncol(pbmc_singlet) )
-log_msg( "Overall doublet rate: ", overall_doublet_pct, "%" )
-cat("\n")
-cat(paste(report, collapse = "\n"))
-cat("\n\n")
 if ( all_samples_preserved && all_timepoints_preserved && !rate_warning ) {
-  cat("Step 1C-v2 完成，分析完成。\n")
 } else {
-  cat("Warning: Step 1C-v2 完成，但有结果需要人工复核。\n")
 }

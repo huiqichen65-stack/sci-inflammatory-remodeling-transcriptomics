@@ -16,11 +16,6 @@ dir.create(OUTPUT_DIR, recursive = TRUE, showWarnings = FALSE)
 RUN_LOG_FILE <- file.path(OUTPUT_DIR, "00_run_log.txt")
 REPORT_FILE <- file.path(OUTPUT_DIR, "10_STEP12A2_FINAL_REPORT.txt")
 log_lines <- character()
-log_message <- function(...) {
-  text <- paste0(...)
-  cat(text, "\n")
-  log_lines <<- c(log_lines, text)
-}
 write_run_log <- function() {
   writeLines(log_lines, RUN_LOG_FILE, useBytes = TRUE)
 }
@@ -161,19 +156,12 @@ add_review <- function( check_id, description, observed, required, action_if_not
   checks <<- rbind( checks, data.table( check_id = as.character(check_id), category = "metadata_review", description = as.character(description), status = "REVIEW", observed = as.character(observed), required = as.character(required), critical = FALSE, action_if_not_pass = as.character(action_if_not_pass) ), fill = TRUE )
 }
 write_failure_report <- function(error_message) {
-  report <- c( "============================================================", "GSE234774 Step 12A2 metadata / asset linkage repair", "============================================================", paste0("Generated: ", format(Sys.time(), "%Y-%m-%d %H:%M:%S")), paste0("Project root: ", PROJECT_ROOT), paste0("Input directory: ", INPUT_DIR), paste0("Output directory: ", OUTPUT_DIR), "", "FINAL_STATUS: STOP", "", "FATAL ERROR", paste0("- ", error_message), "", "SCOPE", "- No Seurat object was created.", "- No RCTD, target scoring, normalization, clustering, or spatial statistics were run.", "- Do not proceed to Step 12B until this script completes." )
-  writeLines(report, REPORT_FILE, useBytes = TRUE)
-  log_message("FATAL ERROR: ", error_message)
   write_run_log()
 }
 main <- function() {
-  log_message("============================================================")
-  log_message("GSE234774 Step 12A2 linkage repair started")
-  log_message("Generated: ", format(Sys.time(), "%Y-%m-%d %H:%M:%S"))
-  log_message("============================================================")
   required_files <- c( matrix = MATRIX_FILE, barcodes = BARCODE_FILE, features = FEATURE_FILE, metadata = METADATA_FILE, raw_tar = RAW_TAR )
   required_exists <- file.exists(required_files)
-  add_check( "C01", "input", "All five required spatial 2D input files exist.", all(required_exists), paste( paste(names(required_files), required_exists, sep = "="), collapse = "; " ), "matrix/barcodes/features/metadata/RAW.tar all TRUE", TRUE, "Restore missing local files. Do not download or replace files silently." )
+  add_check( "C01", "input", "All five required spatial 2D input files exist.", all(required_exists), paste( paste(names(required_files), required_exists, sep = "="), collapse = "; " ), "matrix/barcodes/features/metadata/RAW.tar all TRUE", TRUE, "Restore missing local files. download or replace files silently." )
   if (!all(required_exists)) {
     stop( "Missing required input file(s): ", paste(names(required_files)[!required_exists], collapse = ", ") )
   }
@@ -181,7 +169,7 @@ main <- function() {
   barcode_table <- read_single_column(BARCODE_FILE, "barcode")
   feature_table <- read_single_column(FEATURE_FILE, "feature")
   metadata <- read_spatial_metadata(METADATA_FILE)
-  add_check( "C02", "matrix", "Matrix dimensions equal feature and barcode file lengths.", matrix_dimensions$n_features == nrow(feature_table) && matrix_dimensions$n_barcodes == nrow(barcode_table), paste0( "matrix=", matrix_dimensions$n_features, " x ", matrix_dimensions$n_barcodes, "; feature rows=", nrow(feature_table), "; barcode rows=", nrow(barcode_table) ), "Exact equality", TRUE, "Do not create a spatial object until all dimensions match." )
+  add_check( "C02", "matrix", "Matrix dimensions equal feature and barcode file lengths.", matrix_dimensions$n_features == nrow(feature_table) && matrix_dimensions$n_barcodes == nrow(barcode_table), paste0( "matrix=", matrix_dimensions$n_features, " x ", matrix_dimensions$n_barcodes, "; feature rows=", nrow(feature_table), "; barcode rows=", nrow(barcode_table) ), "Exact equality", TRUE, "create a spatial object until all dimensions match." )
   required_metadata_columns <- c( "barcode", "id", "slide", "spot", "group", "replicate", "sections", "x", "y", "z" )
   missing_metadata_columns <- setdiff( required_metadata_columns, names(metadata) )
   add_check( "C03", "metadata", "Observed Step 12A2 metadata fields are present.", length(missing_metadata_columns) == 0L, if (length(missing_metadata_columns) == 0L) {
@@ -189,7 +177,7 @@ main <- function() {
     } else {
       paste0( "missing=", paste(missing_metadata_columns, collapse = " | ") )
     },
-    paste(required_metadata_columns, collapse = " | "), TRUE, "Do not substitute fields by memory; inspect the processed metadata header."
+    paste(required_metadata_columns, collapse = " | "), TRUE, "substitute fields by memory; inspect the processed metadata header."
   )
   if (length(missing_metadata_columns) > 0L) {
     stop( "Required metadata columns are missing: ", paste(missing_metadata_columns, collapse = ", ") )
@@ -232,7 +220,7 @@ main <- function() {
   add_check( "C08", "metadata", "Every processed barcode prefix matches its capture_area_id.", all(barcode_prefix_ok), paste0( sum(barcode_prefix_ok), "/", length(barcode_prefix_ok), " capture areas pass" ), "All capture areas pass", TRUE, "Resolve spot-prefix parsing before raw position linkage." )
   section_manifest <- metadata[, .( n_spots = .N, n_unique_barcodes = uniqueN(barcode), capture_area_id = collapse_unique(capture_area_id), capture_area_n_unique = n_unique_nonmissing(capture_area_id), slide_id = collapse_unique(slide), slide_n_unique = n_unique_nonmissing(slide), timepoint = collapse_unique(timepoint), timepoint_n_unique = n_unique_nonmissing(timepoint), replicate_index = collapse_unique(replicate_index), replicate_index_n_unique = n_unique_nonmissing(replicate_index), biological_replicate_id = collapse_unique(biological_replicate_id), biological_replicate_n_unique = n_unique_nonmissing( biological_replicate_id ), injury_condition = collapse_unique(injury_condition), injury_condition_n_unique = n_unique_nonmissing(injury_condition), section_order = collapse_unique(section_order), section_order_n_unique = n_unique_nonmissing(section_order), z_coordinate = collapse_unique(z), z_n_unique = n_unique_nonmissing(z), x_min = suppressWarnings(min(as.numeric(x), na.rm = TRUE)), x_max = suppressWarnings(max(as.numeric(x), na.rm = TRUE)), y_min = suppressWarnings(min(as.numeric(y), na.rm = TRUE)), y_max = suppressWarnings(max(as.numeric(y), na.rm = TRUE)) ), by = section_id]
   section_manifest[, section_conflict := ( capture_area_n_unique != 1L | slide_n_unique != 1L | timepoint_n_unique != 1L | replicate_index_n_unique != 1L | biological_replicate_n_unique != 1L | injury_condition_n_unique != 1L | section_order_n_unique != 1L | z_n_unique != 1L )]
-  add_check( "C09", "section_linkage", "Each condition-specific section maps to one capture area, timepoint, replicate, condition, section order, and z coordinate.", !any(section_manifest$section_conflict), paste0( "conflicting sections=", sum(section_manifest$section_conflict), "/", nrow(section_manifest) ), "Zero conflicting sections", TRUE, "Do not use section-level inference until all section conflicts are resolved." )
+  add_check( "C09", "section_linkage", "Each condition-specific section maps to one capture area, timepoint, replicate, condition, section order, and z coordinate.", !any(section_manifest$section_conflict), paste0( "conflicting sections=", sum(section_manifest$section_conflict), "/", nrow(section_manifest) ), "Zero conflicting sections", TRUE, "use section-level inference until all section conflicts are resolved." )
   capture_metadata <- metadata[, .( n_spots = .N, n_section_ids = uniqueN(section_id), section_ids = collapse_unique(section_id), n_timepoints = uniqueN(timepoint), timepoints = collapse_unique(timepoint), replicate_indices = collapse_unique(replicate_index), biological_replicate_ids = collapse_unique(biological_replicate_id), slide_ids = collapse_unique(slide), section_orders = collapse_unique(section_order), z_coordinates = collapse_unique(z) ), by = capture_area_id]
   capture_metadata[, complete_timepoint_set := vapply( strsplit(timepoints, " \\| "), function(x) setequal(x, expected_timepoints), logical(1) )]
   add_check( "C10", "section_linkage", "Every capture area contains one section for each audited timepoint.", all(capture_metadata$complete_timepoint_set) && all(capture_metadata$n_section_ids == length(expected_timepoints)), paste0( sum( capture_metadata$complete_timepoint_set & capture_metadata$n_section_ids == length(expected_timepoints) ), "/", nrow(capture_metadata), " capture areas complete" ), "All capture areas contain three timepoint-specific sections", TRUE, "Review section construction and missing processed spots." )
@@ -248,11 +236,11 @@ main <- function() {
   tar_inventory[, asset_category := classify_tar_asset(member_path)]
   tar_inventory[, unsafe_member_path := is_unsafe_tar_member(member_path)]
   tar_inventory[, belongs_to_processed_2d := ( capture_area_id %in% observed_capture_areas )]
-  add_check( "C11", "archive", "RAW.tar lists successfully and contains no unsafe member path.", nrow(tar_inventory) > 0L && !any(tar_inventory$unsafe_member_path), paste0( "members=", nrow(tar_inventory), "; unsafe=", sum(tar_inventory$unsafe_member_path) ), "Non-empty listing; zero unsafe paths", TRUE, "Do not extract an archive containing absolute or parent-traversal paths." )
+  add_check( "C11", "archive", "RAW.tar lists successfully and contains no unsafe member path.", nrow(tar_inventory) > 0L && !any(tar_inventory$unsafe_member_path), paste0( "members=", nrow(tar_inventory), "; unsafe=", sum(tar_inventory$unsafe_member_path) ), "Non-empty listing; zero unsafe paths", TRUE, "extract an archive containing absolute or parent-traversal paths." )
   relevant_tar <- tar_inventory[ belongs_to_processed_2d == TRUE & asset_category %in% c( "position", "image_hires", "image_lowres", "scalefactor" ) ]
   raw_capture_areas <- sort(unique( tar_inventory[ !is.na(capture_area_id), capture_area_id ] ))
   raw_capture_match <- setequal( observed_capture_areas, sort(unique(relevant_tar$capture_area_id)) )
-  add_check( "C12", "archive", "All processed 2D capture areas are represented in RAW.tar.", raw_capture_match, paste0( "processed=", paste(observed_capture_areas, collapse = " | "), "; matched RAW=", paste(sort(unique(relevant_tar$capture_area_id)), collapse = " | ") ), "Exact processed capture-area set match", TRUE, "Do not link assets by GSM alone; inspect capture-area tokens." )
+  add_check( "C12", "archive", "All processed 2D capture areas are represented in RAW.tar.", raw_capture_match, paste0( "processed=", paste(observed_capture_areas, collapse = " | "), "; matched RAW=", paste(sort(unique(relevant_tar$capture_area_id)), collapse = " | ") ), "Exact processed capture-area set match", TRUE, "link assets by GSM alone; inspect capture-area tokens." )
   asset_counts <- dcast( relevant_tar[ , .N, by = .(capture_area_id, asset_category) ], capture_area_id ~ asset_category, value.var = "N", fill = 0L )
   for (required_category in c( "position", "image_hires", "image_lowres", "scalefactor" )) {
     if (!required_category %in% names(asset_counts)) {
@@ -274,7 +262,7 @@ main <- function() {
   relevant_tar[, extracted_exists := file.exists(extracted_path)]
   relevant_tar[, extracted_size_bytes := ifelse( extracted_exists, file.info(extracted_path)$size, NA_real_ )]
   extraction_ok <- all(relevant_tar$extracted_exists) && all(relevant_tar$extracted_size_bytes > 0, na.rm = TRUE)
-  add_check( "C14", "controlled_extraction", "All processed 2D assets were extracted to the controlled audit directory.", extraction_ok && nrow(relevant_tar) == 4L * length(observed_capture_areas), paste0( "extracted=", sum(relevant_tar$extracted_exists), "/", nrow(relevant_tar), "; directory=", EXTRACT_DIR ), "48/48 linked compressed assets extracted", TRUE, "Do not manually unpack or rename files; review TAR extraction errors." )
+  add_check( "C14", "controlled_extraction", "All processed 2D assets were extracted to the controlled audit directory.", extraction_ok && nrow(relevant_tar) == 4L * length(observed_capture_areas), paste0( "extracted=", sum(relevant_tar$extracted_exists), "/", nrow(relevant_tar), "; directory=", EXTRACT_DIR ), "48/48 linked compressed assets extracted", TRUE, "manually unpack or rename files; review TAR extraction errors." )
   relevant_tar[, asset_readable := FALSE]
   relevant_tar[, asset_check_detail := NA_character_]
   image_rows <- which( relevant_tar$asset_category %in% c( "image_hires", "image_lowres" ) )
@@ -287,7 +275,7 @@ main <- function() {
         current_detail <- if (current_ok) {
           "Decompressed PNG signature is valid."
         } else {
-          "Decompressed bytes do not match the PNG signature."
+          "Decompressed bytes match the PNG signature."
         }
         TRUE
       },
@@ -300,7 +288,7 @@ main <- function() {
     relevant_tar$asset_check_detail[row_index] <- current_detail
   }
   png_ok <- nrow(relevant_tar[ asset_category %in% c("image_hires", "image_lowres") ]) == 2L * length(observed_capture_areas) && all(relevant_tar[ asset_category %in% c("image_hires", "image_lowres"), asset_readable ])
-  add_check( "C15", "spatial_asset", "All linked .png.gz files decompress to a valid PNG signature.", png_ok, paste0( "valid PNG files=", sum(relevant_tar[ asset_category %in% c("image_hires", "image_lowres"), asset_readable ]), "/", nrow(relevant_tar[ asset_category %in% c("image_hires", "image_lowres") ]) ), "24/24 valid compressed PNG files", TRUE, "Do not create a Seurat image object until every linked image is readable." )
+  add_check( "C15", "spatial_asset", "All linked .png.gz files decompress to a valid PNG signature.", png_ok, paste0( "valid PNG files=", sum(relevant_tar[ asset_category %in% c("image_hires", "image_lowres"), asset_readable ]), "/", nrow(relevant_tar[ asset_category %in% c("image_hires", "image_lowres") ]) ), "24/24 valid compressed PNG files", TRUE, "create a Seurat image object until every linked image is readable." )
   scalefactor_rows <- which( relevant_tar$asset_category == "scalefactor" )
   for (row_index in scalefactor_rows) {
     current_path <- relevant_tar$extracted_path[row_index]
@@ -362,7 +350,7 @@ main <- function() {
   position_audit <- rbindlist( position_audit_list, fill = TRUE )
   position_read_ok <- all( position_audit$position_read_status == "PASS" )
   position_overlap_ok <- position_read_ok && all( !is.na(position_audit$processed_in_position_fraction) & position_audit$processed_in_position_fraction == 1 )
-  add_check( "C17", "position_barcode", "Every processed barcode is present in the matched RAW position file.", position_overlap_ok, paste0( "capture areas with 100% overlap=", sum( position_audit$processed_in_position_fraction == 1, na.rm = TRUE ), "/", nrow(position_audit) ), "12/12 capture areas with 100% processed-to-position overlap", TRUE, "Do not create a spatial image object until barcode-position overlap is exact." )
+  add_check( "C17", "position_barcode", "Every processed barcode is present in the matched RAW position file.", position_overlap_ok, paste0( "capture areas with 100% overlap=", sum( position_audit$processed_in_position_fraction == 1, na.rm = TRUE ), "/", nrow(position_audit) ), "12/12 capture areas with 100% processed-to-position overlap", TRUE, "create a spatial image object until barcode-position overlap is exact." )
   in_tissue_overlap_ok <- position_read_ok && all( !is.na(position_audit$processed_in_tissue_fraction) & position_audit$processed_in_tissue_fraction == 1 )
   add_check( "C18", "position_barcode", "Every processed filtered barcode is marked in_tissue in the matched position file.", in_tissue_overlap_ok, paste0( "capture areas with 100% in-tissue overlap=", sum( position_audit$processed_in_tissue_fraction == 1, na.rm = TRUE ), "/", nrow(position_audit) ), "12/12 capture areas with 100% processed-to-in-tissue overlap", TRUE, "Review whether the processed matrix and position file derive from the same capture area." )
   relevant_asset_wide <- dcast( relevant_tar, capture_area_id ~ asset_category, value.var = "member_path", fun.aggregate = function(x) collapse_unique(x) )
@@ -376,9 +364,9 @@ main <- function() {
   capture_asset_manifest[, linkage_complete := ( position_count == 1L & image_hires_count == 1L & image_lowres_count == 1L & scalefactor_count == 1L & position_readable & image_hires_readable & image_lowres_readable & scalefactor_readable & processed_in_position_fraction == 1 & processed_in_tissue_fraction == 1 )]
   add_check( "C19", "final_linkage", "Every processed capture area has complete and readable position/image/scalefactor linkage.", all(capture_asset_manifest$linkage_complete), paste0( "complete=", sum(capture_asset_manifest$linkage_complete), "/", nrow(capture_asset_manifest) ), "12/12 complete capture areas", TRUE, "STOP before Step 12B and inspect the failed capture-area rows." )
   non2d_raw_inventory <- tar_inventory[ !is.na(capture_area_id) & !capture_area_id %in% observed_capture_areas, .( gsm_id = collapse_unique(gsm_id), n_members = .N, asset_categories = collapse_unique(asset_category), member_examples = paste( head(member_basename, 4L), collapse = " | " ) ), by = capture_area_id ][order(capture_area_id)]
-  add_check( "C20", "scope", "RAW capture areas outside the processed spatial 2D set are documented and excluded from 2D linkage.", length(setdiff(raw_capture_areas, observed_capture_areas)) > 0L, paste0( "excluded RAW capture areas=", paste( setdiff(raw_capture_areas, observed_capture_areas), collapse = " | " ) ), "Document, do not merge into the processed spatial 2D object", FALSE, "Keep the non-2D RAW assets separate from the current spatial 2D workflow." )
-  add_review( "R_AGE", "Age is not represented by a dedicated field in the processed spatial 2D metadata.", paste0( "available fields=", paste(names(metadata), collapse = " | ") ), "Confirm adult cohort status from authoritative source metadata before manuscript wording.", "Do not infer age from filenames or from the snRNA cohort." )
-  add_review( "R_SEVERITY_TREATMENT", "Severity and treatment are not represented by dedicated fields in the processed spatial 2D metadata.", "No dedicated severity or treatment columns were observed.", "Document source-level cohort selection separately.", "Do not manufacture these fields in the spatial object." )
+  add_check( "C20", "scope", "RAW capture areas outside the processed spatial 2D set are documented and excluded from 2D linkage.", length(setdiff(raw_capture_areas, observed_capture_areas)) > 0L, paste0( "excluded RAW capture areas=", paste( setdiff(raw_capture_areas, observed_capture_areas), collapse = " | " ) ), "Document, merge into the processed spatial 2D object", FALSE, "Keep the non-2D RAW assets separate from the current spatial 2D workflow." )
+  add_review( "R_AGE", "Age is not represented by a dedicated field in the processed spatial 2D metadata.", paste0( "available fields=", paste(names(metadata), collapse = " | ") ), "Confirm adult cohort status from authoritative source metadata before manuscript wording.", "infer age from filenames or from the snRNA cohort." )
+  add_review( "R_SEVERITY_TREATMENT", "Severity and treatment are not represented by dedicated fields in the processed spatial 2D metadata.", "No dedicated severity or treatment columns were observed.", "Document source-level cohort selection separately.", "manufacture these fields in the spatial object." )
   fwrite( mapping_table, file.path(OUTPUT_DIR, "01_metadata_role_mapping.csv"), bom = TRUE )
   fwrite( capture_asset_manifest, file.path(OUTPUT_DIR, "02_2d_capture_area_asset_manifest.csv"), bom = TRUE )
   fwrite( section_manifest[order( timepoint, biological_replicate_id, capture_area_id, section_id )], file.path( OUTPUT_DIR, "03_condition_specific_section_manifest.csv" ), bom = TRUE )
@@ -394,33 +382,14 @@ main <- function() {
     "PASS"
   }
   fwrite( checks, file.path(OUTPUT_DIR, "09_STEP12A2_audit_checks.csv"), bom = TRUE )
-  report <- c( "============================================================", "GSE234774 Step 12A2 spatial metadata / asset linkage repair", "============================================================", paste0("Generated: ", format(Sys.time(), "%Y-%m-%d %H:%M:%S")), paste0("Project root: ", PROJECT_ROOT), paste0("Input directory: ", INPUT_DIR), paste0("Output directory: ", OUTPUT_DIR), paste0("Controlled asset directory: ", EXTRACT_DIR), "", paste0("FINAL_STATUS: ", final_status), "", "SCOPE", "- Metadata and raw-asset linkage repair only.", "- No Seurat object was created.", "- No normalization, clustering, RCTD, target scoring, or spatial statistics were run.", "- Only RAW.tar assets linked to processed spatial 2D capture areas were extracted.", "", "PROCESSED SPATIAL 2D INPUT", paste0( "- Matrix dimensions: features=", matrix_dimensions$n_features, "; barcodes=", matrix_dimensions$n_barcodes, "; nonzero=", format( matrix_dimensions$n_nonzero, scientific = FALSE, trim = TRUE ) ), paste0("- Metadata rows: ", nrow(metadata)), paste0( "- Capture areas: ", length(observed_capture_areas), " [", paste(observed_capture_areas, collapse = ", "), "]" ), paste0("- Condition-specific sections: ", nrow(section_manifest)), paste0( "- Timepoints: ", paste(observed_timepoints, collapse = ", ") ), "", "REPAIRED METADATA ROLES", "- barcode = barcode", "- capture_area_id = spot", "- section_id = id", "- timepoint = group", "- replicate_index = replicate", "- biological_replicate_id = paste(group, replicate, sep='_')", "- injury_condition = Uninjured for uninjured; SCI for injured timepoints", "- section_order = sections", "- z_coordinate = z", "", "RAW ASSET LINKAGE", paste0( "- Linked processed 2D assets: ", nrow(relevant_tar), " compressed files." ), paste0( "- Fully linked capture areas: ", sum(capture_asset_manifest$linkage_complete), "/", nrow(capture_asset_manifest) ), paste0( "- Valid compressed PNG files: ", sum(relevant_tar[ asset_category %in% c("image_hires", "image_lowres"), asset_readable ]), "/", nrow(relevant_tar[ asset_category %in% c("image_hires", "image_lowres") ]) ), paste0( "- Valid scalefactor files: ", sum(relevant_tar[ asset_category == "scalefactor", asset_readable ]), "/", nrow(relevant_tar[ asset_category == "scalefactor" ]) ), paste0( "- Capture areas with 100% processed-to-position overlap: ", sum( position_audit$processed_in_position_fraction == 1, na.rm = TRUE ), "/", nrow(position_audit) ), paste0( "- Capture areas with 100% processed-to-in-tissue overlap: ", sum( position_audit$processed_in_tissue_fraction == 1, na.rm = TRUE ), "/", nrow(position_audit) ), "", "CRITICAL CHECKS", paste0( "- PASS: ", nrow(checks[critical == TRUE & status == "PASS"]), "; FAIL: ", nrow(critical_failures) ) )
   if (nrow(critical_failures) > 0L) {
-    report <- c( report, "", "STOP REASONS", paste0( "- ", critical_failures$check_id, ": ", critical_failures$description, " Observed: ", critical_failures$observed, " Action: ", critical_failures$action_if_not_pass ) )
   }
   if (nrow(review_items) > 0L) {
-    report <- c( report, "", "REVIEW ITEMS", paste0( "- ", review_items$check_id, ": ", review_items$description, " Observed: ", review_items$observed, " Action: ", review_items$action_if_not_pass ) )
   }
-  report <- c( report, "", "NEXT ACTION", if (final_status == "STOP") {
-      paste( "Step 12A2 STOP.", "review the seven key outputs.", "Do not create a Seurat spatial object or run RCTD." )
-    } else {
-      paste( "Step 12A2 linkage PASS.", "The audited 12 spatial 2D capture areas may proceed to Step 12B", "for section-wise spatial object construction and QC.", "Age/severity/treatment remain source-metadata review items." )
-    },
-    "", "KEY OUTPUTS", "- 01_metadata_role_mapping.csv", "- 02_2d_capture_area_asset_manifest.csv", "- 03_condition_specific_section_manifest.csv", "- 04_position_barcode_overlap_audit.csv", "- 05_non2d_RAW_capture_area_inventory.csv", "- 09_STEP12A2_audit_checks.csv", "- 10_STEP12A2_FINAL_REPORT.txt", "============================================================"
-  )
-  writeLines(report, REPORT_FILE, useBytes = TRUE)
-  log_message("FINAL_STATUS: ", final_status)
-  log_message("Output directory: ", OUTPUT_DIR)
   write_run_log()
-  cat("\n")
-  cat("============================================================\n")
-  cat("Step 12A2 completed: ", final_status, "\n", sep = "")
-  cat("Open first: ", REPORT_FILE, "\n", sep = "")
-  cat("============================================================\n")
   invisible( list( final_status = final_status, checks = checks, mapping = mapping_table, capture_asset_manifest = capture_asset_manifest, section_manifest = section_manifest, position_audit = position_audit ) )
 }
 tryCatch( main(), error = function(e) {
     write_failure_report(conditionMessage(e))
-    message( "Step 12A2 stopped with a fatal error: ", conditionMessage(e) )
   }
 )

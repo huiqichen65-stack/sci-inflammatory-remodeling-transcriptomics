@@ -42,9 +42,6 @@ suppressPackageStartupMessages({
   library(patchwork)
   library(stringr)
 })
-msg <- function(...) {
-  cat( sprintf("[%s] ", format(Sys.time(), "%H:%M:%S")), ..., "\n", sep = "" )
-}
 capture_table <- function(x) {
   paste( capture.output( print( tibble::as_tibble(x), n = Inf, width = Inf ) ), collapse = "\n" )
 }
@@ -99,18 +96,15 @@ run_go_one <- function( gene_entrez, universe_entrez, branch, evidence_level, on
   if (length(gene_entrez) < MIN_GENESET_SIZE) {
     return(tibble::tibble())
   }
-  msg( "Running GO ", ontology, ": ", branch, " | ", evidence_level, " | genes=", length(unique(gene_entrez)) )
   obj <- tryCatch( clusterProfiler::enrichGO( gene = unique(gene_entrez), universe = unique(universe_entrez), OrgDb = org.Mm.eg.db, keyType = "ENTREZID", ont = ontology, pAdjustMethod = "BH", pvalueCutoff = 1, qvalueCutoff = 1, minGSSize = MIN_GENESET_SIZE, maxGSSize = MAX_GENESET_SIZE, readable = TRUE ), error = function(e) {
       warning( paste0( "enrichGO failed for ", branch, " / ", evidence_level, " / ", ontology, ": ", conditionMessage(e) ) )
       NULL
     }
   )
   if (is.null(obj)) {
-    msg( "GO ", ontology, " returned NULL: ", branch, " | ", evidence_level )
     return(tibble::tibble())
   }
   result <- standardize_result( enrichment_object = obj, branch = branch, evidence_level = evidence_level, database = "GO", ontology = ontology ) |> dplyr::filter( is.finite(p.adjust), Count >= MIN_TERM_COUNT )
-  msg( "GO ", ontology, " complete: ", branch, " | ", evidence_level, " | tested terms=", nrow(result), " | FDR<=0.05=", sum(result$significant, na.rm = TRUE) )
   result
 }
 run_kegg_once <- function( gene_entrez, universe_entrez) {
@@ -124,16 +118,13 @@ run_kegg_one <- function( gene_entrez, universe_entrez, branch, evidence_level, 
   obj <- NULL
   for (attempt in seq_len(max_attempts)) {
     if (waits[attempt] > 0) {
-      msg( "Waiting ", waits[attempt], " seconds before KEGG retry..." )
       Sys.sleep( waits[attempt] )
     }
-    msg( "Running KEGG ORA: ", branch, " | ", evidence_level, " | attempt ", attempt, "/", max_attempts )
     ans <- tryCatch( run_kegg_once( gene_entrez = gene_entrez, universe_entrez = universe_entrez ), error = function(e) e )
     if (!inherits(ans, "error")) {
       obj <- ans
       break
     }
-    msg( "KEGG attempt failed: ", conditionMessage(ans) )
   }
   if (is.null(obj)) {
     warning( paste0( "KEGG ORA failed after ", max_attempts, " attempts for ", branch, " / ", evidence_level, ". GO results remain valid." ) )
@@ -161,9 +152,6 @@ make_branch_dotplot <- function( df, title_text, subtitle_text, n_per_branch) {
   plot_df <- top_terms( sig, n_per_branch ) |> dplyr::mutate( Description_wrapped = wrap_term( Description, 55 ) )
   ggplot2::ggplot( plot_df, ggplot2::aes( x = GeneRatio_numeric, y = stats::reorder( Description_wrapped, GeneRatio_numeric ), size = Count, color = branch ) ) + ggplot2::geom_point( alpha = 0.90 ) + ggplot2::facet_wrap( ~branch, scales = "free_y", ncol = 2 ) + ggplot2::scale_color_manual( values = ARM_COLORS ) + ggplot2::labs( title = title_text, subtitle = paste0( subtitle_text, "\n", display_level ), x = "Gene ratio", y = NULL, size = "Genes", color = NULL ) + ggplot2::theme_classic( base_size = 10 ) + ggplot2::theme( legend.position = "top", strip.background = ggplot2::element_rect( fill = "grey95", color = NA ), strip.text = ggplot2::element_text( face = "bold" ) )
 }
-msg("====================================================")
-msg("GSE162610 Step 6C-R v3 FAST | branch DEG GO / KEGG")
-msg("====================================================")
 if (!file.exists(INPUT_STEP6A)) {
   stop( paste0( "找不到Step6A结果：", INPUT_STEP6A ), call. = FALSE )
 }
@@ -198,11 +186,6 @@ for (branch in direction_levels) {
 }
 background_symbols <- unique( as.character( pb_deg$gene_id ) )
 background_symbols <- background_symbols[ !is.na(background_symbols) & nzchar(background_symbols) ]
-msg( "Primary high-confidence branch markers: ", nrow(primary_master) )
-msg( "Arm_1-biased primary genes: ", length( primary_gene_lists[["Arm_1-biased"]] ) )
-msg( "Arm_2-biased primary genes: ", length( primary_gene_lists[["Arm_2-biased"]] ) )
-msg( "Strict pseudobulk-supported branch markers: ", nrow(strict_master) )
-msg( "Background genes retained by edgeR: ", length(background_symbols) )
 background_map <- convert_symbols( background_symbols )
 background_entrez <- background_map$mapped_entrez
 if (length(background_entrez) < 1000) {
@@ -313,22 +296,4 @@ saveRDS( result_object, OUT_RDS, compress = TRUE )
 report_primary_go <- primary_go |> dplyr::filter( significant, ontology == "BP" ) |> dplyr::group_by( branch ) |> dplyr::arrange( p.adjust, dplyr::desc(Count), .by_group = TRUE ) |> dplyr::slice_head( n = 20 ) |> dplyr::ungroup() |> dplyr::select( branch, ID, Description, GeneRatio, Count, p.adjust, geneID )
 report_primary_kegg <- primary_kegg |> dplyr::filter( significant ) |> dplyr::group_by( branch ) |> dplyr::arrange( p.adjust, dplyr::desc(Count), .by_group = TRUE ) |> dplyr::slice_head( n = 20 ) |> dplyr::ungroup() |> dplyr::select( branch, ID, Description, GeneRatio, Count, p.adjust, geneID )
 report_strict <- primary_strict_overlap |> dplyr::filter( found_in_strict ) |> dplyr::group_by( branch, database ) |> dplyr::arrange( best_FDR, .by_group = TRUE ) |> dplyr::slice_head( n = 20 ) |> dplyr::ungroup()
-report_lines <- c( "======================================================================", "GSE162610 | STEP 6C-R REPORT", "Branch-level GO / KEGG enrichment", "======================================================================", "", "FORMAL POSITION:", "Step6C-R directly compares the functional enrichment of Step6A", "GO semantic-similarity simplify() was intentionally not run because it", "caused the previous Windows R session to stall. Raw GO enrichment is", "retained; redundant terms can be curated after result inspection.", "Arm_1-biased and Arm_2-biased high-confidence branch markers.", "Repair/scar labels were NOT used for gene selection or pathway naming.", "", "PRIMARY GENE SETS:", paste0( "Arm_1-biased genes: ", length( primary_gene_lists[["Arm_1-biased"]] ) ), paste0( "Arm_2-biased genes: ", length( primary_gene_lists[["Arm_2-biased"]] ) ), "", "STRICT PSEUDOBULK SENSITIVITY:", paste0( "Arm_1-biased strict genes: ", length( strict_gene_lists[["Arm_1-biased"]] ) ), paste0( "Arm_2-biased strict genes: ", length( strict_gene_lists[["Arm_2-biased"]] ) ), "", "BACKGROUND:", paste0( "Step6A edgeR-tested genes: ", length(background_symbols) ), paste0( "Mapped background symbols: ", length( background_map$mapped_symbols ), " (", round( 100 * background_map$mapping_rate, 2 ), "%)" ), "The whole genome was not used as the enrichment universe.", "", "MAPPING AUDIT:", capture_table(mapping_audit), "", "SIGNIFICANT TERM COUNTS:", capture_table(term_counts), "", "TOP PRIMARY GO BP TERMS:", capture_table(report_primary_go), "", "TOP PRIMARY KEGG TERMS:", capture_table(report_primary_kegg), "", "TERMS REPRODUCED IN STRICT PSEUDOBULK SENSITIVITY:", capture_table(report_strict), "", "INTERPRETATION RULE:", "Primary interpretation should prioritize:", "  1. coherent pathway families rather than one isolated term;", "  2. terms supported by several genes;", "  3. functional contrast between Arm_1-biased and Arm_2-biased genes;", "  4. reproduction in the strict pseudobulk sensitivity analysis;", "  5. consistency with Step5C-R dynamics and Step6A/6B branch evidence.", "", "STEP6C-R PASS CRITERIA:", "  1. adequate mouse SYMBOL-to-Entrez mapping;", "  2. interpretable GO BP or KEGG terms for at least one branch;", "  3. a coherent directional functional contrast between branches;", "  4. key conclusions not dependent on a single isolated term;", "  5. preferably, major themes reproduced by strict pseudobulk genes.", "", "STATUS:", "After Step6C-R interpretation, run sample/pseudobulk ssGSEA using", "predefined external functional gene sets, then proceed to Step7 pySCENIC.", "", "OUTPUTS:", OUT_FIG1, OUT_FIG2, OUT_FIG3, OUT_FIG4, OUT_XLSX, OUT_RDS, OUT_REP, OUT_SESS )
-writeLines( report_lines, OUT_REP, useBytes = TRUE )
 writeLines( capture.output( sessionInfo() ), OUT_SESS, useBytes = TRUE )
-msg("====================================================")
-msg("STEP 6C-R COMPLETE")
-msg("====================================================")
-msg( "Primary GO significant terms: ", sum( primary_go$significant, na.rm = TRUE ) )
-msg( "Primary KEGG significant terms: ", sum( primary_kegg$significant, na.rm = TRUE ) )
-msg( "Strict GO significant terms: ", sum( strict_go$significant, na.rm = TRUE ) )
-msg( "Strict KEGG significant terms: ", sum( strict_kegg$significant, na.rm = TRUE ) )
-msg("")
-msg("Key outputs:")
-msg("1) figures/Fig6CR_01_branch_GO_BP_dotplot.pdf")
-msg("2) figures/Fig6CR_02_branch_KEGG_dotplot.pdf")
-msg("3) figures/Fig6CR_03_enrichment_quality_and_term_counts.pdf")
-msg("4) figures/Fig6CR_04_strict_pseudobulk_sensitivity.pdf")
-msg("5) Step6CR_report.txt")
-msg("")
-msg("如需精确通路基因，再补充 Table6CR_branch_DEG_GO_KEGG.xlsx。")

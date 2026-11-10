@@ -40,23 +40,13 @@ barcode_path <- file.path( input_dir, "GSE234774_rnaseq_barcodes.txt.gz" )
 feature_path <- file.path( input_dir, "GSE234774_rnaseq_features.txt.gz" )
 metadata_path <- file.path( input_dir, "GSE234774_rnaseq_meta.txt.gz" )
 candidate_manifest_path <- file.path( step9A2_dir, "06_candidate_timecourse_cohort_manifest.csv" )
-log_message <- function(...) {
-  msg <- paste0(...)
-  stamp <- format(Sys.time(), "%Y-%m-%d %H:%M:%S")
-  line <- paste0("[", stamp, "] ", msg)
-  cat(line, "\n")
-  cat(line, "\n", file = run_log, append = TRUE)
-}
 write_csv_safe <- function(x, filename) {
   path <- file.path(tables_dir, filename)
   utils::write.csv(x, path, row.names = FALSE, na = "")
-  log_message("Wrote: ", path)
   invisible(path)
 }
 stop_with_report <- function(reason) {
   report_path <- file.path( output_dir, "10_STEP9B_QC_FINAL_REPORT.txt" )
-  report <- c( "GSE234774 STEP 9B QC-ONLY", "============================================================", paste0("Run time: ", format(Sys.time(), "%Y-%m-%d %H:%M:%S")), paste0("Output directory: ", output_dir), "", "FINAL DECISION: STOP", "", paste0("Reason: ", reason) )
-  writeLines(report, report_path, useBytes = TRUE)
   stop(reason, call. = FALSE)
 }
 trim_na <- function(x) {
@@ -143,7 +133,6 @@ find_exact_column <- function(df, candidates) {
 open_bpcells_safe <- function(path) {
   tryCatch( BPCells::open_matrix_dir(path), error = function(e) e )
 }
-log_message("Starting package preflight.")
 cran_required <- c( "Matrix", "data.table", "ggplot2", "patchwork", "scales", "Seurat", "SeuratObject" )
 missing_cran <- cran_required[ !vapply( cran_required, requireNamespace, quietly = TRUE, FUN.VALUE = logical(1) ) ]
 if (length(missing_cran) > 0L) {
@@ -153,7 +142,6 @@ if (utils::packageVersion("Seurat") < "5.0.0") {
   stop_with_report( paste0( "Seurat >=5.0.0 is required. Detected version: ", utils::packageVersion("Seurat") ) )
 }
 if (!requireNamespace("BPCells", quietly = TRUE)) {
-  log_message( "BPCells is not installed. Attempting installation." )
   try( utils::install.packages( "BPCells", repos = c( "https://bnprks.r-universe.dev", "https://cloud.r-project.org" ), dependencies = TRUE ), silent = TRUE )
 }
 if (!requireNamespace("BPCells", quietly = TRUE)) {
@@ -181,10 +169,6 @@ if (length(missing_paths) > 0L) {
 }
 input_inventory <- data.frame( role = c( "Uncompressed Matrix Market counts", "Expression barcodes", "Expression features", "Author cell metadata", "Frozen Step 9A2 cohort manifest" ), path = normalizePath( required_paths, winslash = "/", mustWork = TRUE ), size_bytes = as.numeric( file.info(required_paths)$size ), stringsAsFactors = FALSE )
 write_csv_safe( input_inventory, "01_input_inventory.csv" )
-log_message( "Using uncompressed MTX: ", mtx_path )
-log_message( "BPCells sort memory: ", round(BPCELLS_SORT_BYTES / 1024^3, 2), " GiB" )
-log_message( "BPCells contiguous load size: ", round(BPCELLS_LOAD_BYTES / 1024^2, 2), " MiB" )
-log_message("Reading frozen Step 9A2 cohort manifest.")
 candidate_manifest <- utils::read.csv( candidate_manifest_path, stringsAsFactors = FALSE, check.names = FALSE )
 required_manifest_columns <- c( "biological_library", "n_nuclei", "experiment", "condition_label", "replicate", "timepoint_standardised", "candidate_main_timecourse_cohort" )
 missing_manifest_columns <- setdiff( required_manifest_columns, names(candidate_manifest) )
@@ -206,13 +190,10 @@ if (expected_candidate_cells != 151712L) {
 if (!all( expected_timepoints %in% candidate_manifest$timepoint_standardised )) {
   stop_with_report( "The frozen manifest does not contain all expected timepoints." )
 }
-log_message("Reading expression barcodes.")
 all_barcodes <- read_gz_lines(barcode_path)
 all_barcodes <- trimws(all_barcodes)
 all_barcodes <- all_barcodes[all_barcodes != ""]
-log_message("Reading feature table.")
 features <- read_features(feature_path)
-log_message("Reading complete author metadata.")
 cell_metadata_all <- data.table::fread( metadata_path, header = TRUE, sep = "\t", data.table = FALSE, showProgress = TRUE, check.names = FALSE )
 names(cell_metadata_all) <- make.unique( names(cell_metadata_all), sep = "_dup" )
 barcode_column <- find_exact_column( cell_metadata_all, c("barcode", "cell_barcode") )
@@ -256,18 +237,13 @@ full_matrix_dir <- file.path( bpcells_dir, "GSE234774_full_435099" )
 candidate_matrix_dir <- file.path( bpcells_dir, "GSE234774_candidate_timecourse_151712" )
 filtered_matrix_dir <- file.path( bpcells_dir, "GSE234774_candidate_timecourse_QC_filtered" )
 if ( isTRUE(FORCE_REIMPORT_FULL_MATRIX) && dir.exists(full_matrix_dir) ) {
-  log_message( "Deleting the existing full BPCells directory before re-import." )
   unlink( full_matrix_dir, recursive = TRUE, force = TRUE )
 }
 if (!dir.exists(full_matrix_dir)) {
-  log_message( "Starting BPCells import from the uncompressed MTX." )
-  log_message( "Import in progress." )
   imported_full <- BPCells::import_matrix_market( mtx_path = mtx_path, outdir = full_matrix_dir, row_names = features$feature_name_unique, col_names = all_barcodes, row_major = FALSE, tmpdir = tmp_dir, load_bytes = BPCELLS_LOAD_BYTES, sort_bytes = BPCELLS_SORT_BYTES )
   rm(imported_full)
   invisible(gc())
-  log_message("Completed full BPCells import.")
 } else {
-  log_message( "Reusing existing full BPCells matrix: ", full_matrix_dir )
 }
 full_counts <- open_bpcells_safe( full_matrix_dir )
 if (inherits(full_counts, "error")) {
@@ -281,25 +257,21 @@ if (!identical( colnames(full_counts), all_barcodes )) {
   stop_with_report( "Full BPCells barcode order differs from the barcode file." )
 }
 if ( isTRUE(FORCE_REWRITE_CANDIDATE_MATRIX) && dir.exists(candidate_matrix_dir) ) {
-  log_message( "Deleting the existing candidate BPCells directory." )
   unlink( candidate_matrix_dir, recursive = TRUE, force = TRUE )
 }
 if (!dir.exists(candidate_matrix_dir)) {
-  log_message( "Writing the frozen 151,712-nucleus cohort to BPCells." )
   candidate_view <- full_counts[ , candidate_indices, drop = FALSE ]
   BPCells::write_matrix_dir( mat = candidate_view, dir = candidate_matrix_dir, compress = TRUE, overwrite = FALSE )
   rm(candidate_view)
   invisible(gc())
-  log_message("Completed candidate BPCells matrix.")
 } else {
-  log_message( "Reusing existing candidate BPCells matrix: ", candidate_matrix_dir )
 }
 candidate_counts <- open_bpcells_safe( candidate_matrix_dir )
 if (inherits(candidate_counts, "error")) {
   stop_with_report( paste0( "Candidate BPCells directory cannot be opened: ", conditionMessage(candidate_counts), ". Set FORCE_REWRITE_CANDIDATE_MATRIX <- TRUE and rerun." ) )
 }
 if (!identical( as.integer(dim(candidate_counts)), as.integer(c( nrow(features), expected_candidate_cells )) )) {
-  stop_with_report( "Candidate BPCells dimensions do not match the frozen cohort." )
+  stop_with_report( "Candidate BPCells dimensions match the frozen cohort." )
 }
 if (!identical( colnames(candidate_counts), candidate_barcodes )) {
   stop_with_report( "Candidate BPCells barcode order differs from the frozen cohort." )
@@ -334,7 +306,6 @@ if ( anyNA(candidate_metadata$biological_library) || anyNA(candidate_metadata$ti
 }
 rm( cell_metadata_all, metadata_barcodes, parsed_library_all )
 invisible(gc())
-log_message( "Creating the BPCells-backed pre-QC Seurat object." )
 set.seed(SEED)
 obj_preQC <- Seurat::CreateSeuratObject( counts = candidate_counts, assay = "RNA", project = "GSE234774_timecourse_preQC", meta.data = candidate_metadata, min.cells = 0, min.features = 0 )
 Seurat::DefaultAssay(obj_preQC) <- "RNA"
@@ -371,7 +342,6 @@ qc_metric_consistency <- data.frame( metric = c( "nCount_RNA", "nFeature_RNA" ),
   ), stringsAsFactors = FALSE
 )
 write_csv_safe( qc_metric_consistency, "04_author_vs_recalculated_QC_metrics.csv" )
-log_message( "Calculating percent.mt and percent.HB." )
 gene_names <- rownames(obj_preQC)
 mt_genes <- gene_names[ grepl( "^mt-", gene_names, ignore.case = TRUE ) ]
 hb_genes <- gene_names[ grepl( "^hb[ab]", gene_names, ignore.case = TRUE ) ]
@@ -455,7 +425,6 @@ failure_reason_summary <- data.table::as.data.table( qc_meta )[ , .( n_cells = .
 write_csv_safe( as.data.frame(failure_reason_summary), "07C_QC_failure_reasons_by_library.csv" )
 cell_qc_path <- file.path( tables_dir, "07D_cell_level_QC_status.tsv.gz" )
 data.table::fwrite( qc_meta, file = cell_qc_path, sep = "\t", quote = FALSE, na = "NA", compress = "gzip" )
-log_message("Wrote: ", cell_qc_path)
 set.seed(SEED)
 plot_indices <- unlist( lapply( split( seq_len(nrow(qc_meta)), qc_meta$timepoint ), function(idx) {
       sample( idx, size = min(length(idx), 10000L), replace = FALSE )
@@ -477,18 +446,14 @@ if (anyNA(qc_pass_index)) {
   stop_with_report( "At least one QC-pass barcode is absent from the candidate matrix." )
 }
 if ( isTRUE(FORCE_REWRITE_FILTERED_MATRIX) && dir.exists(filtered_matrix_dir) ) {
-  log_message( "Deleting the existing QC-filtered BPCells directory." )
   unlink( filtered_matrix_dir, recursive = TRUE, force = TRUE )
 }
 if (!dir.exists(filtered_matrix_dir)) {
-  log_message( "Writing QC-pass nuclei to the filtered BPCells matrix." )
   filtered_view <- candidate_counts[ , qc_pass_index, drop = FALSE ]
   BPCells::write_matrix_dir( mat = filtered_view, dir = filtered_matrix_dir, compress = TRUE, overwrite = FALSE )
   rm(filtered_view)
   invisible(gc())
-  log_message( "Completed QC-filtered BPCells matrix." )
 } else {
-  log_message( "Reusing existing QC-filtered BPCells matrix: ", filtered_matrix_dir )
 }
 filtered_counts <- open_bpcells_safe( filtered_matrix_dir )
 if (inherits(filtered_counts, "error")) {
@@ -499,7 +464,6 @@ if ( ncol(filtered_counts) != length(qc_pass_cells) || !identical( colnames(filt
 }
 filtered_metadata <- qc_meta[ match( qc_pass_cells, qc_meta$barcode ), , drop = FALSE ]
 rownames(filtered_metadata) <- qc_pass_cells
-log_message( "Creating the QC-filtered Seurat object." )
 obj_QC <- Seurat::CreateSeuratObject( counts = filtered_counts, assay = "RNA", project = "GSE234774_timecourse_QC_filtered", meta.data = filtered_metadata, min.cells = 0, min.features = 0 )
 Seurat::DefaultAssay(obj_QC) <- "RNA"
 obj_QC@misc$GSE234774_step9B_QC <- list( input_mtx = normalizePath( mtx_path, winslash = "/", mustWork = TRUE ), biological_unit = "biological_library", cohort_age_status = "METHODS_REVIEW_REQUIRED", timepoints = expected_timepoints, seed = SEED, bpcells_sort_bytes = BPCELLS_SORT_BYTES, bpcells_load_bytes = BPCELLS_LOAD_BYTES, completed_at = as.character(Sys.time()), note = paste( "QC only.", "Doublet detection, normalization, integration, clustering,", "annotation, signature transfer, and spatial analysis were not run." ) )
@@ -507,8 +471,6 @@ preQC_object_path <- file.path( rds_dir, "GSE234774_step9B_timecourse_preQC_BPCe
 qc_object_path <- file.path( rds_dir, "GSE234774_step9B_timecourse_QC_filtered_BPCells.rds" )
 saveRDS( obj_preQC, preQC_object_path, compress = FALSE )
 saveRDS( obj_QC, qc_object_path, compress = FALSE )
-log_message( "Saved pre-QC object: ", preQC_object_path )
-log_message( "Saved QC-filtered object: ", qc_object_path )
 results_manifest <- list( package_versions = package_versions, input_inventory = input_inventory, candidate_manifest = candidate_manifest, feature_set_audit = feature_set_audit, qc_thresholds = qc_thresholds, qc_retention_by_library = as.data.frame( qc_retention_by_library ), qc_retention_by_timepoint = as.data.frame( qc_retention_by_timepoint ), paths = list( preQC_object = preQC_object_path, QC_filtered_object = qc_object_path, full_BPCell_matrix = full_matrix_dir, candidate_BPCell_matrix = candidate_matrix_dir, QC_filtered_BPCell_matrix = filtered_matrix_dir ) )
 saveRDS( results_manifest, file.path( rds_dir, "GSE234774_step9B_QC_results_manifest.rds" ), compress = TRUE )
 global_QC_retention <- mean( qc_meta$qc_pass )
@@ -532,35 +494,13 @@ final_decision <- if (any(required_fail)) {
 }
 library_lines <- paste0( qc_retention_by_library$biological_library, " [", qc_retention_by_library$timepoint, "]: ", qc_retention_by_library$n_before, " -> ", qc_retention_by_library$n_QC_pass, " QC-pass nuclei; retention=", round( 100 * qc_retention_by_library$QC_retention, 2 ), "%" )
 timepoint_lines <- paste0( qc_retention_by_timepoint$timepoint, ": ", qc_retention_by_timepoint$n_before, " -> ", qc_retention_by_timepoint$n_QC_pass, " QC-pass nuclei; retention=", round( 100 * qc_retention_by_timepoint$QC_retention, 2 ), "%" )
-report_lines <- c( "GSE234774 STEP 9B QC-ONLY", "============================================================", paste0( "Run time: ", format(Sys.time(), "%Y-%m-%d %H:%M:%S") ), paste0("Project root: ", project_root), paste0("Output directory: ", output_dir), "", paste0("FINAL DECISION: ", final_decision), "", "SCOPE", "The frozen 20-library long-term cohort was reconstructed and QC-filtered.", "The uncompressed filtered_scRNA.mtx file was used.", "Raw counts remain stored in BPCells format.", "No doublet detection, normalization, integration, clustering, annotation, signature transfer, pseudotime, or spatial analysis was run.", "", "INPUT", paste0( "Full matrix: ", nrow(features), " features x ", length(all_barcodes), " nuclei" ), paste0( "Frozen candidate cohort: ", nrow(candidate_counts), " features x ", ncol(candidate_counts), " nuclei" ), paste0( "Biological libraries: ", length(candidate_libraries) ), paste0( "BPCells sort memory: ", round(BPCELLS_SORT_BYTES / 1024^3, 2), " GiB" ), "", "QC RESULT", paste0( "QC-pass object: ", nrow(obj_QC), " features x ", ncol(obj_QC), " nuclei" ), paste0( "Global QC retention: ", round( 100 * global_QC_retention, 2 ), "%" ), paste0( "Minimum library QC retention: ", round( 100 * minimum_library_QC_retention, 2 ), "%" ), paste0( "Minimum QC-pass nuclei in one library: ", minimum_QC_cells_per_library ), "", "TIMEPOINT RETENTION", timepoint_lines, "", "LIBRARY RETENTION", library_lines, "", "BOUNDARIES", "1. biological_library is the statistical replicate.", "2. Individual nuclei are not independent biological replicates.", "3. orig.ident is an experimental block, not a sample identifier.", "4. Cohort age remains METHODS_REVIEW_REQUIRED.", "5. GSE234774 validates frozen GSE162610 programs and does not redefine Arm_1/Arm_2.", "", "PRIMARY QC-FILTERED OBJECT", qc_object_path )
 if (final_decision == "STOP") {
   failed <- audit_checks[ audit_checks$required_for_pass & audit_checks$status != "PASS", , drop = FALSE ]
-  report_lines <- c( report_lines, "", "STOP REASONS" )
   for (i in seq_len(nrow(failed))) {
-    report_lines <- c( report_lines, paste0( i, ". ", failed$check[[i]], " -- ", failed$detail[[i]] ) )
   }
-  report_lines <- c( report_lines, "", "Do not start doublet detection or downstream analysis." )
 } else {
-  report_lines <- c( report_lines, "", "STEP 9B QC DECISION", "Object reconstruction and library-aware QC passed.", "Stop here. Review the QC outputs before running doublet detection." )
 }
 report_path <- file.path( output_dir, "10_STEP9B_QC_FINAL_REPORT.txt" )
-writeLines( report_lines, report_path, useBytes = TRUE )
-log_message("Final decision: ", final_decision)
-log_message("Final report: ", report_path)
-cat("\n")
-cat("============================================================\n")
-cat("GSE234774 STEP 9B QC-ONLY COMPLETED\n")
-cat("FINAL DECISION:", final_decision, "\n")
-cat("Output:", output_dir, "\n")
-cat("Primary QC-filtered object:\n")
-cat(" ", qc_object_path, "\n", sep = "")
-cat("Key outputs:\n")
-cat(" 1) tables/05_preQC_summary_by_library.csv\n")
-cat(" 2) tables/06_QC_thresholds_by_library.csv\n")
-cat(" 3) tables/07_QC_retention_by_library.csv\n")
-cat(" 4) tables/09_STEP9B_QC_audit_checks.csv\n")
-cat(" 5) 10_STEP9B_QC_FINAL_REPORT.txt\n")
-cat("============================================================\n")
 if (final_decision == "STOP") {
   stop( "GSE234774 Step 9B QC decision is STOP. Review the final report.", call. = FALSE )
 }

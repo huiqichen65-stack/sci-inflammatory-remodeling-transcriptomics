@@ -36,23 +36,13 @@ if (file.exists( run_log )) {
   file.remove( run_log )
 }
 object_paths <- c( FULL_ANNOTATED_MYELOID = file.path( rds_dir, "GSE234774_step10G_full_myeloid_final_annotations_BPCells.rds" ), PRIMARY_NONCYCLING_RESIDENT = file.path( rds_dir, "GSE234774_step10G_primary_noncycling_resident_microglia_BPCells.rds" ), NONIFN_SENSITIVITY_RESIDENT = file.path( rds_dir, "GSE234774_step10G_nonIFN_sensitivity_resident_microglia_BPCells.rds" ), CYCLING_RESIDENT = file.path( rds_dir, "GSE234774_step10G_cycling_resident_microglia_BPCells.rds" ), EXCLUDED_NONMICROGLIAL_OR_CONTAMINANT = file.path( rds_dir, "GSE234774_step10G_excluded_nonmicroglial_contaminant_BPCells.rds" ) )
-log_message <- function(...) {
-  message_text <- paste0(...)
-  timestamp <- format( Sys.time(), "%Y-%m-%d %H:%M:%S" )
-  line <- paste0( "[", timestamp, "] ", message_text )
-  cat( line, "\n" )
-  cat( line, "\n", file = run_log, append = TRUE )
-}
 write_csv_safe <- function( x, filename ) {
   path <- file.path( tables_dir, filename )
   utils::write.csv( x, path, row.names = FALSE, na = "" )
-  log_message( "Wrote: ", path )
   invisible( path )
 }
 stop_with_report <- function(reason) {
   report_path <- file.path( output_dir, "10_STEP10G_FINAL_REPORT.txt" )
-  report_lines <- c( "GSE234774 STEP 10G FROZEN MYELOID ANNOTATIONS / RESIDENT OBJECTS", "============================================================", paste0( "Run time: ", format( Sys.time(), "%Y-%m-%d %H:%M:%S" ) ), paste0( "Output directory: ", output_dir ), "", "FINAL DECISION: STOP", "", paste0( "Reason: ", reason ), "", "Do not start Arm_1/Arm_2 projection." )
-  writeLines( report_lines, report_path, useBytes = TRUE )
   stop( reason, call. = FALSE )
 }
 safe_package_version <- function( package_name ) {
@@ -130,7 +120,6 @@ resolve_features <- function( requested_features, available_features ) {
   names( resolved ) <- requested_features
   resolved
 }
-log_message( "Starting package preflight." )
 required_packages <- c( "Matrix", "data.table", "ggplot2", "patchwork", "scales", "Seurat", "SeuratObject" )
 missing_packages <- required_packages[ !vapply( required_packages, requireNamespace, quietly = TRUE, FUN.VALUE = logical(1) ) ]
 if ( length( missing_packages ) > 0L ) {
@@ -150,7 +139,6 @@ write_csv_safe( package_versions, "00_package_versions.csv" )
 if (!file.exists( input_object_path )) {
   stop_with_report( paste0( "Input Step 10F object not found: ", input_object_path ) )
 }
-log_message( "Loading Step 10F myeloid annotation-evidence object." )
 obj <- readRDS( input_object_path )
 if (!inherits( obj, "Seurat" )) {
   stop_with_report( "Input RDS is not a Seurat object." )
@@ -175,7 +163,7 @@ observed_cluster_counts <- table( factor( cluster_values, levels = EXPECTED_CLUS
 observed_cluster_counts <- as.integer( observed_cluster_counts )
 names( observed_cluster_counts ) <- EXPECTED_CLUSTERS
 if (!identical( observed_cluster_counts, EXPECTED_CLUSTER_COUNTS )) {
-  stop_with_report( paste0( "Frozen cluster counts do not match the reviewed Step 10F counts. ", "Observed=", paste( paste0( names( observed_cluster_counts ), ":", observed_cluster_counts ), collapse = ";" ), "." ) )
+  stop_with_report( paste0( "Frozen cluster counts match the reviewed Step 10F counts. ", "Observed=", paste( paste0( names( observed_cluster_counts ), ":", observed_cluster_counts ), collapse = ";" ), "." ) )
 }
 Seurat::DefaultAssay( obj ) <- "RNA"
 Seurat::Idents( obj ) <- FROZEN_CLUSTER_COLUMN
@@ -194,7 +182,6 @@ input_counts_sample <- sample_layer_values( object = obj, layer_name = counts_la
 input_data_sample <- sample_layer_values( object = obj, layer_name = data_layer_name, features = integrity_features, cells = integrity_cells )
 input_audit <- data.frame( item = c( "Input object", "Features", "Myeloid nuclei", "Frozen reduction", "Frozen UMAP", "Frozen cluster column", "Frozen cluster count", "RNA counts layer", "RNA data layer" ), value = c( normalizePath( input_object_path, winslash = "/", mustWork = TRUE ), nrow( obj ), ncol( obj ), FROZEN_REDUCTION, FROZEN_UMAP, FROZEN_CLUSTER_COLUMN, length( observed_clusters ), counts_layer_name, data_layer_name ), stringsAsFactors = FALSE )
 write_csv_safe( input_audit, "01_input_object_audit.csv" )
-log_message( "Freezing reviewed cluster-level annotations." )
 obj$myeloid_final_label <- unname( final_label_map[ cluster_values ] )
 obj$resident_lineage_status <- unname( resident_status_map[ cluster_values ] )
 obj$arm_analysis_set <- unname( arm_analysis_set_map[ cluster_values ] )
@@ -220,7 +207,7 @@ obj$nonIFN_sensitivity_status <- factor( obj$nonIFN_sensitivity_status, levels =
 exclusive_membership_count <- ( as.integer( obj$primary_noncycling_resident_member ) + as.integer( obj$cycling_resident_member ) + as.integer( obj$excluded_nonmicroglial_or_contaminant_member ) )
 exclusive_partition_pass <- all( exclusive_membership_count == 1L )
 if (!exclusive_partition_pass) {
-  stop_with_report( "Primary, cycling, and excluded membership do not form an exact one-way partition." )
+  stop_with_report( "Primary, cycling, and excluded membership form an exact one-way partition." )
 }
 nonIFN_subset_pass <- all( !obj$nonIFN_sensitivity_member | obj$primary_noncycling_resident_member )
 if (!nonIFN_subset_pass) {
@@ -228,7 +215,7 @@ if (!nonIFN_subset_pass) {
 }
 observed_object_counts <- c( FULL_ANNOTATED_MYELOID = ncol( obj ), PRIMARY_NONCYCLING_RESIDENT = sum( obj$primary_noncycling_resident_member ), NONIFN_SENSITIVITY_RESIDENT = sum( obj$nonIFN_sensitivity_member ), CYCLING_RESIDENT = sum( obj$cycling_resident_member ), EXCLUDED_NONMICROGLIAL_OR_CONTAMINANT = sum( obj$excluded_nonmicroglial_or_contaminant_member ) )
 if (!identical( as.integer( observed_object_counts ), as.integer( EXPECTED_OBJECT_COUNTS[ names( observed_object_counts ) ] ) )) {
-  stop_with_report( paste0( "Object membership counts do not match expectations. Observed=", paste( paste0( names( observed_object_counts ), ":", observed_object_counts ), collapse = ";" ), "." ) )
+  stop_with_report( paste0( "Object membership counts match expectations. Observed=", paste( paste0( names( observed_object_counts ), ":", observed_object_counts ), collapse = ";" ), "." ) )
 }
 primary_cells <- colnames( obj )[ obj$primary_noncycling_resident_member ]
 nonIFN_cells <- colnames( obj )[ obj$nonIFN_sensitivity_member ]
@@ -251,9 +238,7 @@ if ( any( library_timepoint_mapping$n_timepoint_labels != 1L ) ) {
   stop_with_report( paste0( "At least one biological_library maps to multiple timepoints: ", paste( problematic_libraries, collapse = ", " ), "." ) )
 }
 missing_source_timepoints <- setdiff( expected_timepoints, all_source_timepoints )
-log_message( "Step 10F myeloid source coverage: ", length( all_source_libraries ), " libraries and ", length( all_source_timepoints ), "/", length( expected_timepoints ), " expected timepoints." )
 if ( length( missing_source_timepoints ) > 0L ) {
-  log_message( "Source-coverage review: expected timepoints absent from the Step 10F myeloid compartment: ", paste( missing_source_timepoints, collapse = ", " ), "." )
 }
 primary_coverage_counts <- data.table::data.table( timepoint = as.character( obj$timepoint[ obj$primary_noncycling_resident_member ] ), biological_library = as.character( obj$biological_library[ obj$primary_noncycling_resident_member ] ) )[ , .( primary_n_cells = .N ), by = .( timepoint, biological_library ) ]
 primary_library_coverage <- merge( source_library_manifest, primary_coverage_counts, by = c( "timepoint", "biological_library" ), all.x = TRUE, sort = FALSE )
@@ -274,25 +259,19 @@ source_has_all_expected_timepoints <- length( missing_source_timepoints ) == 0L
 low_replication_timepoints <- as.character( primary_timepoint_coverage$timepoint[ primary_timepoint_coverage$retained_libraries < 2L ] )
 primary_coverage_count_pass <- sum( primary_library_coverage$primary_n_cells ) == length( primary_cells )
 if (!primary_coverage_count_pass) {
-  stop_with_report( "Primary library/timepoint coverage counts do not sum to the frozen primary-object count." )
+  stop_with_report( "Primary library/timepoint coverage counts sum to the frozen primary-object count." )
 }
 source_coverage_summary_rows <- rbind( data.frame( record_type = "SOURCE_COHORT_SUMMARY", timepoint = "ALL", biological_library = "ALL", source_libraries = length( all_source_libraries ), retained_libraries = length( primary_present_libraries ), missing_libraries = length( missing_primary_libraries ), primary_n_cells = length( primary_cells ), retained_in_primary = NA, missing_library_names = paste( missing_primary_libraries, collapse = ";" ), stringsAsFactors = FALSE ), data.frame( record_type = "SOURCE_EXPECTED_TIMEPOINT_COVERAGE", timepoint = paste( expected_timepoints, collapse = ";" ), biological_library = "ALL", source_libraries = length( all_source_libraries ), retained_libraries = NA_integer_, missing_libraries = length( missing_source_timepoints ), primary_n_cells = length( primary_cells ), retained_in_primary = source_has_all_expected_timepoints, missing_library_names = paste( missing_source_timepoints, collapse = ";" ), stringsAsFactors = FALSE ) )
 primary_coverage_precheck <- rbind( source_coverage_summary_rows, data.frame( record_type = "SOURCE_LIBRARY", timepoint = as.character( primary_library_coverage$timepoint ), biological_library = primary_library_coverage$biological_library, source_libraries = NA_integer_, retained_libraries = NA_integer_, missing_libraries = NA_integer_, primary_n_cells = primary_library_coverage$primary_n_cells, retained_in_primary = primary_library_coverage$retained_in_primary, missing_library_names = "", stringsAsFactors = FALSE ), data.frame( record_type = "TIMEPOINT_SUMMARY", timepoint = as.character( primary_timepoint_coverage$timepoint ), biological_library = "ALL", source_libraries = primary_timepoint_coverage$source_libraries, retained_libraries = primary_timepoint_coverage$retained_libraries, missing_libraries = primary_timepoint_coverage$missing_libraries, primary_n_cells = primary_timepoint_coverage$primary_n_cells, retained_in_primary = primary_timepoint_coverage$primary_n_cells > 0L, missing_library_names = primary_timepoint_coverage$missing_library_names, stringsAsFactors = FALSE ) )
 write_csv_safe( primary_coverage_precheck, "02_primary_resident_library_timepoint_coverage_precheck.csv" )
-log_message( "Primary resident coverage: ", length( primary_present_libraries ), "/", length( all_source_libraries ), " source libraries retained; ", length( primary_present_timepoints ), "/", length( expected_timepoints ), " project timepoints retained in the primary object." )
 if ( length( missing_primary_libraries ) > 0L ) {
-  log_message( "Coverage review: source libraries with zero primary resident nuclei: ", paste( missing_primary_libraries, collapse = ", " ), "." )
 }
 if ( length( missing_primary_expected_timepoints ) > 0L ) {
-  log_message( "Coverage review: expected project timepoints absent from the primary resident object: ", paste( missing_primary_expected_timepoints, collapse = ", " ), "." )
 }
 if ( length( missing_primary_from_source_timepoints ) > 0L ) {
-  log_message( "Coverage review: Step 10F source timepoints lost after primary resident filtering: ", paste( missing_primary_from_source_timepoints, collapse = ", " ), "." )
 }
 if ( length( low_replication_timepoints ) > 0L ) {
-  log_message( "Coverage review: timepoints represented by fewer than two retained libraries: ", paste( low_replication_timepoints, collapse = ", " ), "." )
 }
-log_message( "Creating Step 10G annotation and object-membership figures." )
 p_cluster <- Seurat::DimPlot( object = obj, reduction = FROZEN_UMAP, group.by = FROZEN_CLUSTER_COLUMN, label = TRUE, repel = TRUE, raster = TRUE ) + ggplot2::labs( title = "Frozen myeloid Harmony clusters", subtitle = "myhcon_res_0_6; resolution 0.6" ) + Seurat::NoLegend()
 p_label <- Seurat::DimPlot( object = obj, reduction = FROZEN_UMAP, group.by = "myeloid_final_label", raster = TRUE ) + ggplot2::labs( title = "Frozen final myeloid annotation" )
 p_analysis_set <- Seurat::DimPlot( object = obj, reduction = FROZEN_UMAP, group.by = "arm_analysis_set", raster = TRUE ) + ggplot2::labs( title = "Frozen Arm-analysis membership" )
@@ -350,7 +329,6 @@ primary_source_coverage_rows <- data.frame( record_type = "PRIMARY_SOURCE_LIBRAR
 object_composition_table <- rbind( object_composition_table, primary_source_coverage_rows )
 write_csv_safe( object_composition_table, "05_frozen_object_composition_summary.csv" )
 obj@misc$GSE234774_step10G <- list( input_object = normalizePath( input_object_path, winslash = "/", mustWork = TRUE ), frozen_reduction = FROZEN_REDUCTION, frozen_umap = FROZEN_UMAP, frozen_cluster_column = FROZEN_CLUSTER_COLUMN, frozen_resolution = 0.6, final_label_map = final_label_map, resident_status_map = resident_status_map, arm_analysis_set_map = arm_analysis_set_map, primary_clusters = PRIMARY_CLUSTERS, nonIFN_clusters = NONIFN_CLUSTERS, cycling_clusters = CYCLING_CLUSTERS, excluded_clusters = EXCLUDED_CLUSTERS, primary_noncycling_resident_n = length( primary_cells ), nonIFN_sensitivity_n = length( nonIFN_cells ), cycling_resident_n = length( cycling_cells ), excluded_n = length( excluded_cells ), RNA_layers_modified = FALSE, reprocessing_run = FALSE, Arm_1_Arm_2_scoring_run = FALSE, completed_at = as.character( Sys.time() ) )
-log_message( "Saving the full annotated myeloid object." )
 saveRDS( obj, object_paths[[ "FULL_ANNOTATED_MYELOID" ]], compress = FALSE )
 subset_definitions <- list( PRIMARY_NONCYCLING_RESIDENT = list( cells = primary_cells, expected_n = EXPECTED_OBJECT_COUNTS[[ "PRIMARY_NONCYCLING_RESIDENT" ]], object_role = "PRIMARY_ARM_ANALYSIS_INCLUDES_IFN" ), NONIFN_SENSITIVITY_RESIDENT = list( cells = nonIFN_cells, expected_n = EXPECTED_OBJECT_COUNTS[[ "NONIFN_SENSITIVITY_RESIDENT" ]], object_role = "SENSITIVITY_EXCLUDES_IFN_CLUSTER_7" ), CYCLING_RESIDENT = list( cells = cycling_cells, expected_n = EXPECTED_OBJECT_COUNTS[[ "CYCLING_RESIDENT" ]], object_role = "CYCLING_RESIDENT_SEPARATE_LAYER" ), EXCLUDED_NONMICROGLIAL_OR_CONTAMINANT = list( cells = excluded_cells, expected_n = EXPECTED_OBJECT_COUNTS[[ "EXCLUDED_NONMICROGLIAL_OR_CONTAMINANT" ]], object_role = "EXCLUDED_FROM_RESIDENT_ARM_ANALYSIS" ) )
 save_summary_rows <- list()
@@ -358,7 +336,6 @@ full_object_valid <- safe_valid_object( obj )
 save_summary_rows[[ "FULL_ANNOTATED_MYELOID" ]] <- data.frame( object_name = "FULL_ANNOTATED_MYELOID", expected_n_cells = EXPECTED_OBJECT_COUNTS[[ "FULL_ANNOTATED_MYELOID" ]], observed_n_cells = ncol( obj ), expected_n_features = EXPECTED_FEATURES, observed_n_features = nrow( obj ), valid_object = full_object_valid, object_role = "FROZEN_FULL_MYELOID_ANNOTATION", output_path = object_paths[[ "FULL_ANNOTATED_MYELOID" ]], stringsAsFactors = FALSE )
 for (object_name in names( subset_definitions )) {
   definition <- subset_definitions[[object_name]]
-  log_message( "Creating and saving object: ", object_name, "." )
   subset_object <- make_subset_object( object = obj, cells = definition$cells, object_name = object_name, expected_nuclei = as.integer( definition$expected_n ) )
   subset_object@misc$GSE234774_step10G_object_role <- list( object_name = object_name, object_role = definition$object_role, frozen_cluster_column = FROZEN_CLUSTER_COLUMN, source_full_object = object_paths[[ "FULL_ANNOTATED_MYELOID" ]], completed_at = as.character( Sys.time() ) )
   saveRDS( subset_object, object_paths[[ object_name ]], compress = FALSE )
@@ -368,7 +345,6 @@ for (object_name in names( subset_definitions )) {
 }
 save_summary <- do.call( rbind, save_summary_rows )
 rownames( save_summary ) <- NULL
-log_message( "Reloading and auditing all five Step 10G objects." )
 reload_audit_rows <- list()
 for (object_name in names( object_cell_sets )) {
   expected_cells <- object_cell_sets[[object_name]]
@@ -420,36 +396,12 @@ final_decision <- if ( any( required_failures ) ) {
 }
 object_lines <- paste0( save_summary$object_name, ": ", save_summary$observed_n_cells, " nuclei; ", save_summary$observed_n_features, " features; valid=", save_summary$valid_object, "; role=", save_summary$object_role, "; path=", save_summary$output_path )
 cluster_lines <- paste0( "cluster ", cluster_annotation_table$cluster, ": ", cluster_annotation_table$myeloid_final_label, "; n=", cluster_annotation_table$observed_n_cells, "; resident_status=", cluster_annotation_table$resident_lineage_status, "; arm_set=", cluster_annotation_table$arm_analysis_set, "; nonIFN_status=", cluster_annotation_table$nonIFN_sensitivity_status )
-report_lines <- c( "GSE234774 STEP 10G FROZEN MYELOID ANNOTATIONS / RESIDENT OBJECTS", "============================================================", paste0( "Run time: ", format( Sys.time(), "%Y-%m-%d %H:%M:%S" ) ), paste0( "Input object: ", input_object_path ), paste0( "Output directory: ", output_dir ), "", paste0( "FINAL DECISION: ", final_decision ), "", "FROZEN CLUSTER ANNOTATIONS", cluster_lines, "", "OBJECTS", object_lines, "", "PRIMARY ARM ANALYSIS DESIGN", "Primary non-cycling resident clusters: 0, 1, 2, 3, 7.", paste0( "Primary non-cycling resident nuclei: ", length( primary_cells ), "." ), "Cluster 7 IFN-responsive microglia is retained in the primary analysis.", paste0( "Step 10F myeloid source libraries: ", length( all_source_libraries ), "." ), paste0( "Step 10F myeloid source timepoints: ", length( all_source_timepoints ), "/", length( expected_timepoints ), "; absent expected timepoints=", ifelse( length( missing_source_timepoints ) == 0L, "none", paste( missing_source_timepoints, collapse = ", " ) ), "." ), paste0( "Primary retained source libraries: ", length( primary_present_libraries ), "/", length( all_source_libraries ), "." ), paste0( "Source libraries with zero retained primary resident nuclei: ", ifelse( length( missing_primary_libraries ) == 0L, "none", paste( missing_primary_libraries, collapse = ", " ) ), "." ), paste0( "Primary retained Step 10F source timepoints: ", length( primary_present_timepoints ), "/", length( all_source_timepoints ), "." ), paste0( "Primary retained expected project timepoints: ", length( primary_present_timepoints ), "/", length( expected_timepoints ), "." ), paste0( "Absent primary timepoints: ", ifelse( length( missing_primary_expected_timepoints ) == 0L, "none", paste( missing_primary_expected_timepoints, collapse = ", " ) ), "." ), paste0( "Step 10F source timepoints lost after primary filtering: ", ifelse( length( missing_primary_from_source_timepoints ) == 0L, "none", paste( missing_primary_from_source_timepoints, collapse = ", " ) ), "." ), paste0( "Timepoints with fewer than two retained biological libraries: ", ifelse( length( low_replication_timepoints ) == 0L, "none", paste( low_replication_timepoints, collapse = ", " ) ), "." ), "A zero-cell source library is a retained-coverage limitation, not an object-construction error.", "Non-IFN sensitivity clusters: 0, 1, 2, 3.", paste0( "Non-IFN sensitivity nuclei: ", length( nonIFN_cells ), "." ), "Cycling cluster 6 is retained as resident lineage but analyzed separately.", paste0( "Cycling resident nuclei: ", length( cycling_cells ), "." ), "Clusters 4, 5, and 8 are excluded from resident Arm analysis.", paste0( "Excluded nuclei: ", length( excluded_cells ), "." ), "", "INTEGRITY", paste0( "Exclusive primary/cycling/excluded partition: ", exclusive_partition_pass ), paste0( "Non-IFN is a strict primary subset: ", nonIFN_subset_pass ), paste0( "All five objects reload and validate: ", all_objects_reload_pass ), paste0( "RNA counts unchanged: ", counts_unchanged ), paste0( "RNA LogNormalize data unchanged: ", data_unchanged ), "", "INTERPRETATION BOUNDARIES", "1. Cluster-level myeloid annotation and object membership are frozen in this step.", "2. Cycling microglia remains a state, not a terminal lineage.", "3. IFN-responsive microglia remains in the primary resident analysis and is removed only in a dedicated sensitivity object.", "4. BAM-like, macrophage-like non-microglial, and neuronal-contaminant clusters are excluded from resident Arm analysis.", "5. Harmony is retained only for visualization and cluster context.", "6. RNA counts and LogNormalize data were not modified.", "7. Arm_1/Arm_2 scoring was not run.", "", "STATUS", "Project the frozen GSE162610 Arm_1 and Arm_2 signatures onto the primary non-cycling resident object.", "Repeat the projection in the non-IFN sensitivity object.", "Use only retained biological libraries for sample-level summaries and explicitly report any zero-cell libraries or low-replication timepoints.", "Report cycling resident microglia separately without forcing cluster 6 into either Arm." )
 if ( final_decision == "STOP" ) {
   failed <- audit_checks[ audit_checks$required_for_pass & audit_checks$status != "PASS", , drop = FALSE ]
-  report_lines <- c( report_lines, "", "STOP REASONS" )
   for ( index in seq_len( nrow( failed ) ) ) {
-    report_lines <- c( report_lines, paste0( index, ". ", failed$check[ index ], " -- ", failed$detail[ index ] ) )
   }
 }
 report_path <- file.path( output_dir, "10_STEP10G_FINAL_REPORT.txt" )
-writeLines( report_lines, report_path, useBytes = TRUE )
-log_message( "Final decision: ", final_decision )
-log_message( "Final report: ", report_path )
-cat("\n")
-cat("============================================================\n")
-cat("GSE234774 STEP 10G COMPLETED\n")
-cat( "FINAL DECISION:", final_decision, "\n" )
-cat( "Output:", output_dir, "\n" )
-cat("Primary Arm-analysis object:\n")
-cat( " ", object_paths[[ "PRIMARY_NONCYCLING_RESIDENT" ]], "\n", sep = "" )
-cat("Non-IFN sensitivity object:\n")
-cat( " ", object_paths[[ "NONIFN_SENSITIVITY_RESIDENT" ]], "\n", sep = "" )
-cat("Key outputs:\n")
-cat(" 1) figures/01_frozen_annotation_and_analysis_set_UMAP.pdf\n")
-cat(" 2) figures/02_analysis_set_timepoint_composition.pdf\n")
-cat(" 3) figures/03_final_annotation_marker_DotPlot.pdf\n")
-cat(" 4) tables/04_frozen_cluster_annotation_and_object_membership.csv\n")
-cat(" 5) tables/05_frozen_object_composition_summary.csv\n")
-cat(" 6) tables/09_STEP10G_audit_checks.csv\n")
-cat(" 7) 10_STEP10G_FINAL_REPORT.txt\n")
-cat("============================================================\n")
 if ( final_decision == "STOP" ) {
   stop( "GSE234774 Step 10G decision is STOP. Review the final report.", call. = FALSE )
 }

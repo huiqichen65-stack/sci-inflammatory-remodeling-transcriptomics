@@ -64,11 +64,6 @@ suppressPackageStartupMessages({
   library(png)
 })
 run_log <- character()
-log_message <- function(...) {
-  line <- paste0( "[", format( Sys.time(), "%Y-%m-%d %H:%M:%S" ), "] ", paste0(...) )
-  cat(line, "\n")
-  run_log <<- c( run_log, line )
-}
 write_run_log <- function() {
   writeLines( run_log, RUN_LOG_FILE, useBytes = TRUE )
 }
@@ -217,8 +212,6 @@ capture_is_complete <- function( capture_area) {
 write_capture_failure <- function( capture_area, reason, elapsed) {
   files <- capture_files( capture_area )
   dir.create( files$area_dir, recursive = TRUE, showWarnings = FALSE )
-  report <- c( "============================================================", paste0( "GSE234774 Step 12E | ", capture_area ), "============================================================", paste0( "Generated: ", format( Sys.time(), "%Y-%m-%d %H:%M:%S" ) ), "", "FINAL_STATUS: FAIL", paste0( "ERROR: ", reason ), paste0( "ELAPSED_MINUTES: ", elapsed ), "", "BOUNDARIES", "- Other successful capture-area score checkpoints remain valid.", "- Rerun this script to continue.", "- No lesion-zone or recipient-neighborhood analysis was run.", "============================================================" )
-  writeLines( report, files$report_txt, useBytes = TRUE )
   if (file.exists( files$success_flag )) {
     unlink( files$success_flag, force = TRUE )
   }
@@ -335,9 +328,6 @@ add_review <- function( check_id, category, description, observed, required, act
   checks <<- rbind( checks, data.table( check_id = as.character( check_id ), category = as.character( category ), description = as.character( description ), status = "REVIEW", observed = as.character( observed ), required = as.character( required ), critical = FALSE, action_if_not_pass = as.character( action_if_not_pass ) ), fill = TRUE )
 }
 write_fatal_report <- function(reason) {
-  report <- c( "============================================================", "GSE234774 Step 12E target-program spatial scoring", "============================================================", paste0( "Generated: ", format( Sys.time(), "%Y-%m-%d %H:%M:%S" ) ), paste0( "Output directory: ", OUTPUT_DIR ), "", "FINAL_STATUS: STOP", "", "FATAL ERROR", paste0( "- ", reason ), "", "BOUNDARIES", "- No lesion-zone analysis was run.", "- No recipient-neighborhood analysis was run.", "- No program name was upgraded to scar-associated.", "", "NEXT ACTION", "- review this report and 00_run_log.txt.", "============================================================" )
-  writeLines( report, OUT_FINAL_REPORT, useBytes = TRUE )
-  log_message( "FATAL ERROR: ", reason )
   write_run_log()
 }
 score_one_capture_area <- function( capture_area, spatial_counts, spot_qc, target_genes_spatial, shared_genes_spatial, auc_max_rank) {
@@ -354,7 +344,6 @@ score_one_capture_area <- function( capture_area, spatial_counts, spot_qc, targe
   if (anyNA( column_indices )) {
     stop( "Spatial BPCells matrix is missing one or more ", capture_area, " spot barcodes.", call. = FALSE )
   }
-  log_message( capture_area, ": materializing ", nrow( spatial_counts ), " genes x ", length( expected_spots ), " spots for sparse AUCell." )
   area_view <- spatial_counts[ , column_indices, drop = FALSE ]
   area_counts <- to_dgCMatrix( area_view, paste0( capture_area, " full spatial counts" ) )
   rm(area_view)
@@ -399,13 +388,10 @@ score_one_capture_area <- function( capture_area, spatial_counts, spot_qc, targe
 }
 main <- function() {
   workflow_start <- Sys.time()
-  log_message( "============================================================" )
-  log_message( "GSE234774 Step 12E target-program spatial scoring started." )
-  log_message( "============================================================" )
   required_inputs <- c( Step11B_report = STEP11B_REPORT, Step11B_results_RDS = STEP11B_RESULTS_RDS, Step12D_report = STEP12D_REPORT, Step12D_normalized_weights_RDS = STEP12D_NORMALIZED_WEIGHTS_RDS, Step12B_report = STEP12B_REPORT, Step12B_spot_QC = STEP12B_SPOT_QC, Step12B_capture_audit = STEP12B_CAPTURE_AUDIT )
   input_exists <- file.exists( required_inputs )
   spatial_cache_exists <- dir.exists( SPATIAL_BPCELLS_DIR )
-  add_check( "C01", "input", "All frozen Step 11B/12B/12D inputs and the spatial BPCells matrix exist.", all(input_exists) && spatial_cache_exists, paste0( paste( paste0( names( required_inputs ), "=", input_exists ), collapse = "; " ), "; spatial_BPCells=", spatial_cache_exists ), "All TRUE", TRUE, "Restore frozen upstream outputs; do not reconstruct gene sets from memory." )
+  add_check( "C01", "input", "All frozen Step 11B/12B/12D inputs and the spatial BPCells matrix exist.", all(input_exists) && spatial_cache_exists, paste0( paste( paste0( names( required_inputs ), "=", input_exists ), collapse = "; " ), "; spatial_BPCells=", spatial_cache_exists ), "All TRUE", TRUE, "Restore frozen upstream outputs; reconstruct gene sets from memory." )
   if ( !all(input_exists) || !spatial_cache_exists ) {
     stop( "At least one required Step 12E input is missing.", call. = FALSE )
   }
@@ -418,11 +404,10 @@ main <- function() {
   step12D_text <- readLines( STEP12D_REPORT, warn = FALSE, encoding = "UTF-8" )
   step12D_status_lines <- step12D_text[ grepl( "^FINAL_STATUS:", step12D_text ) ]
   step12D_pass <- length( step12D_status_lines ) == 1L && grepl( "^FINAL_STATUS: (PASS|PASS_WITH_REVIEW)$", step12D_status_lines )
-  add_check( "C02", "upstream", "Step 11B, Step 12B, and Step 12D release target scoring.", step11B_pass && step12B_pass && step12D_pass, paste0( "Step11B=", collapse_unique( step11B_status_lines ), "; Step12B=", collapse_unique( step12B_status_lines ), "; Step12D=", collapse_unique( step12D_status_lines ) ), "All upstream stages PASS/PASS_WITH_REVIEW", TRUE, "Do not score spatial target programs before the frozen stages pass." )
+  add_check( "C02", "upstream", "Step 11B, Step 12B, and Step 12D release target scoring.", step11B_pass && step12B_pass && step12D_pass, paste0( "Step11B=", collapse_unique( step11B_status_lines ), "; Step12B=", collapse_unique( step12B_status_lines ), "; Step12D=", collapse_unique( step12D_status_lines ) ), "All upstream stages PASS/PASS_WITH_REVIEW", TRUE, "score spatial target programs before the frozen stages pass." )
   if ( !step11B_pass || !step12B_pass || !step12D_pass ) {
     stop( "An upstream frozen stage does not release Step 12E.", call. = FALSE )
   }
-  log_message( "[1/7] Loading frozen Step 11B target and Shared_prebranch gene sets." )
   step11B_results <- readRDS( STEP11B_RESULTS_RDS )
   required_step11B_fields <- c( "scored_gene_sets_present", "scored_gene_sets_requested", "source_sets" )
   missing_step11B_fields <- setdiff( required_step11B_fields, names( step11B_results ) )
@@ -437,13 +422,13 @@ main <- function() {
   target_genes_step11B <- clean_gene_vector( frozen_gene_sets$Arm_2_specific )
   shared_genes_step11B <- clean_gene_vector( frozen_gene_sets$Shared_prebranch )
   frozen_sizes_ok <- length( target_genes_step11B ) == EXPECTED_TARGET_STEP11B_GENES && length( shared_genes_step11B ) == EXPECTED_SHARED_STEP11B_GENES && length( intersect( target_genes_step11B, shared_genes_step11B ) ) == 0L
-  add_check( "C03", "gene_set", "Frozen Step 11B target and Shared_prebranch gene sets have expected sizes and are disjoint.", frozen_sizes_ok, paste0( "target=", length( target_genes_step11B ), "; shared=", length( shared_genes_step11B ), "; overlap=", length( intersect( target_genes_step11B, shared_genes_step11B ) ) ), paste0( "target=", EXPECTED_TARGET_STEP11B_GENES, "; shared=", EXPECTED_SHARED_STEP11B_GENES, "; overlap=0" ), TRUE, "Do not redefine the frozen programs in the spatial dataset." )
+  add_check( "C03", "gene_set", "Frozen Step 11B target and Shared_prebranch gene sets have expected sizes and are disjoint.", frozen_sizes_ok, paste0( "target=", length( target_genes_step11B ), "; shared=", length( shared_genes_step11B ), "; overlap=", length( intersect( target_genes_step11B, shared_genes_step11B ) ) ), paste0( "target=", EXPECTED_TARGET_STEP11B_GENES, "; shared=", EXPECTED_SHARED_STEP11B_GENES, "; overlap=0" ), TRUE, "redefine the frozen programs in the spatial dataset." )
   if (!frozen_sizes_ok) {
     stop( "Frozen Step 11B gene-set integrity check failed.", call. = FALSE )
   }
   spatial_counts <- BPCells::open_matrix_dir( SPATIAL_BPCELLS_DIR )
   spatial_dimensions_ok <- nrow( spatial_counts ) == EXPECTED_SPATIAL_GENES && ncol( spatial_counts ) == EXPECTED_SPATIAL_SPOTS && !anyDuplicated( rownames( spatial_counts ) ) && !anyDuplicated( colnames( spatial_counts ) )
-  add_check( "C04", "spatial_matrix", "The frozen spatial BPCells matrix has expected dimensions and unique names.", spatial_dimensions_ok, paste0( "dimensions=", nrow( spatial_counts ), " x ", ncol( spatial_counts ), "; duplicated genes=", anyDuplicated( rownames( spatial_counts ) ), "; duplicated spots=", anyDuplicated( colnames( spatial_counts ) ) ), "25,966 genes x 33,941 spots with unique names", TRUE, "Do not score a changed spatial matrix." )
+  add_check( "C04", "spatial_matrix", "The frozen spatial BPCells matrix has expected dimensions and unique names.", spatial_dimensions_ok, paste0( "dimensions=", nrow( spatial_counts ), " x ", ncol( spatial_counts ), "; duplicated genes=", anyDuplicated( rownames( spatial_counts ) ), "; duplicated spots=", anyDuplicated( colnames( spatial_counts ) ) ), "25,966 genes x 33,941 spots with unique names", TRUE, "score a changed spatial matrix." )
   if (!spatial_dimensions_ok) {
     stop( "Spatial BPCells matrix integrity check failed.", call. = FALSE )
   }
@@ -455,7 +440,7 @@ main <- function() {
   shared_mapping_fraction <- length( shared_genes_spatial ) / length( shared_genes_step11B )
   spatial_program_overlap <- intersect( target_genes_spatial, shared_genes_spatial )
   mapping_ok <- length( target_genes_spatial ) >= MIN_TARGET_GENES_PRESENT && length( shared_genes_spatial ) >= MIN_SHARED_GENES_PRESENT && target_mapping_fraction >= MIN_TARGET_MAPPING_FRACTION && shared_mapping_fraction >= MIN_SHARED_MAPPING_FRACTION && length( spatial_program_overlap ) == 0L
-  add_check( "C05", "gene_set", "Target and Shared_prebranch map sufficiently to spatial genes and remain separate.", mapping_ok, paste0( "target=", length( target_genes_spatial ), "/", length( target_genes_step11B ), " (", round( target_mapping_fraction, 4 ), "); shared=", length( shared_genes_spatial ), "/", length( shared_genes_step11B ), " (", round( shared_mapping_fraction, 4 ), "); spatial overlap=", length( spatial_program_overlap ) ), "Both mapping fractions >=0.90 and overlap=0", TRUE, "Do not optimize or replace missing genes using spatial expression." )
+  add_check( "C05", "gene_set", "Target and Shared_prebranch map sufficiently to spatial genes and remain separate.", mapping_ok, paste0( "target=", length( target_genes_spatial ), "/", length( target_genes_step11B ), " (", round( target_mapping_fraction, 4 ), "); shared=", length( shared_genes_spatial ), "/", length( shared_genes_step11B ), " (", round( shared_mapping_fraction, 4 ), "); spatial overlap=", length( spatial_program_overlap ) ), "Both mapping fractions >=0.90 and overlap=0", TRUE, "optimize or replace missing genes using spatial expression." )
   if (!mapping_ok) {
     stop( "Frozen-program spatial mapping failed.", call. = FALSE )
   }
@@ -476,7 +461,6 @@ main <- function() {
   )
   input_gene_audit <- rbindlist( list( package_input_audit, target_gene_audit, shared_gene_audit ), fill = TRUE )
   data.table::fwrite( input_gene_audit, OUT_INPUT_GENE_AUDIT, bom = TRUE )
-  log_message( "[2/7] Loading spot metadata and normalized RCTD weights." )
   spot_qc <- data.table::fread( STEP12B_SPOT_QC, data.table = TRUE, showProgress = FALSE )
   required_columns( spot_qc, c( "barcode", "capture_area_id", "section_id", "timepoint", "replicate_index", "biological_replicate_id", "injury_condition", "nCount_Spatial_BPCells", "nFeature_Spatial_BPCells", "percent.mt", "qc_review_flag" ), "Step 12B spot-QC table" )
   spot_qc[ , capture_area_id := toupper( trimws( as.character( capture_area_id ) ) ) ]
@@ -486,7 +470,7 @@ main <- function() {
   normalized_weight_ok <- nrow( normalized_weights ) == EXPECTED_SPATIAL_SPOTS && "Microglia" %in%
       colnames( normalized_weights ) && !anyDuplicated( rownames( normalized_weights ) ) && all( is.finite( normalized_weights ) ) && max( abs( rowSums( normalized_weights ) - 1 ) ) <= 1e-6
   metadata_weight_alignment <- nrow( spot_qc ) == EXPECTED_SPATIAL_SPOTS && !anyDuplicated( spot_qc$barcode ) && setequal( spot_qc$barcode, rownames( normalized_weights ) )
-  add_check( "C06", "RCTD", "Normalized RCTD weights are valid and align exactly to all spatial barcodes.", normalized_weight_ok && metadata_weight_alignment, paste0( "weights=", nrow( normalized_weights ), " x ", ncol( normalized_weights ), "; Microglia present=", "Microglia" %in% colnames( normalized_weights ), "; metadata rows=", nrow( spot_qc ), "; barcode set equal=", setequal( spot_qc$barcode, rownames( normalized_weights ) ) ), "33,941 aligned spots and Microglia weight", TRUE, "Do not adjust target scores with misaligned RCTD weights." )
+  add_check( "C06", "RCTD", "Normalized RCTD weights are valid and align exactly to all spatial barcodes.", normalized_weight_ok && metadata_weight_alignment, paste0( "weights=", nrow( normalized_weights ), " x ", ncol( normalized_weights ), "; Microglia present=", "Microglia" %in% colnames( normalized_weights ), "; metadata rows=", nrow( spot_qc ), "; barcode set equal=", setequal( spot_qc$barcode, rownames( normalized_weights ) ) ), "33,941 aligned spots and Microglia weight", TRUE, "adjust target scores with misaligned RCTD weights." )
   if ( !normalized_weight_ok || !metadata_weight_alignment ) {
     stop( "Step 12D normalized-weight alignment failed.", call. = FALSE )
   }
@@ -497,12 +481,11 @@ main <- function() {
   spot_qc[ , Microglia_RCTD_weight := normalized_weights[ barcode, "Microglia" ] ]
   all_capture_areas <- sort( unique( spot_qc$capture_area_id ) )
   capture_structure_ok <- length( all_capture_areas ) == EXPECTED_CAPTURE_AREAS && data.table::uniqueN( spot_qc$section_id ) == EXPECTED_SECTIONS
-  add_check( "C07", "metadata", "Spot metadata contains 12 capture areas and 36 sections.", capture_structure_ok, paste0( "capture areas=", length( all_capture_areas ), "; sections=", uniqueN( spot_qc$section_id ) ), "12 capture areas and 36 sections", TRUE, "Do not perform section-fixed adjustment with incomplete metadata." )
+  add_check( "C07", "metadata", "Spot metadata contains 12 capture areas and 36 sections.", capture_structure_ok, paste0( "capture areas=", length( all_capture_areas ), "; sections=", uniqueN( spot_qc$section_id ) ), "12 capture areas and 36 sections", TRUE, "perform section-fixed adjustment with incomplete metadata." )
   if (!capture_structure_ok) {
     stop( "Spatial capture-area/section structure is incomplete.", call. = FALSE )
   }
   auc_max_rank <- max( 1L, floor( nrow( spatial_counts ) * AUC_MAX_RANK_FRACTION ) )
-  log_message( "[3/7] Running capture-area sparse AUCell scoring." )
   capture_areas_to_run <- if ( length( CAPTURE_AREAS_TO_RUN ) == 1L && identical( toupper( CAPTURE_AREAS_TO_RUN ), "ALL" ) ) {
     all_capture_areas
   } else {
@@ -515,9 +498,7 @@ main <- function() {
   area_audit_list <- vector( "list", length( capture_areas_to_run ) )
   for ( area_index in seq_along( capture_areas_to_run ) ) {
     capture_area <- capture_areas_to_run[ area_index ]
-    log_message( "[", area_index, "/", length( capture_areas_to_run ), "] ", capture_area )
     if ( RESUME_COMPLETED && !capture_area %in% FORCE_RERUN_CAPTURE_AREAS && capture_is_complete( capture_area ) ) {
-      log_message( capture_area, ": existing successful score checkpoint found; skipping." )
       files <- capture_files( capture_area )
       prior_audit <- data.table::fread( files$audit_csv, data.table = TRUE, showProgress = FALSE )
       prior_audit[ , run_action := "SKIPPED_EXISTING_SUCCESS" ]
@@ -544,7 +525,6 @@ main <- function() {
     data.table::fwrite( checks, OUT_CHECKS, bom = TRUE )
     stop( "Step 12E has incomplete capture-area score checkpoints: ", paste( incomplete_capture_areas, collapse = " | " ), call. = FALSE )
   }
-  log_message( "[4/7] Combining 12 capture-area scores." )
   score_list <- lapply( completed_capture_areas, function(capture_area) {
       readRDS( capture_files( capture_area )$scores_rds )
     }
@@ -552,7 +532,7 @@ main <- function() {
   combined_scores <- rbindlist( score_list, fill = TRUE )
   combined_scores <- combined_scores[ match( spot_qc$barcode, barcode ) ]
   combined_score_ok <- nrow( combined_scores ) == EXPECTED_SPATIAL_SPOTS && !anyDuplicated( combined_scores$barcode ) && identical( combined_scores$barcode, spot_qc$barcode ) && all( is.finite( combined_scores$target_program_AUCell_raw ) ) && all( is.finite( combined_scores$shared_prebranch_AUCell_raw ) )
-  add_check( "C09", "combined_score", "Combined target and Shared_prebranch scores cover all spots exactly once.", combined_score_ok, paste0( "rows=", nrow( combined_scores ), "; duplicates=", anyDuplicated( combined_scores$barcode ), "; exact metadata order=", identical( combined_scores$barcode, spot_qc$barcode ) ), "33,941 unique aligned spots", TRUE, "Do not fit Microglia adjustment with incomplete score coverage." )
+  add_check( "C09", "combined_score", "Combined target and Shared_prebranch scores cover all spots exactly once.", combined_score_ok, paste0( "rows=", nrow( combined_scores ), "; duplicates=", anyDuplicated( combined_scores$barcode ), "; exact metadata order=", identical( combined_scores$barcode, spot_qc$barcode ) ), "33,941 unique aligned spots", TRUE, "fit Microglia adjustment with incomplete score coverage." )
   if (!combined_score_ok) {
     stop( "Combined capture-area score validation failed.", call. = FALSE )
   }
@@ -567,17 +547,16 @@ main <- function() {
   adjusted_scores_valid <- all( is.finite( spot_scores$target_program_microglia_adjusted_z ) ) && all( is.finite( spot_scores$shared_prebranch_microglia_adjusted_z ) ) && abs( mean( spot_scores$target_program_microglia_adjusted_z ) ) <
       1e-8 && abs( stats::sd( spot_scores$target_program_microglia_adjusted_z ) - 1 ) <
       1e-6
-  add_check( "C10", "microglia_adjustment", "Target and Shared_prebranch Microglia-adjusted scores are finite for every spot.", adjusted_scores_valid, paste0( "target finite=", sum( is.finite( spot_scores$target_program_microglia_adjusted_z ) ), "/", nrow( spot_scores ), "; shared finite=", sum( is.finite( spot_scores$shared_prebranch_microglia_adjusted_z ) ), "/", nrow( spot_scores ), "; target adjusted mean=", mean( spot_scores$target_program_microglia_adjusted_z ), "; target adjusted SD=", stats::sd( spot_scores$target_program_microglia_adjusted_z ) ), "33,941 finite adjusted scores; target adjusted mean~0 and SD~1", TRUE, "Do not proceed to lesion-zone analysis with failed residualization." )
+  add_check( "C10", "microglia_adjustment", "Target and Shared_prebranch Microglia-adjusted scores are finite for every spot.", adjusted_scores_valid, paste0( "target finite=", sum( is.finite( spot_scores$target_program_microglia_adjusted_z ) ), "/", nrow( spot_scores ), "; shared finite=", sum( is.finite( spot_scores$shared_prebranch_microglia_adjusted_z ) ), "/", nrow( spot_scores ), "; target adjusted mean=", mean( spot_scores$target_program_microglia_adjusted_z ), "; target adjusted SD=", stats::sd( spot_scores$target_program_microglia_adjusted_z ) ), "33,941 finite adjusted scores; target adjusted mean~0 and SD~1", TRUE, "proceed to lesion-zone analysis with failed residualization." )
   if (!adjusted_scores_valid) {
     stop( "Microglia-adjusted score validation failed.", call. = FALSE )
   }
-  log_message( "[5/7] Building Microglia-adjustment and section summaries." )
   global_adjustment_audit <- data.table( record_type = "GLOBAL_MODEL", section_id = "ALL", capture_area_id = "ALL", timepoint = "ALL", n_spots = nrow( spot_scores ), target_raw_vs_Microglia_spearman = safe_spearman( spot_scores$target_program_AUCell_raw, spot_scores$Microglia_RCTD_weight ), target_adjusted_vs_Microglia_spearman = safe_spearman( spot_scores$target_program_microglia_adjusted_z, spot_scores$Microglia_RCTD_weight ), shared_raw_vs_Microglia_spearman = safe_spearman( spot_scores$shared_prebranch_AUCell_raw, spot_scores$Microglia_RCTD_weight ), shared_adjusted_vs_Microglia_spearman = safe_spearman( spot_scores$shared_prebranch_microglia_adjusted_z, spot_scores$Microglia_RCTD_weight ), target_microglia_model_coefficient = target_adjustment$microglia_coefficient, target_model_R2 = target_adjustment$r_squared, target_model_adjusted_R2 = target_adjustment$adjusted_r_squared, shared_microglia_model_coefficient = shared_adjustment$microglia_coefficient, shared_model_R2 = shared_adjustment$r_squared, shared_model_adjusted_R2 = shared_adjustment$adjusted_r_squared, inferential_p_values_run = FALSE )
   section_adjustment_audit <- spot_scores[ , .( record_type = "SECTION_DESCRIPTIVE", capture_area_id = as.character( capture_area_id[1L] ), timepoint = as.character( timepoint[1L] ), n_spots = .N, target_raw_vs_Microglia_spearman = safe_spearman( target_program_AUCell_raw, Microglia_RCTD_weight ), target_adjusted_vs_Microglia_spearman = safe_spearman( target_program_microglia_adjusted_z, Microglia_RCTD_weight ), shared_raw_vs_Microglia_spearman = safe_spearman( shared_prebranch_AUCell_raw, Microglia_RCTD_weight ), shared_adjusted_vs_Microglia_spearman = safe_spearman( shared_prebranch_microglia_adjusted_z, Microglia_RCTD_weight ), target_microglia_model_coefficient = NA_real_, target_model_R2 = NA_real_, target_model_adjusted_R2 = NA_real_, shared_microglia_model_coefficient = NA_real_, shared_model_R2 = NA_real_, shared_model_adjusted_R2 = NA_real_, inferential_p_values_run = FALSE ), by = section_id ]
   adjustment_audit <- rbind( global_adjustment_audit, section_adjustment_audit, fill = TRUE )
   section_summary <- spot_scores[ , .( n_spots = .N, n_QC_review_spots = sum( qc_review_flag ), Microglia_weight_mean = mean( Microglia_RCTD_weight ), Microglia_weight_median = median( Microglia_RCTD_weight ), target_AUCell_mean = mean( target_program_AUCell_raw ), target_AUCell_median = median( target_program_AUCell_raw ), target_AUCell_q10 = as.numeric( quantile( target_program_AUCell_raw, 0.10, names = FALSE ) ), target_AUCell_q90 = as.numeric( quantile( target_program_AUCell_raw, 0.90, names = FALSE ) ), target_adjusted_z_mean = mean( target_program_microglia_adjusted_z ), target_adjusted_z_median = median( target_program_microglia_adjusted_z ), target_adjusted_z_q10 = as.numeric( quantile( target_program_microglia_adjusted_z, 0.10, names = FALSE ) ), target_adjusted_z_q90 = as.numeric( quantile( target_program_microglia_adjusted_z, 0.90, names = FALSE ) ), shared_AUCell_mean = mean( shared_prebranch_AUCell_raw ), shared_AUCell_median = median( shared_prebranch_AUCell_raw ), shared_adjusted_z_mean = mean( shared_prebranch_microglia_adjusted_z ), shared_adjusted_z_median = median( shared_prebranch_microglia_adjusted_z ), target_detected_gene_fraction_median = median( target_program_detected_gene_fraction ), shared_detected_gene_fraction_median = median( shared_prebranch_detected_gene_fraction ), target_raw_vs_Microglia_spearman = safe_spearman( target_program_AUCell_raw, Microglia_RCTD_weight ), target_adjusted_vs_Microglia_spearman = safe_spearman( target_program_microglia_adjusted_z, Microglia_RCTD_weight ) ), by = .( capture_area_id, section_id, timepoint, replicate_index, biological_replicate_id, injury_condition ) ]
   section_summary_ok <- nrow( section_summary ) == EXPECTED_SECTIONS && sum( section_summary$n_spots ) == EXPECTED_SPATIAL_SPOTS
-  add_check( "C11", "section_summary", "Section-level descriptive summaries preserve 36 sections and all spots.", section_summary_ok, paste0( "sections=", nrow( section_summary ), "; summed spots=", sum( section_summary$n_spots ) ), "36 sections and 33,941 summed spots", TRUE, "Do not use an incomplete section summary in Step 12F." )
+  add_check( "C11", "section_summary", "Section-level descriptive summaries preserve 36 sections and all spots.", section_summary_ok, paste0( "sections=", nrow( section_summary ), "; summed spots=", sum( section_summary$n_spots ) ), "36 sections and 33,941 summed spots", TRUE, "use an incomplete section summary in Step 12F." )
   if (!section_summary_ok) {
     stop( "Section summary integrity check failed.", call. = FALSE )
   }
@@ -585,7 +564,6 @@ main <- function() {
   data.table::fwrite( section_summary, OUT_SECTION_SUMMARY, bom = TRUE )
   data.table::fwrite( adjustment_audit, OUT_ADJUSTMENT_AUDIT, bom = TRUE )
   saveRDS( spot_scores, OUT_SPOT_SCORES_RDS, compress = FALSE )
-  log_message( "[6/7] Drawing target, Microglia, adjusted-target, and Shared maps." )
   capture_audit <- data.table::fread( STEP12B_CAPTURE_AUDIT, data.table = TRUE, showProgress = FALSE )
   required_columns( capture_audit, c( "capture_area_id", "tissue_lowres_scalef", "lowres_image_width", "lowres_image_height", "asset_linkage_status" ), "Step 12B capture-area image audit" )
   capture_audit[ , capture_area_id := toupper( trimws( as.character( capture_area_id ) ) ) ]
@@ -638,17 +616,16 @@ main <- function() {
   grDevices::dev.off()
   pdf_open <- FALSE
   plot_output_ok <- all( plot_area_pass ) && file.exists( OUT_SPATIAL_MAPS ) && file_size_safe( OUT_SPATIAL_MAPS ) > 0
-  add_check( "C12", "spatial_plot", "All 12 capture areas produced aligned four-panel spatial score maps.", plot_output_ok, paste0( "aligned areas=", sum( plot_area_pass ), "/12; PDF bytes=", file_size_safe( OUT_SPATIAL_MAPS ) ), "12/12 aligned and nonempty PDF", TRUE, "Do not interpret maps with coordinate or image misalignment." )
+  add_check( "C12", "spatial_plot", "All 12 capture areas produced aligned four-panel spatial score maps.", plot_output_ok, paste0( "aligned areas=", sum( plot_area_pass ), "/12; PDF bytes=", file_size_safe( OUT_SPATIAL_MAPS ) ), "12/12 aligned and nonempty PDF", TRUE, "interpret maps with coordinate or image misalignment." )
   if (!plot_output_ok) {
     stop( "Spatial score map generation failed.", call. = FALSE )
   }
-  log_message( "[7/7] Writing audit checks, handoff, and final report." )
   global_before <- global_adjustment_audit$
     target_raw_vs_Microglia_spearman
   global_after <- global_adjustment_audit$
     target_adjusted_vs_Microglia_spearman
   if ( is.finite( global_before ) && is.finite( global_after ) && abs( global_after ) >= abs( global_before ) ) {
-    add_review( "R01", "microglia_adjustment", "Global target–Microglia Spearman correlation was not reduced in magnitude after adjustment.", paste0( "before=", round( global_before, 4 ), "; after=", round( global_after, 4 ) ), "Review scatterplots/section patterns before program-specific localization claims.", "Do not interpret high raw target scores as independent of Microglia abundance." )
+    add_review( "R01", "microglia_adjustment", "Global target–Microglia Spearman correlation was not reduced in magnitude after adjustment.", paste0( "before=", round( global_before, 4 ), "; after=", round( global_after, 4 ) ), "Review scatterplots/section patterns before program-specific localization claims.", "interpret high raw target scores as independent of Microglia abundance." )
   }
   handoff <- list( step = "Step12E", completed_at = as.character( Sys.time() ), frozen_target_definition = "Step11B Arm_2_specific renamed persistent inflammatory-remodeling target program", shared_definition = "Step11B Shared_prebranch retained separately", target_genes_Step11B = target_genes_step11B, target_genes_spatial = target_genes_spatial, shared_genes_Step11B = shared_genes_step11B, shared_genes_spatial = shared_genes_spatial, primary_raw_score = "target_program_AUCell_raw", primary_adjusted_score = "target_program_microglia_adjusted_z", adjustment_model = "target_AUCell ~ Microglia_RCTD_weight + section fixed effects", spot_score_RDS = OUT_SPOT_SCORES_RDS, spot_score_CSV = OUT_SPOT_SCORES, section_summary_CSV = OUT_SECTION_SUMMARY, spatial_maps_PDF = OUT_SPATIAL_MAPS, n_spots = nrow( spot_scores ), n_sections = uniqueN( spot_scores$section_id ), lesion_zone_analysis_run = FALSE, target_name_upgraded_to_scar_associated = FALSE, next_step = paste( "Step 12F defines lesion core/border/perilesional/remote zones", "using section-aware spatial evidence and evaluates raw and", "Microglia-adjusted target scores with section/animal as the", "biological unit." ) )
   saveRDS( handoff, OUT_HANDOFF_RDS, compress = FALSE )
@@ -665,46 +642,15 @@ main <- function() {
   }
   data.table::fwrite( checks, OUT_CHECKS, bom = TRUE )
   total_elapsed <- elapsed_minutes( workflow_start )
-  report <- c( "============================================================", "GSE234774 Step 12E target-program spatial scoring", "============================================================", paste0( "Generated: ", format( Sys.time(), "%Y-%m-%d %H:%M:%S" ) ), paste0( "Output directory: ", OUTPUT_DIR ), "", paste0( "FINAL_STATUS: ", final_status ), "", "FROZEN PROGRAMS", paste0( "- Target program source: Step 11B Arm_2_specific; spatial genes=", length( target_genes_spatial ), "/", length( target_genes_step11B ), " (", round( 100 * target_mapping_fraction, 2 ), "%)." ), paste0( "- Shared_prebranch spatial genes=", length( shared_genes_spatial ), "/", length( shared_genes_step11B ), " (", round( 100 * shared_mapping_fraction, 2 ), "%)." ), "- Shared_prebranch remained separate and was not subtracted from or merged into the target program.", "- No gene was selected or optimized from spatial expression.", "", "SCORING", "- Primary raw score: normalized AUCell on raw sparse counts.", paste0( "- AUCell aucMaxRank: ", auc_max_rank, " genes (", AUC_MAX_RANK_FRACTION * 100, "% of spatial features)." ), "- Capture areas were scored separately with sparse matrices.", "- Secondary metrics: mean log1p(CP10K) and detected-gene fraction.", paste0( "- Capture areas scored: ", length( completed_capture_areas ), "/12." ), paste0( "- Spots scored: ", nrow( spot_scores ), "/33,941." ), "", "MICROGLIA ADJUSTMENT", "- Model: target AUCell ~ Microglia RCTD weight + section fixed effects.", "- Primary adjusted output: standardized model residual.", paste0( "- Target Microglia coefficient: ", round( target_adjustment$microglia_coefficient, 6 ), "." ), paste0( "- Target model R2: ", round( target_adjustment$r_squared, 6 ), "." ), paste0( "- Global target–Microglia Spearman before adjustment: ", round( global_before, 6 ), "." ), paste0( "- Global target–Microglia Spearman after adjustment: ", round( global_after, 6 ), "." ), "- No spot-level inferential P values were used.", "", "SPATIAL STRUCTURE", paste0( "- Capture areas: ", uniqueN( spot_scores$capture_area_id ), "/12." ), paste0( "- Sections: ", uniqueN( spot_scores$section_id ), "/36." ), paste0( "- QC-review spots retained: ", sum( spot_scores$qc_review_flag ), "." ), "- Four-panel maps show raw target AUCell, Microglia weight, adjusted target score, and separate Shared_prebranch AUCell.", "", "CRITICAL CHECKS", paste0( "- PASS: ", nrow( checks[ critical == TRUE & status == "PASS" ] ), "; FAIL: ", nrow( critical_failures ), "." ) )
   if (nrow( critical_failures ) > 0L) {
-    report <- c( report, "", "FAILED CHECKS", paste0( "- ", critical_failures$check_id, ": ", critical_failures$description, " Observed: ", critical_failures$observed, " Action: ", critical_failures$action_if_not_pass ) )
   }
   if (nrow( review_items ) > 0L) {
-    report <- c( report, "", "REVIEW ITEMS", paste0( "- ", review_items$check_id, ": ", review_items$description, " Observed: ", review_items$observed, " Action: ", review_items$action_if_not_pass ) )
   }
-  report <- c( report, "", "INTERPRETATION", if ( final_status %in% c( "PASS", "PASS_WITH_REVIEW" ) ) {
-      paste( "- Step 12E is technically complete.", "Raw target scores, Microglia weights, Microglia-adjusted target", "scores, and separate Shared_prebranch scores are available for", "all spatial spots." )
-    } else {
-      "- Step 12E is not released."
-    },
-    "- A high raw target score alone can reflect a Microglia-rich spot.", "- Program-specific localization requires the adjusted score and later section-aware lesion-zone analysis.", "- The program remains persistent inflammatory-remodeling; it is not yet called scar-associated.", "", "NEXT ACTION", if ( final_status %in% c( "PASS", "PASS_WITH_REVIEW" ) ) {
-      paste( "- Step 12F: define lesion core/border/perilesional/remote zones", "and test whether the Microglia-adjusted target score is consistently", "higher in lesion/scar-proximal zones across independent sections.", "Sections/animals, not spots, are the biological units." )
-    } else {
-      "- Resolve the failed Step 12E checks before lesion-zone analysis."
-    },
-    "", "KEY OUTPUTS:", "- tables/01_input_gene_set_mapping_audit.csv", "- tables/02_spot_target_shared_microglia_scores.csv.gz", "- tables/03_section_target_shared_score_summary.csv", "- tables/04_microglia_adjustment_audit.csv", "- figures/01_target_microglia_adjusted_shared_spatial_maps.pdf", "- tables/09_STEP12E_audit_checks.csv", "- 10_STEP12E_FINAL_REPORT.txt", "", "LARGE INTERMEDIATE FILES", paste0( "- ", OUT_SPOT_SCORES_RDS ), paste0( "- ", OUT_HANDOFF_RDS ), "- capture_area_scores/ checkpoint files.", "", paste0( "TOTAL ELAPSED TIME: ", total_elapsed, " minutes" ), "============================================================"
-  )
-  writeLines( report, OUT_FINAL_REPORT, useBytes = TRUE )
   writeLines( capture.output( sessionInfo() ), SESSION_INFO_FILE, useBytes = TRUE )
-  log_message( "FINAL_STATUS: ", final_status )
-  log_message( "Target genes mapped: ", length( target_genes_spatial ), "/", length( target_genes_step11B ) )
-  log_message( "Shared genes mapped: ", length( shared_genes_spatial ), "/", length( shared_genes_step11B ) )
-  log_message( "Spots scored: ", nrow( spot_scores ), "/33,941" )
-  log_message( "Sections summarized: ", nrow( section_summary ), "/36" )
-  log_message( "Open first: ", OUT_FINAL_REPORT )
   write_run_log()
-  cat("\n")
-  cat( "============================================================\n" )
-  cat( "Step 12E completed: ", final_status, "\n", sep = "" )
-  cat( "Target genes mapped: ", length( target_genes_spatial ), "/", length( target_genes_step11B ), "\n", sep = "" )
-  cat( "Spots scored: ", nrow( spot_scores ), "/33941\n", sep = "" )
-  cat( "Sections: ", nrow( section_summary ), "/36\n", sep = "" )
-  cat( "Open first: ", OUT_FINAL_REPORT, "\n", sep = "" )
-  cat( "============================================================\n" )
   invisible( list( final_status = final_status, spot_scores_RDS = OUT_SPOT_SCORES_RDS, handoff_RDS = OUT_HANDOFF_RDS, section_summary = section_summary, adjustment_audit = adjustment_audit, checks = checks ) )
 }
 tryCatch( main(), error = function(e) {
     write_fatal_report( conditionMessage( e ) )
-    message( "Step 12E stopped: ", conditionMessage( e ) )
   }
 )

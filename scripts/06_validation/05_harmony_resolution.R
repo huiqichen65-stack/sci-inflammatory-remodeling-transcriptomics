@@ -35,23 +35,13 @@ if (file.exists(run_log)) {
   file.remove(run_log)
 }
 output_object_path <- file.path( rds_dir, "GSE234774_step10C_PCA_Harmony_resolution_comparison_BPCells.rds" )
-log_message <- function(...) {
-  message_text <- paste0(...)
-  timestamp <- format( Sys.time(), "%Y-%m-%d %H:%M:%S" )
-  line <- paste0( "[", timestamp, "] ", message_text )
-  cat(line, "\n")
-  cat( line, "\n", file = run_log, append = TRUE )
-}
 write_csv_safe <- function( x, filename ) {
   path <- file.path( tables_dir, filename )
   utils::write.csv( x, path, row.names = FALSE, na = "" )
-  log_message( "Wrote: ", path )
   invisible(path)
 }
 stop_with_report <- function(reason) {
   report_path <- file.path( output_dir, "10_STEP10C_FINAL_REPORT.txt" )
-  report <- c( "GSE234774 STEP 10C HARMONY / RESOLUTION SENSITIVITY", "============================================================", paste0( "Run time: ", format( Sys.time(), "%Y-%m-%d %H:%M:%S" ) ), paste0( "Output directory: ", output_dir ), "", "FINAL DECISION: STOP", "", paste0( "Reason: ", reason ), "", "Do not freeze a reduction or clustering resolution." )
-  writeLines( report, report_path, useBytes = TRUE )
   stop( reason, call. = FALSE )
 }
 safe_package_version <- function(pkg) {
@@ -117,7 +107,6 @@ calculate_within_timepoint_mixing <- function( embeddings, metadata, reduction_n
     if ( length(library_levels) < 2L || nrow(sub_embeddings) <= k + 1L ) {
       stop( paste0( "Insufficient libraries/cells for mixing metric at ", timepoint_name, "." ) )
     }
-    log_message( "Finding within-timepoint neighbors: ", reduction_name, " / ", timepoint_name, "." )
     neighbor_object <- Seurat::FindNeighbors( object = sub_embeddings, k.param = min( k + 1L, nrow(sub_embeddings) - 1L ), return.neighbor = TRUE, compute.SNN = FALSE, nn.method = "annoy", n.trees = N_TREES, annoy.metric = "euclidean", verbose = FALSE )
     raw_indices <- SeuratObject::Indices( neighbor_object )
     clean_indices <- clean_neighbor_indices( raw_indices, k = k )
@@ -175,7 +164,6 @@ calculate_neighbor_overlap <- function( reference_cache, comparison_cache, compa
 }
 run_harmony_matrix_compat <- function( pca_embeddings, metadata, theta, lambda, branch_label ) {
   harmony_version <- utils::packageVersion( "harmony" )
-  log_message( "Running ", branch_label, " with theta=", theta, ", lambda=", lambda, ", harmony version ", harmony_version, "." )
   set.seed(SEED)
   if ( harmony_version >= "2.0.0" ) {
     output <- harmony::RunHarmony( data_mat = pca_embeddings, meta_data = metadata, vars_use = "biological_library", theta = theta, lambda = lambda, sigma = 0.1, nclust = NULL, max_iter = HARMONY_MAX_ITER, early_stop = TRUE, ncores = HARMONY_NCORES, plot_convergence = FALSE, return_object = FALSE, verbose = TRUE )
@@ -218,11 +206,9 @@ summarize_clustering <- function( metadata, cluster_column, branch, resolution )
   sizes$timepoint_dominance_review <- sizes$n_cells >= MIN_CLUSTER_SIZE_FOR_DOMINANCE & sizes$maximum_timepoint_fraction >= TIMEPOINT_DOMINANCE_THRESHOLD
   list( cluster_detail = as.data.frame( sizes ), summary = data.frame( branch = branch, resolution = resolution, cluster_column = cluster_column, n_clusters = nrow(sizes), minimum_cluster_size = min( sizes$n_cells ), median_cluster_size = median( sizes$n_cells ), maximum_cluster_size = max( sizes$n_cells ), n_clusters_lt_100 = sum( sizes$n_cells < 100L ), n_clusters_lt_500 = sum( sizes$n_cells < 500L ), n_library_dominant_clusters = sum( sizes$library_dominance_review ), n_timepoint_dominant_clusters = sum( sizes$timepoint_dominance_review ), stringsAsFactors = FALSE ) )
 }
-log_message( "Starting package preflight." )
 required_packages <- c( "Matrix", "data.table", "ggplot2", "patchwork", "scales", "Seurat", "SeuratObject", "harmony" )
 missing_packages <- required_packages[ !vapply( required_packages, requireNamespace, quietly = TRUE, FUN.VALUE = logical(1) ) ]
 if ( "harmony" %in% missing_packages ) {
-  log_message( "Installing harmony from CRAN." )
   try( utils::install.packages( "harmony", repos = "https://cloud.r-project.org", dependencies = TRUE ), silent = TRUE )
 }
 missing_after_install <- required_packages[ !vapply( required_packages, requireNamespace, quietly = TRUE, FUN.VALUE = logical(1) ) ]
@@ -244,7 +230,6 @@ write_csv_safe( package_versions, "00_package_versions.csv" )
 if ( !file.exists( input_object_path ) ) {
   stop_with_report( paste0( "Input object not found: ", input_object_path ) )
 }
-log_message( "Loading Step 10B object." )
 obj <- readRDS( input_object_path )
 if ( !inherits( obj, "Seurat" ) ) {
   stop_with_report( "Input RDS is not a Seurat object." )
@@ -302,19 +287,16 @@ for ( branch_index in seq_len( nrow(branch_specs) ) ) {
   cluster_prefix <- branch_specs$cluster_prefix[ branch_index ]
   umap_name <- branch_specs$umap[ branch_index ]
   graph_names <- c( paste0( graph_prefix, "_nn" ), paste0( graph_prefix, "_snn" ) )
-  log_message( "Building graph for ", branch, "." )
   obj <- Seurat::FindNeighbors( object = obj, reduction = reduction_name, dims = PCS_USE, k.param = K_GRAPH, compute.SNN = TRUE, prune.SNN = SNN_PRUNE, nn.method = "annoy", n.trees = N_TREES, annoy.metric = "euclidean", graph.name = graph_names, verbose = TRUE )
   for ( resolution_index in seq_along( RESOLUTIONS ) ) {
     resolution <- RESOLUTIONS[ resolution_index ]
     cluster_column <- cluster_column_name( cluster_prefix, resolution )
-    log_message( "Clustering ", branch, " at resolution ", resolution, "." )
     obj <- Seurat::FindClusters( object = obj, graph.name = graph_names[[2L]], cluster.name = cluster_column, resolution = resolution, algorithm = 1, n.start = 10L, n.iter = 10L, random.seed = SEED + branch_index * 100L + resolution_index, group.singletons = TRUE, verbose = TRUE )
     clustering_summary <- summarize_clustering( metadata = obj@meta.data, cluster_column = cluster_column, branch = branch, resolution = resolution )
     cluster_summary_rows[[ length( cluster_summary_rows ) + 1L ]] <- clustering_summary$summary
     cluster_detail_rows[[ length( cluster_detail_rows ) + 1L ]] <- clustering_summary$cluster_detail
   }
   if ( branch != "pca" || !"umap_pca_unintegrated" %in% names( obj@reductions ) ) {
-    log_message( "Running UMAP for ", branch, "." )
     obj <- Seurat::RunUMAP( object = obj, reduction = reduction_name, dims = PCS_USE, reduction.name = umap_name, reduction.key = paste0( toupper( substr( cluster_prefix, 1, 4 ) ), "UMAP_" ), umap.method = "uwot", n.neighbors = UMAP_N_NEIGHBORS, n.components = 2L, metric = "cosine", min.dist = UMAP_MIN_DIST, uwot.sgd = TRUE, seed.use = SEED + branch_index * 1000L, verbose = TRUE )
   }
 }
@@ -346,11 +328,8 @@ resolution_and_stability <- merge( cluster_summary, aggregate( adjusted_rand_ind
 names( resolution_and_stability )[ names( resolution_and_stability ) == "adjusted_rand_index" ] <- "mean_adjacent_resolution_ARI"
 write_csv_safe( resolution_and_stability, "03_resolution_cluster_summary.csv" )
 write_csv_safe( stability_table, "03B_clustering_ARI_comparisons.csv" )
-log_message( "Calculating PCA within-timepoint library mixing." )
 mixing_pca <- calculate_within_timepoint_mixing( embeddings = pca_embeddings, metadata = metadata, reduction_name = "pca", k = K_MIXING )
-log_message( "Calculating conservative-Harmony within-timepoint library mixing." )
 mixing_hcon <- calculate_within_timepoint_mixing( embeddings = harmony_conservative_embeddings, metadata = metadata, reduction_name = "harmony_conservative", k = K_MIXING )
-log_message( "Calculating default-Harmony within-timepoint library mixing." )
 mixing_hdef <- calculate_within_timepoint_mixing( embeddings = harmony_default_embeddings, metadata = metadata, reduction_name = "harmony_default", k = K_MIXING )
 mixing_summary <- do.call( rbind, list( mixing_pca$summaries, mixing_hcon$summaries, mixing_hdef$summaries ) )
 mixing_summary$timepoint <- factor( mixing_summary$timepoint, levels = expected_timepoints, ordered = TRUE )
@@ -369,7 +348,6 @@ mixing_summary$mean_KNN_overlap[ mixing_summary$reduction == "pca" ] <- 1
 mixing_summary$median_KNN_overlap[ mixing_summary$reduction == "pca" ] <- 1
 write_csv_safe( mixing_summary, "04_within_timepoint_library_mixing.csv" )
 write_csv_safe( neighbor_overlap, "04B_local_structure_preservation.csv" )
-log_message( "Creating comparison figures." )
 display_cluster_columns <- c( cluster_column_name( "pca", DISPLAY_RESOLUTION ), cluster_column_name( "hcon", DISPLAY_RESOLUTION ), cluster_column_name( "hdef", DISPLAY_RESOLUTION ) )
 global_plot_list <- list()
 for ( branch_index in seq_len( nrow(branch_specs) ) ) {
@@ -408,10 +386,8 @@ for ( branch_index in seq_len( nrow(branch_specs) ) ) {
   print( patchwork::wrap_plots( branch_plots, ncol = 2 ) )
 }
 grDevices::dev.off()
-log_message( "Wrote: ", resolution_pdf )
 obj@misc$GSE234774_step10C <- list( input_object = normalizePath( input_object_path, winslash = "/", mustWork = TRUE ), reductions_compared = branch_specs$reduction, resolutions_compared = RESOLUTIONS, display_resolution = DISPLAY_RESOLUTION, harmony_conservative = list( theta = HCON_THETA, lambda = HCON_LAMBDA ), harmony_default = list( theta = HDEF_THETA, lambda = HDEF_LAMBDA ), harmony_grouping_variable = "biological_library", mixing_evaluation = "within each timepoint only", k_graph = K_GRAPH, k_mixing = K_MIXING, pca_dimensions = PCS_USE, RNA_expression_changed = FALSE, final_reduction_frozen = FALSE, final_resolution_frozen = FALSE, biological_unit = "biological_library", completed_at = as.character( Sys.time() ) )
 saveRDS( obj, output_object_path, compress = FALSE )
-log_message( "Saved comparison object: ", output_object_path )
 reload_obj <- tryCatch( readRDS( output_object_path ), error = function(e) e )
 required_reductions <- c( "pca", "harmony_conservative", "harmony_default", "umap_pca_unintegrated", "umap_harmony_conservative", "umap_harmony_default" )
 required_cluster_columns <- unlist( lapply( seq_len( nrow(branch_specs) ), function(branch_index) {
@@ -467,34 +443,12 @@ mixing_lines <- apply( mixing_summary[ order( mixing_summary$timepoint, match( m
     paste0( row[["timepoint"]], " | ", row[["reduction"]], ": other-library fraction=", round( as.numeric( row[["mean_other_library_fraction"]] ), 3 ), "; normalized entropy=", round( as.numeric( row[["mean_normalized_library_entropy"]] ), 3 ), "; KNN overlap with PCA=", round( as.numeric( row[["mean_KNN_overlap"]] ), 3 ) )
   }
 )
-report_lines <- c( "GSE234774 STEP 10C HARMONY / RESOLUTION SENSITIVITY", "============================================================", paste0( "Run time: ", format( Sys.time(), "%Y-%m-%d %H:%M:%S" ) ), paste0( "Input object: ", input_object_path ), paste0( "Output directory: ", output_dir ), "", paste0( "FINAL DECISION: ", final_decision ), "", "DESIGN", "Unintegrated PCA was preserved.", paste0( "Conservative Harmony: theta=", HCON_THETA, ", lambda=", HCON_LAMBDA, "." ), paste0( "Default-strength Harmony: theta=", HDEF_THETA, ", lambda=", HDEF_LAMBDA, "." ), "Harmony grouping variable: biological_library.", "Library mixing was evaluated separately within each timepoint.", paste0( "Resolutions compared: ", paste( RESOLUTIONS, collapse = ", " ), "." ), "", "7 DPI MIXING", paste0( "PCA mean other-library neighbor fraction: ", round( seven_day_pca_mixing, 3 ) ), paste0( "Conservative Harmony: ", round( seven_day_hcon_mixing, 3 ) ), paste0( "Default-strength Harmony: ", round( seven_day_hdef_mixing, 3 ) ), "", "LOCAL STRUCTURE PRESERVATION", paste0( "Mean conservative-Harmony versus PCA KNN overlap: ", round( mean_hcon_overlap, 3 ) ), paste0( "Mean default-Harmony versus PCA KNN overlap: ", round( mean_hdef_overlap, 3 ) ), paste0( "Review threshold: mean overlap < ", MIN_ACCEPTABLE_MEAN_KNN_OVERLAP, " suggests strong structural alteration." ), "", "CLUSTERING SUMMARY", cluster_lines, "", "WITHIN-TIMEPOINT MIXING SUMMARY", mixing_lines, "", "INTERPRETATION BOUNDARIES", "1. Better library mixing alone is not sufficient to choose Harmony.", "2. The selected branch must retain recognizable biological structure and avoid collapsing timepoint-associated states.", "3. Resolution is not selected solely by the number of clusters.", "4. Whole-atlas annotation should favor a stable coarse solution; finer myeloid states will be resolved after myeloid extraction.", "5. RNA counts and LogNormalize expression remain unchanged.", "6. No reduction or resolution is frozen by this script.", "", "PRIMARY COMPARISON OBJECT", output_object_path, "", "REQUIRED REVIEW", "Review all three exported PDFs together with the mixing, resolution, audit, and final-report tables.", "Then select one reduction branch and one coarse whole-atlas resolution before marker-first annotation." )
 if ( final_decision == "STOP" ) {
   failed <- audit_checks[ audit_checks$required_for_pass & audit_checks$status != "PASS", , drop = FALSE ]
-  report_lines <- c( report_lines, "", "STOP REASONS" )
   for ( i in seq_len( nrow(failed) ) ) {
-    report_lines <- c( report_lines, paste0( i, ". ", failed$check[[i]], " -- ", failed$detail[[i]] ) )
   }
 }
 report_path <- file.path( output_dir, "10_STEP10C_FINAL_REPORT.txt" )
-writeLines( report_lines, report_path, useBytes = TRUE )
-log_message( "Final decision: ", final_decision )
-log_message( "Final report: ", report_path )
-cat("\n")
-cat("============================================================\n")
-cat("GSE234774 STEP 10C COMPLETED\n")
-cat( "FINAL DECISION:", final_decision, "\n" )
-cat( "Output:", output_dir, "\n" )
-cat("Comparison object:\n")
-cat( " ", output_object_path, "\n", sep = "" )
-cat("Key outputs:\n")
-cat(" 1) figures/01_global_PCA_Harmony_UMAP_comparison.pdf\n")
-cat(" 2) figures/02_7dpi_library_mixing_comparison.pdf\n")
-cat(" 3) figures/03_resolution_0.1_to_0.4_UMAP_comparison.pdf\n")
-cat(" 4) tables/03_resolution_cluster_summary.csv\n")
-cat(" 5) tables/04_within_timepoint_library_mixing.csv\n")
-cat(" 6) tables/09_STEP10C_audit_checks.csv\n")
-cat(" 7) 10_STEP10C_FINAL_REPORT.txt\n")
-cat("============================================================\n")
 if ( final_decision == "STOP" ) {
   stop( "GSE234774 Step 10C decision is STOP. Review the final report.", call. = FALSE )
 }

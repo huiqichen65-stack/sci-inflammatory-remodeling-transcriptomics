@@ -18,18 +18,12 @@ for (d in c(output_dir, tables_dir, figures_dir)) {
   dir.create(d, recursive = TRUE, showWarnings = FALSE)
 }
 run_log <- file.path(output_dir, "00_run_log.txt")
-log_event <- function(...) {
-  msg <- paste0(format(Sys.time(), "%Y-%m-%d %H:%M:%S"), "  ", paste0(..., collapse = ""))
-  cat(msg, "\n")
-  cat(msg, "\n", file = run_log, append = TRUE)
-}
 writeLines(c("Step 12H: Reviewer 2 Major Comment 4 spatial sensitivity", paste("Started:", format(Sys.time(), "%Y-%m-%d %H:%M:%S")), paste("Project root:", PROJECT_ROOT)), run_log)
 input_files <- c( step12D_normalized_RCTD_weights = rctd_file, step12F_spot_zones_scores = zone_file, step12F_original_animal_contrasts = original_file )
 missing_inputs <- input_files[!file.exists(input_files)]
 if (length(missing_inputs)) {
   stop("Required input files missing:\n", paste(missing_inputs, collapse = "\n"))
 }
-log_event("Inputs found; calculating sensitivity analyses from existing tables.")
 library(data.table)
 parameter_audit <- data.table( item = c("project_root", "analysis", "unit_of_inference", "zone_definition", "high_microglia_thresholds", "BAM_covariate", "BAM_model", "expected_total_spots", "expected_injured_spots", "expected_injured_sections", "expected_injured_animals", paste0("file_", names(input_files)), paste0("md5_", names(input_files))), value = c(PROJECT_ROOT, "Step12H R2MC4 spatial source sensitivity", "biological animal", "existing Step12F lesion zones, unchanged", "within-section Microglia RCTD 50th and 75th percentiles", "BAM_macrophage normalized RCTD weight", "target score ~ BAM_macrophage + section fixed effects", "33941", "23791", "24", "6", unname(input_files), unname(as.character(tools::md5sum(input_files)))) )
 fwrite(parameter_audit, file.path(tables_dir, "01_input_and_parameter_audit.csv"))
@@ -131,9 +125,5 @@ tryCatch({
 }, finally = dev.off())
 core_summary <- summary[contrast == "core_minus_remote", .(analysis, timepoint, mean_animal_effect, positive_animals, n_animals, two_sided_sign_p)]
 setorder(core_summary, timepoint, analysis)
-report <- c( "STEP 12H FINAL REPORT", "Reviewer 2 Major Comment 4 -- spatial cellular-source sensitivity", paste0("Generated: ", format(Sys.time(), "%Y-%m-%d %H:%M:%S")), "", paste0("Inputs: Step12D + Step12F existing tables (", length(input_files), " files)."), paste0("Injured spots: ", nrow(x), "; sections: ", uniqueN(x$section_id), "; biological animals: ", uniqueN(x$biological_replicate_id), "."), "Lesion zones are those fixed previously by Step12F; not recalculated here.", "High-Microglia restriction: within-section >=50th or >=75th percentile RCTD weight.", "BAM sensitivity: OLS residuals of the Step12F Microglia-adjusted target score", "from BAM_macrophage RCTD weight + section fixed effects; fitted either pooled", "across injured times or separately within each injured time point.", "Core/border/perilesional section means are contrasted with each section's remote mean;", "the four section contrasts are averaged equally within each biological animal.", "Animal-level exact two-sided sign tests are descriptive (n=3 per time point).", "No histological zone validation is performed by this script.", "The lesions were defined partly using BAM/macrophage RCTD weight. Accordingly,", "regression adjustment does not independently establish a microglial source.", "", "CORE MINUS REMOTE (exploratory summary):", paste(capture.output(print(core_summary)), collapse = "\n"), "", "All original Step12F comparisons reproduced: ", paste0("Maximum absolute numerical difference: ", format(max(check$absolute_difference), scientific = TRUE)), "All Step12H QC checks passed: ", as.character(all(qc$passed)), "", "Outputs are saved under the new 04_results/step12H... directory only." )
-writeLines(report, file.path(output_dir, "10_STEP12H_FINAL_REPORT.txt"))
 capture.output(sessionInfo(), file = file.path(output_dir, "00_sessionInfo.txt"))
-log_event("Analysis completed successfully; files written only to: ", output_dir)
 print(core_summary)
-cat("\nFinished. Outputs: ", normalizePath(output_dir, winslash = "/"), "\n", sep = "")

@@ -47,11 +47,6 @@ suppressPackageStartupMessages({
   library(spacexr)
 })
 run_log <- character()
-log_message <- function(...) {
-  line <- paste0( "[", format( Sys.time(), "%Y-%m-%d %H:%M:%S" ), "] ", paste0(...) )
-  cat(line, "\n")
-  run_log <<- c( run_log, line )
-}
 write_run_log <- function() {
   writeLines( run_log, RUN_LOG_FILE, useBytes = TRUE )
 }
@@ -236,9 +231,6 @@ add_review <- function( check_id, category, description, observed, required, act
   checks <<- rbind( checks, data.table( check_id = as.character( check_id ), category = as.character( category ), description = as.character( description ), status = "REVIEW", observed = as.character( observed ), required = as.character( required ), critical = FALSE, action_if_not_pass = as.character( action_if_not_pass ) ), fill = TRUE )
 }
 write_fatal_global_report <- function( reason) {
-  report <- c( "============================================================", "GSE234774 Step 12D full-mode RCTD", "============================================================", paste0( "Generated: ", format( Sys.time(), "%Y-%m-%d %H:%M:%S" ) ), paste0( "Output directory: ", OUTPUT_DIR ), "", "FINAL_STATUS: STOP", "", "FATAL PREFLIGHT ERROR", paste0( "- ", reason ), "", "BOUNDARIES", "- No target-program score was calculated.", "- Existing successful capture-area checkpoints were not deleted.", "", "NEXT ACTION", "- review this report and 00_run_log.txt.", "============================================================" )
-  writeLines( report, OUT_FINAL_REPORT, useBytes = TRUE )
-  log_message( "FATAL PREFLIGHT ERROR: ", reason )
   write_run_log()
 }
 run_one_capture_area <- function( capture_area, query_index, spot_qc, spatial_counts, reference_object, reference_genes, reference_gene_indices, SpatialRNA_constructor, create_RCTD_function, run_RCTD_function, normalize_weights_function) {
@@ -263,7 +255,6 @@ run_one_capture_area <- function( capture_area, query_index, spot_qc, spatial_co
   if (anyNA( spatial_column_indices )) {
     stop( "Some spatial barcodes are absent from the BPCells matrix for ", capture_area, ".", call. = FALSE )
   }
-  log_message( capture_area, ": materializing ", length( reference_genes ), " genes x ", length( expected_spot_names ), " spots." )
   query_view <- spatial_counts[ reference_gene_indices, spatial_column_indices, drop = FALSE ]
   query_counts <- to_dgCMatrix( query_view, paste0( capture_area, " spatial query" ) )
   rm( query_view )
@@ -305,13 +296,11 @@ run_one_capture_area <- function( capture_area, query_index, spot_qc, spatial_co
   current_spots[ , position_in_tissue := matched_positions$in_tissue ]
   data.table::fwrite( current_spots, files$spot_metadata_csv, bom = TRUE, compress = "gzip" )
   query_object <- SpatialRNA_constructor( coordinate_table, query_counts, query_nUMI )
-  log_message( capture_area, ": create.RCTD(max_cores=", MAX_CORES, ")." )
   rctd_object <- withCallingHandlers( create_RCTD_function( query_object, reference_object, max_cores = MAX_CORES ), warning = function(w) {
       warning_lines <<- c( warning_lines, paste0( "create.RCTD: ", conditionMessage( w ) ) )
       invokeRestart( "muffleWarning" )
     }
   )
-  log_message( capture_area, ": run.RCTD(doublet_mode='full')." )
   rctd_object <- withCallingHandlers( run_RCTD_function( rctd_object, doublet_mode = "full" ), warning = function(w) {
       warning_lines <<- c( warning_lines, paste0( "run.RCTD: ", conditionMessage( w ) ) )
       invokeRestart( "muffleWarning" )
@@ -391,14 +380,11 @@ run_one_capture_area <- function( capture_area, query_index, spot_qc, spatial_co
 }
 main <- function() {
   workflow_start <- Sys.time()
-  log_message( "============================================================" )
-  log_message( "GSE234774 Step 12D full-mode RCTD started." )
-  log_message( "============================================================" )
   required_inputs <- c( Step12C_report = STEP12C_REPORT, Reference_RDS = REFERENCE_RDS, Reference_metadata_RDS = REFERENCE_METADATA_RDS, Step12C_query_index = STEP12C_QUERY_INDEX, Step12B_spot_QC = STEP12B_SPOT_QC )
   file_status <- file.exists( required_inputs )
   cache_status <- dir.exists( SPATIAL_BPCELLS_DIR )
   asset_status <- dir.exists( STEP12A2_ASSET_DIR )
-  add_check( "C01", "input", "All Step 12D frozen inputs, the spatial BPCells cache, and coordinate assets exist.", all( file_status ) && cache_status && asset_status, paste0( paste( paste0( names( required_inputs ), "=", file_status ), collapse = "; " ), "; spatial_BPCells=", cache_status, "; coordinate_assets=", asset_status ), "All TRUE", TRUE, "Restore frozen upstream outputs; do not silently substitute files." )
+  add_check( "C01", "input", "All Step 12D frozen inputs, the spatial BPCells cache, and coordinate assets exist.", all( file_status ) && cache_status && asset_status, paste0( paste( paste0( names( required_inputs ), "=", file_status ), collapse = "; " ), "; spatial_BPCells=", cache_status, "; coordinate_assets=", asset_status ), "All TRUE", TRUE, "Restore frozen upstream outputs; silently substitute files." )
   if ( !all( file_status ) || !cache_status || !asset_status ) {
     stop( "At least one required Step 12D input is missing.", call. = FALSE )
   }
@@ -410,7 +396,7 @@ main <- function() {
     } else {
       "No FINAL_STATUS line"
     },
-    "PASS or PASS_WITH_REVIEW", TRUE, "Do not run RCTD until Step 12C passes."
+    "PASS or PASS_WITH_REVIEW", TRUE, "run RCTD until Step 12C passes."
   )
   if (!step12C_pass) {
     stop( "Step 12C does not release Step 12D.", call. = FALSE )
@@ -423,7 +409,7 @@ main <- function() {
   spot_qc[ , capture_area_id := toupper( trimws( as.character( capture_area_id ) ) ) ]
   spot_qc[ , qc_review_flag := as_logical_strict( qc_review_flag, "qc_review_flag" ) ]
   query_design_ok <- nrow( query_index ) == 12L && sum( query_index$n_spots ) == 33941L && all( query_index$n_sections == 3L ) && all( query_index$spot_retention_rule == "PRIMARY_RETAIN_ALL_33941_SPOTS" ) && all( query_index$planned_RCTD_mode == "full" ) && nrow( spot_qc ) == 33941L && !anyDuplicated( spot_qc$barcode )
-  add_check( "C03", "query_design", "The frozen design contains 12 separate full-mode queries and all 33,941 spots.", query_design_ok, paste0( "queries=", nrow( query_index ), "; query spots=", sum( query_index$n_spots ), "; spot-QC rows=", nrow( spot_qc ), "; retained review spots=", sum( spot_qc$qc_review_flag ) ), "12 queries, 33,941 spots, full mode, all spots retained", TRUE, "Do not merge areas or remove review spots before RCTD." )
+  add_check( "C03", "query_design", "The frozen design contains 12 separate full-mode queries and all 33,941 spots.", query_design_ok, paste0( "queries=", nrow( query_index ), "; query spots=", sum( query_index$n_spots ), "; spot-QC rows=", nrow( spot_qc ), "; retained review spots=", sum( spot_qc$qc_review_flag ) ), "12 queries, 33,941 spots, full mode, all spots retained", TRUE, "merge areas or remove review spots before RCTD." )
   if (!query_design_ok) {
     stop( "The frozen Step 12D query design was not reproduced.", call. = FALSE )
   }
@@ -432,14 +418,14 @@ main <- function() {
   reference_counts <- get_reference_counts( reference_object )
   reference_genes <- rownames( reference_counts )
   reference_ok <- nrow( reference_counts ) == 24321L && ncol( reference_counts ) == 19593L && length( reference_genes ) == 24321L && !anyDuplicated( reference_genes ) && nrow( reference_metadata ) == 19593L
-  add_check( "C04", "reference", "The frozen Step 12C Reference reloads with expected dimensions.", reference_ok, paste0( "counts=", nrow( reference_counts ), " x ", ncol( reference_counts ), "; metadata rows=", nrow( reference_metadata ), "; class=", paste( class( reference_object ), collapse = " | " ) ), "24,321 genes x 19,593 nuclei", TRUE, "Do not rebuild or alter the frozen Step 12C Reference." )
+  add_check( "C04", "reference", "The frozen Step 12C Reference reloads with expected dimensions.", reference_ok, paste0( "counts=", nrow( reference_counts ), " x ", ncol( reference_counts ), "; metadata rows=", nrow( reference_metadata ), "; class=", paste( class( reference_object ), collapse = " | " ) ), "24,321 genes x 19,593 nuclei", TRUE, "rebuild or alter the frozen Step 12C Reference." )
   if (!reference_ok) {
     stop( "The saved Step 12C Reference does not match the frozen design.", call. = FALSE )
   }
   spatial_counts <- BPCells::open_matrix_dir( SPATIAL_BPCELLS_DIR )
   spatial_gene_indices <- match( reference_genes, rownames( spatial_counts ) )
   reference_spatial_gene_alignment <- !anyNA( spatial_gene_indices ) && length( unique( spatial_gene_indices ) ) == length( reference_genes )
-  add_check( "C05", "gene_alignment", "Every frozen Reference gene is present exactly once in the spatial BPCells matrix.", reference_spatial_gene_alignment, paste0( "matched=", sum( !is.na( spatial_gene_indices ) ), "/", length( reference_genes ), "; unique indices=", length( unique( spatial_gene_indices[ !is.na( spatial_gene_indices ) ] ) ) ), "24,321/24,321 exact unique matches", TRUE, "Do not run RCTD with a changed feature space." )
+  add_check( "C05", "gene_alignment", "Every frozen Reference gene is present exactly once in the spatial BPCells matrix.", reference_spatial_gene_alignment, paste0( "matched=", sum( !is.na( spatial_gene_indices ) ), "/", length( reference_genes ), "; unique indices=", length( unique( spatial_gene_indices[ !is.na( spatial_gene_indices ) ] ) ) ), "24,321/24,321 exact unique matches", TRUE, "run RCTD with a changed feature space." )
   if (!reference_spatial_gene_alignment) {
     stop( "Reference-spatial gene alignment failed.", call. = FALSE )
   }
@@ -447,7 +433,7 @@ main <- function() {
   required_spacexr_functions <- c( "SpatialRNA", "create.RCTD", "run.RCTD" )
   function_status <- vapply( required_spacexr_functions, exists, logical(1), envir = spacexr_namespace, inherits = FALSE )
   normalize_available <- exists( "normalize_weights", envir = spacexr_namespace, inherits = FALSE )
-  add_check( "C06", "software", "Installed spacexr provides the required RCTD constructors and run function.", all( function_status ), paste( paste0( names( function_status ), "=", function_status ), collapse = "; " ), "SpatialRNA, create.RCTD, and run.RCTD all TRUE", TRUE, "Use the installed spacexr 2.2.1 API; do not mix incompatible wrappers." )
+  add_check( "C06", "software", "Installed spacexr provides the required RCTD constructors and run function.", all( function_status ), paste( paste0( names( function_status ), "=", function_status ), collapse = "; " ), "SpatialRNA, create.RCTD, and run.RCTD all TRUE", TRUE, "Use the installed spacexr 2.2.1 API; mix incompatible wrappers." )
   if (!all( function_status )) {
     stop( "The installed spacexr namespace lacks a required function.", call. = FALSE )
   }
@@ -491,9 +477,7 @@ main <- function() {
   run_summary_list <- vector( mode = "list", length = length( capture_areas_to_run ) )
   for ( capture_index in seq_along( capture_areas_to_run ) ) {
     capture_area <- capture_areas_to_run[ capture_index ]
-    log_message( "[", capture_index, "/", length( capture_areas_to_run ), "] ", capture_area )
     if ( RESUME_COMPLETED && !capture_area %in% FORCE_RERUN_CAPTURE_AREAS && capture_is_complete( capture_area ) ) {
-      log_message( capture_area, ": existing successful checkpoint found; skipping." )
       files <- capture_success_files( capture_area )
       prior_audit <- data.table::fread( files$audit_csv, data.table = TRUE, showProgress = FALSE )
       prior_audit[ , run_action := "SKIPPED_EXISTING_SUCCESS" ]
@@ -597,7 +581,7 @@ main <- function() {
     } else {
       "No completed areas"
     },
-    "Identical broad-cell-type set", TRUE, "Do not combine or compare weights with inconsistent cell-type columns."
+    "Identical broad-cell-type set", TRUE, "combine or compare weights with inconsistent cell-type columns."
   )
   add_check( "C09", "weight_audit", "Combined normalized weights are finite, nonnegative, uniquely indexed, and sum to 1.", if ( length( completed_capture_areas ) > 0L ) {
       all_weights_valid
@@ -623,7 +607,7 @@ main <- function() {
     weight_long <- data.table::melt( normalized_table, id.vars = c( "barcode", "capture_area_id", "section_id", "timepoint", "replicate_index", "biological_replicate_id", "injury_condition", "qc_review_flag" ), variable.name = "rctd_cell_type", value.name = "normalized_weight" )
     section_summary <- weight_long[ , .( n_spots = .N, mean_weight = mean( normalized_weight ), median_weight = median( normalized_weight ), sd_weight = stats::sd( normalized_weight ), q10_weight = as.numeric( quantile( normalized_weight, 0.10, names = FALSE ) ), q90_weight = as.numeric( quantile( normalized_weight, 0.90, names = FALSE ) ), min_weight = min( normalized_weight ), max_weight = max( normalized_weight ) ), by = .( capture_area_id, section_id, timepoint, replicate_index, biological_replicate_id, injury_condition, rctd_cell_type ) ]
     data.table::fwrite( section_summary, OUT_SECTION_SUMMARY, bom = TRUE )
-    handoff <- list( step = "Step12D", completed_at = as.character( Sys.time() ), final_all_areas_complete = all_areas_complete, completed_capture_areas = completed_capture_areas, incomplete_capture_areas = failed_capture_areas, normalized_weights_rds = OUT_NORMALIZED_WEIGHTS_RDS, raw_weights_rds = OUT_RAW_WEIGHTS_RDS, normalized_weights_csv = OUT_NORMALIZED_WEIGHTS, section_summary_csv = OUT_SECTION_SUMMARY, cell_types = colnames( combined_normalized ), n_spots = nrow( combined_normalized ), reference_rds = REFERENCE_RDS, spatial_BPCells_path = SPATIAL_BPCELLS_DIR, frozen_spot_rule = "retain_all_33941_spots", target_program_scored = FALSE, next_step = paste( "Step 12E computes the target-program score and adjusts it", "for Microglia RCTD weight. Do not treat the target program", "as an RCTD cell type." ) )
+    handoff <- list( step = "Step12D", completed_at = as.character( Sys.time() ), final_all_areas_complete = all_areas_complete, completed_capture_areas = completed_capture_areas, incomplete_capture_areas = failed_capture_areas, normalized_weights_rds = OUT_NORMALIZED_WEIGHTS_RDS, raw_weights_rds = OUT_RAW_WEIGHTS_RDS, normalized_weights_csv = OUT_NORMALIZED_WEIGHTS, section_summary_csv = OUT_SECTION_SUMMARY, cell_types = colnames( combined_normalized ), n_spots = nrow( combined_normalized ), reference_rds = REFERENCE_RDS, spatial_BPCells_path = SPATIAL_BPCELLS_DIR, frozen_spot_rule = "retain_all_33941_spots", target_program_scored = FALSE, next_step = paste( "Step 12E computes the target-program score and adjusts it", "for Microglia RCTD weight. treat the target program", "as an RCTD cell type." ) )
     saveRDS( handoff, OUT_HANDOFF_RDS, compress = FALSE )
   }
   critical_failures <- checks[ critical == TRUE & status == "FAIL" ]
@@ -643,61 +627,12 @@ main <- function() {
   }
   data.table::fwrite( checks, OUT_CHECKS, bom = TRUE )
   total_elapsed <- elapsed_minutes( workflow_start )
-  report <- c( "============================================================", "GSE234774 Step 12D full-mode RCTD per capture area", "============================================================", paste0( "Generated: ", format( Sys.time(), "%Y-%m-%d %H:%M:%S" ) ), paste0( "Output directory: ", OUTPUT_DIR ), "", paste0( "FINAL_STATUS: ", final_status ), "", "DESIGN", "- Twelve capture areas are processed separately.", "- RCTD mode: full.", paste0( "- spacexr max_cores per capture area: ", MAX_CORES, "." ), "- All 33,941 Step 12B spots, including five review spots, remain eligible.", "- Target inflammatory-remodeling program is not an RCTD cell type.", "", "COMPLETION", paste0( "- Successful capture areas: ", length( completed_capture_areas ), "/12 [", paste( completed_capture_areas, collapse = ", " ), "]." ), paste0( "- Incomplete capture areas: ", length( failed_capture_areas ), " [", paste( failed_capture_areas, collapse = ", " ), "]." ), paste0( "- Successful spots represented: ", if ( !is.null( combined_normalized ) ) {
-        nrow( combined_normalized )
-      } else {
-        0L
-      },
-      "/33,941."
-    ), "", "WEIGHT OUTPUT", if (
-      !is.null( combined_normalized ) && common_cell_types_ok
-    ) {
-      paste0( "- Broad cell types: ", ncol( combined_normalized ), " [", paste( colnames( combined_normalized ), collapse = ", " ), "]." )
-    } else {
-      "- Combined broad-cell-type schema is not yet available."
-    },
-    if ( !is.null( combined_normalized ) && all_weights_valid ) {
-      paste0( "- Maximum normalized row-sum deviation from 1: ", format( max( abs( rowSums( combined_normalized ) - 1 ) ), scientific = TRUE ), "." )
-    } else {
-      "- Combined normalized weight audit is incomplete."
-    },
-    paste0( "- Full RCTD objects saved: ", SAVE_FULL_RCTD_OBJECT, "." ), "", "CRITICAL CHECKS", paste0( "- PASS: ", nrow( checks[ critical == TRUE & status == "PASS" ] ), "; FAIL: ", nrow( critical_failures ), "." )
-  )
   if (nrow( critical_failures ) > 0L) {
-    report <- c( report, "", "FAILED CHECKS", paste0( "- ", critical_failures$check_id, ": ", critical_failures$description, " Observed: ", critical_failures$observed, " Action: ", critical_failures$action_if_not_pass ) )
   }
   if (nrow( review_items ) > 0L) {
-    report <- c( report, "", "REVIEW ITEMS", paste0( "- ", review_items$check_id, ": ", review_items$description, " Observed: ", review_items$observed, " Action: ", review_items$action_if_not_pass ) )
   }
-  report <- c( report, "", "INTERPRETATION", if ( final_status %in% c( "PASS", "PASS_WITH_REVIEW" ) ) {
-      paste( "- Step 12D is technically complete.", "All capture areas have full-mode RCTD weights with valid", "normalized row sums." )
-    } else if (
-      final_status == "PARTIAL_CHECKPOINT"
-    ) {
-      paste( "- Step 12D is partially complete.", "Existing successful capture areas are preserved.", "Rerun this script to continue the remaining areas." )
-    } else {
-      "- Step 12D is not released."
-    },
-    "- These weights estimate broad cell-type composition only.", "- No target-program score or lesion-zone test was performed.", "", "NEXT ACTION", if ( final_status %in% c( "PASS", "PASS_WITH_REVIEW" ) ) {
-      paste( "- Step 12E: compute the frozen target-program spatial score,", "then adjust/stratify it by the Microglia RCTD weight.", "Do not redefine the program as a cell type." )
-    } else {
-      "- Rerun Step 12D; successful capture-area checkpoints will be skipped."
-    },
-    "", "KEY OUTPUTS:", "- tables/01_step12D_input_and_parameter_audit.csv", "- tables/02_capture_area_RCTD_run_summary.csv", "- tables/03_all_capture_areas_normalized_weights.csv.gz (when all areas complete)", "- tables/04_all_capture_areas_raw_weights.csv.gz (when all areas complete)", "- tables/05_cell_type_weight_summary_by_section.csv (when all areas complete)", "- tables/09_STEP12D_audit_checks.csv", "- 10_STEP12D_FINAL_REPORT.txt", "", "LARGE INTERMEDIATE FILES", paste0( "- ", OUT_NORMALIZED_WEIGHTS_RDS ), paste0( "- ", OUT_RAW_WEIGHTS_RDS ), paste0( "- ", OUT_HANDOFF_RDS ), "- capture_areas/* full RCTD objects, if optional saving was enabled.", "", paste0( "TOTAL ELAPSED TIME THIS INVOCATION: ", total_elapsed, " minutes" ), "============================================================"
-  )
-  writeLines( report, OUT_FINAL_REPORT, useBytes = TRUE )
   writeLines( capture.output( sessionInfo() ), SESSION_INFO_FILE, useBytes = TRUE )
-  log_message( "FINAL_STATUS: ", final_status )
-  log_message( "Successful capture areas: ", length( completed_capture_areas ), "/12" )
-  log_message( "Incomplete capture areas: ", paste( failed_capture_areas, collapse = " | " ) )
-  log_message( "Open first: ", OUT_FINAL_REPORT )
   write_run_log()
-  cat("\n")
-  cat( "============================================================\n" )
-  cat( "Step 12D completed: ", final_status, "\n", sep = "" )
-  cat( "Successful capture areas: ", length( completed_capture_areas ), "/12\n", sep = "" )
-  cat( "Open first: ", OUT_FINAL_REPORT, "\n", sep = "" )
-  cat( "============================================================\n" )
   invisible( list( final_status = final_status, completed_capture_areas = completed_capture_areas, incomplete_capture_areas = failed_capture_areas, run_summary = run_summary, checks = checks, normalized_weights_rds = if ( file.exists( OUT_NORMALIZED_WEIGHTS_RDS ) ) {
           OUT_NORMALIZED_WEIGHTS_RDS
         } else {
@@ -708,6 +643,5 @@ main <- function() {
 }
 tryCatch( main(), error = function(e) {
     write_fatal_global_report( conditionMessage( e ) )
-    message( "Step 12D stopped during preflight/global processing: ", conditionMessage( e ) )
   }
 )

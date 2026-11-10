@@ -25,12 +25,6 @@ write_gz_csv <- function(x, path) {
   utils::write.csv(x, file=co, row.names=FALSE, na="")
 }
 log_file <- file.path(OUT, "00_run_log.txt")
-log_msg <- function(...) {
-  msg <- paste0(..., collapse="")
-  line <- paste(format(Sys.time(), "%Y-%m-%d %H:%M:%S"), "|", msg)
-  cat(line,"\n")
-  cat(line,"\n",file=log_file,append=TRUE)
-}
 for (input in c(IN_CDS, IN_SEURAT))
   if (!file.exists(input)) stop("找不到原始 Step5BR2 对象: ", input)
 for (pkg in c("monocle3", "igraph", "S4Vectors", "SingleCellExperiment", "SummarizedExperiment"))
@@ -38,18 +32,15 @@ for (pkg in c("monocle3", "igraph", "S4Vectors", "SingleCellExperiment", "Summar
     stop("Missing R package: ", pkg)
 writeLines(capture.output(sessionInfo()), file.path(OUT,"00_sessionInfo.txt"))
 write_csv(scenarios,file.path(TBL,"01_scenario_design.csv"))
-log_msg("Reviewer 2 MC6 topology sensitivity | input ", IN_CDS)
-log_msg("Reading Step5BR2 Seurat METADATA first (read-only).")
 if(!requireNamespace("SeuratObject",quietly=TRUE))
   stop("缺少SeuratObject包；无法读取冻结的root/branch标签")
 ref_seurat <- readRDS(IN_SEURAT)
 ref_seurat_meta <- ref_seurat[[]]
 rm(ref_seurat); gc(verbose=FALSE)
-log_msg("Reading FROZEN Step5BR2 Monocle3 CDS (read-only).")
 ref <- readRDS(IN_CDS)
 cell_ids <- colnames(ref)
 if (length(cell_ids)!=14005L || anyDuplicated(cell_ids))
-  stop("冻结的轨迹细胞数/唯一性与14005细胞不符，Check required")
+  stop("冻结的轨迹细胞数/唯一性与14005细胞不符，Check")
 meta <- as.data.frame(SummarizedExperiment::colData(ref))
 if(!all(cell_ids %in% rownames(meta)) || !all(cell_ids %in% rownames(ref_seurat_meta)))
    stop("CDS/Seurat 的barcode不能一一对齐，已停止以防错位")
@@ -186,13 +177,11 @@ run_case <- function(param) {
     same_cfg <- !is.null(prev) && identical(names(prev),names(current)) && nrow(prev)==1L && all(vapply(names(current), function(n) identical(as.character(prev[[n]][1]),as.character(current[[n]][1])), logical(1)))
     if (!same_cfg)
       stop("Existing result has different/unknown parameters: ",dd, " ; set FORCE_RERUN=TRUE to replace it")
-    log_msg("SKIP completed scenario: ",id)
     return(invisible(TRUE))
   }
   if(file.exists(success_path)) unlink(success_path)
   if(file.exists(file.path(dd,"FAILURE.txt"))) unlink(file.path(dd,"FAILURE.txt"))
   write_csv(current,cfg_path)
-  log_msg("RUN ",id," | fraction=",param$fraction," k=",param$cluster_k, " ratio=",param$euclidean_distance_ratio)
   stage <- "subsample_and_clear_graph_slots"
   tryCatch({
     keep <- sample_stratified_cells(param$fraction,param$seed)
@@ -296,12 +285,10 @@ run_case <- function(param) {
     plot(orig_emb[keep7,1],orig_emb[keep7,2],pch=16,cex=.26, col=pal[aligned[keep7]],xlab="UMAP 1",ylab="UMAP 2", main=paste(id,"| relearned, posthoc aligned"))
     dev.off()
     writeLines("SUCCESS",success_path)
-    log_msg("DONE ",id," | selected=",rule$selected, " | min two-sample recall=",format(sd$min_sample_arm_recall,digits=3), " | both new 7dpi arms by sample=",independent_sample_support)
     rm(obj,graph,corr);gc(verbose=FALSE)
     invisible(TRUE)
   },error=function(e) {
     err <- paste0("stage=",stage," | ",conditionMessage(e))
-    log_msg("FAILED ",id," | ",err)
     write_csv(data.frame(scenario_id=id,fraction=param$fraction,seed=param$seed, cluster_k=param$cluster_k, euclidean_distance_ratio=param$euclidean_distance_ratio, n_cells=NA_integer_,n_root_cells=NA_integer_,root_anchor=NA_character_, graph_nodes=NA_integer_,graph_edges=NA_integer_,graph_size_matches_reference=FALSE, graph_components=NA_integer_, n_degree_ge3=NA_integer_,n_valid_branchpoints=NA_integer_, selected_branchpoint=NA_character_,has_two_major_late_arms=FALSE, both_7dpi_samples_have_two_arms=FALSE,arm_orientation=NA_character_, min_sample_arm_recall=NA_real_,passes_descriptive_95pct_recall=FALSE, cell_true_day_spearman=NA_real_,status="FAILED",error=err), file.path(dd,"01_scenario_topology_summary.csv"))
     writeLines(err,file.path(dd,"FAILURE.txt"))
     gc(verbose=FALSE)
@@ -311,7 +298,6 @@ run_case <- function(param) {
 for (i in seq_len(nrow(scenarios))) {
   run_case(scenarios[i,,drop=FALSE])
   if (i==1L && !file.exists(file.path(scenario_dir(scenarios$scenario_id[1]), "SUCCESS.flag"))) {
-    log_msg("BASELINE FAILED: remaining scenarios intentionally not run. ", "Review scenarios/00_full_original_parameters/FAILURE.txt")
     break
   }
 }
@@ -347,8 +333,5 @@ if(!is.null(arm) && nrow(arm)) {
 baseline <- if(!is.null(agg)) agg[agg$scenario_id==scenarios$scenario_id[1],,drop=FALSE] else NULL
 n_pass <- if(!is.null(agg)) sum(agg$status=="SUCCESS") else 0L
 n_stable <- if(!is.null(agg)) sum(agg$status=="SUCCESS" & agg$both_7dpi_samples_have_two_arms & agg$passes_descriptive_95pct_recall, na.rm=TRUE) else 0L
-report <- c( "GLIA | Reviewer 2 Major Comment 6 | Step6G trajectory topology sensitivity", paste("Run:",as.character(Sys.time())), paste("Input (read-only):",IN_CDS), paste("Output:",OUT), paste("Reference graph nodes/edges:",igraph::vcount(ref_graph),igraph::ecount(ref_graph)), paste("Reference root cells:",sum(root_flag),"; original 7dpi Arm1+Arm2:",orig_7), paste("Reference 1dpi pseudotime >=",HIGH_1DPI_PT,":",nrow(high_1dpi), "/",sum(timepoint=="1 dpi"), sprintf("(%.1f%%)",100*nrow(high_1dpi)/sum(timepoint=="1 dpi"))), paste("Scenario count:",nrow(scenarios),"; successful:",n_pass), paste("Scenarios with both-sample two-arm support AND all arm recall>=", RECALL_THRESHOLD,":",n_stable), "Descriptive recovery threshold is an INTERNAL sensitivity criterion, not a P-value.", "Relearned full-control must recover original graph/arms before variant comparisons are interpreted.", "The root/branch Y_ vertex identifiers are local to each graph, not stable identifiers.", "Pseudotime units vary across reconstructed graphs; raw values and the >=15 threshold are NOT cross-scenario comparable. Within-case top-quartile fraction is provided.", "Original arm labels were used ONLY after objective graph/branch selection, for correspondence.", "The UMAP was kept FROZEN throughout: this is NOT an end-to-end PCA/Harmony/UMAP robustness test.", "Cross-sectional scRNA-seq cannot establish cell-fate bifurcation or lineage transitions.", "Changing root on an unchanged graph tests pseudotime orientation, NOT topology stability.", "If baseline failed, subsequent scenarios were intentionally skipped; investigate the baseline FAILURE.txt.", "See all tables in tables/; per-scenario cell-level correspondence in scenarios/.", if(file.exists(PRIOR_MARSH)) paste("Existing source-matched Marsh sensitivity report:", PRIOR_MARSH) else "Existing Marsh source-matched report not found; no effect on this analysis.", "", "ALL-SCENARIO STATUS:", if(!is.null(agg)) capture.output(print(agg[,c("scenario_id","status","n_cells", "graph_nodes","selected_branchpoint","n_valid_branchpoints", "both_7dpi_samples_have_two_arms","min_sample_arm_recall", "passes_descriptive_95pct_recall")],row.names=FALSE)) else "No readable scenario outputs.", "", "AUDIT:",capture.output(print(checks,row.names=FALSE)))
-writeLines(report,file.path(OUT,"10_STEP6G_FINAL_REPORT.txt"))
-log_msg("FINISHED. Review 10_STEP6G_FINAL_REPORT.txt and tables/06-10.")
 if(any(checks$status=="FAIL"))
-  warning("One or more Step6G checks FAILED. Do not claim robust bifurcation without reviewing the report.")
+  warning("One or more Step6G checks FAILED. claim robust bifurcation without reviewing the report.")

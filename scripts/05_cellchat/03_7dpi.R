@@ -2,7 +2,6 @@ rm(list = ls())
 gc()
 options( stringsAsFactors = FALSE, width = 260, warn = 1, timeout = 86400, future.globals.maxSize = 32 * 1024^3, future.rng.onMisuse = "error" )
 set.seed(20260803L)
-cat( "R parser check PASS: the complete Step8B confirmation file was parsed by source().\n" )
 PROJECT_ROOT <- Sys.getenv("GLIA_PROJECT_ROOT", unset = normalizePath(".", winslash = "/", mustWork = FALSE))
 FORMAL_TIMEPOINT <- "7dpi"
 FORMAL_BRANCH_SENDERS <- c( "Microglia_Arm_1", "Microglia_Arm_2" )
@@ -58,10 +57,6 @@ if (length(missing_packages) > 0L) {
 }
 timestamp <- function() {
   format( Sys.time(), "%Y-%m-%d %H:%M:%S" )
-}
-msg <- function(...) {
-  cat( sprintf( "[%s] %s\n", timestamp(), paste0(..., collapse = "") ) )
-  flush.console()
 }
 safe_path <- function(path) {
   normalizePath( path, winslash = "/", mustWork = FALSE )
@@ -281,10 +276,6 @@ checkpoint_is_valid <- function( checkpoint, expected_cells, expected_groups, ex
 }
 main <- function() {
   start_time <- Sys.time()
-  msg( "==============================================================" )
-  msg( "GSE162610 Step 8B | 7 dpi targeted full-cell nboot=100 confirmation" )
-  msg( "==============================================================" )
-  msg( "Sequential RNG-safe execution; checkpoint reuse: ", REUSE_VALID_CHECKPOINT )
   required_files <- c( ATLAS_RDS_FILE, STEP8A_MANIFEST_FILE, STEP8A_DECISION_FILE, PREVIEW_DECISION_FILE, PREVIEW_LR_FILE, PREVIEW_SAMPLE_SHORTLIST_FILE )
   input_audit <- data.frame( role = c( "Full atlas", "Step8A input manifest", "Step8A final decision", "Step8B preview final decision", "Step8B preview LR differential", "Step8B preview sample-supported shortlist" ), path = safe_path( required_files ), exists = file.exists( required_files ), size_bytes = ifelse( file.exists( required_files ), file.info( required_files )$size, NA_real_ ), stringsAsFactors = FALSE )
   write_csv_utf8( input_audit, INPUT_AUDIT_FILE )
@@ -355,7 +346,6 @@ main <- function() {
   if (length(required_primary_missing) > 0L) {
     abort_step( paste0( "Primary preview interaction(s) are missing from the shortlist: ", paste( required_primary_missing, collapse = ", " ) ) )
   }
-  msg( "Loading full atlas and all eligible 7 dpi cells..." )
   atlas <- readRDS( ATLAS_RDS_FILE )
   if (!inherits(atlas, "Seurat")) {
     abort_step( "The full atlas input is not a Seurat object." )
@@ -409,11 +399,9 @@ main <- function() {
     if ( !is.null( checkpoint ) && checkpoint_is_valid( checkpoint, expected_cells, expected_groups, expected_interactions ) ) {
       cellchat <- checkpoint$cellchat
       run_status <- "REUSED_CHECKPOINT"
-      msg( "Reusing validated targeted full-cell nboot=100 checkpoint." )
     }
   }
   if (is.null(cellchat)) {
-    msg( "Creating targeted CellChat object with ", nrow( metadata_7dpi ), " full 7 dpi cells across ", length( expected_groups ), " groups and ", nrow( selected_lr_db ), " LR interactions." )
     current_expression <- expression_data[ , metadata_7dpi$cell, drop = FALSE ]
     current_meta <- data.frame( cellchat_group = factor( metadata_7dpi$cellchat_group, levels = expected_groups ), samples = metadata_7dpi$sample_id, row.names = metadata_7dpi$cell, stringsAsFactors = FALSE )
     future::plan( "sequential" )
@@ -424,14 +412,12 @@ main <- function() {
       abort_step( "Targeted subsetData produced zero signaling genes." )
     }
     cellchat@LR <- list( LRsig = selected_lr_db )
-    msg( "Running full-cell targeted computeCommunProb with nboot=100..." )
     cellchat <- call_with_supported_arguments( CellChat::computeCommunProb, list( object = cellchat, type = CELLCHAT_PARAMETERS$probability_type, trim = CELLCHAT_PARAMETERS$trim, LR.use = selected_lr_db, raw.use = CELLCHAT_PARAMETERS$raw.use, population.size = CELLCHAT_PARAMETERS$population.size, distance.use = CELLCHAT_PARAMETERS$distance.use, nboot = CELLCHAT_PARAMETERS$nboot, seed.use = CELLCHAT_PARAMETERS$seed.use ) )
     cellchat <- call_with_supported_arguments( CellChat::filterCommunication, list( object = cellchat, min.cells = CELLCHAT_PARAMETERS$min.cells ) )
     cellchat <- call_with_supported_arguments( CellChat::computeCommunProbPathway, list( object = cellchat, pairLR.use = selected_lr_db, thresh = CELLCHAT_P_THRESHOLD ) )
     cellchat <- call_with_supported_arguments( CellChat::aggregateNet, list( object = cellchat, pairLR.use = selected_lr_db, thresh = CELLCHAT_P_THRESHOLD, return.object = TRUE ) )
     checkpoint <- list( cellchat = cellchat, cells = expected_cells, groups = expected_groups, interactions = expected_interactions, parameters = CELLCHAT_PARAMETERS, created = timestamp() )
     saveRDS( checkpoint, CELLCHAT_CHECKPOINT_FILE, compress = FALSE )
-    msg( "Targeted full-cell checkpoint saved." )
   }
   all_communications_raw <- safe_subset_communication( cellchat = cellchat, slot_name = "net", sources_use = NULL, targets_use = NULL, threshold = 1 )
   all_communications <- standardize_interaction_columns( all_communications_raw, FORMAL_TIMEPOINT )
@@ -570,69 +556,6 @@ main <- function() {
   } else {
     "No CONFIRMED_CORE axes were produced."
   }
-  report_lines <- c( "======================================================================", "GSE162610 | STEP 8B TARGETED FULL-CELL nboot=100 CONFIRMATION", "======================================================================", "", paste0( "Generated: ", timestamp() ), paste0( "Overall status: ", if ( overall_pass ) {
-        "PASS"
-      } else {
-        "REVIEW_REQUIRED"
-      }
-    ), paste0(
-      "Elapsed time: ", round( elapsed_seconds / 60, 2 ), " min"
-    ), paste0(
-      "CellChat version: ", as.character( utils::packageVersion( "CellChat" ) )
-    ), "", "DESIGN:", paste0(
-      "All ", nrow( metadata_7dpi ), " eligible 7 dpi cells were retained without downsampling."
-    ), paste0(
-      nrow( selected_lr_db ), " preview-prioritized ligand-receptor interactions were recomputed ", "with nboot=100 using sequential RNG-safe execution."
-    ), paste0(
-      "Branch senders: Arm_1=", sum( metadata_7dpi$cellchat_group == "Microglia_Arm_1" ), "; Arm_2=", sum( metadata_7dpi$cellchat_group == "Microglia_Arm_2" ), "."
-    ), paste0(
-      "CellChat run status: ", run_status, "."
-    ), "", "CONFIRMATION SUMMARY:", paste0(
-      "LR-target rows compared: ", nrow( preview_vs_full )
-    ), paste0(
-      "CONFIRMED_CORE: ", sum( preview_vs_full$confirmation_status == "CONFIRMED_CORE", na.rm = TRUE )
-    ), paste0(
-      "CONFIRMED_DIRECTION_ONLY: ", sum( preview_vs_full$confirmation_status == "CONFIRMED_DIRECTION_ONLY", na.rm = TRUE )
-    ), paste0(
-      "PARTIAL_SAMPLE_CONTEXT: ", sum( preview_vs_full$confirmation_status == "PARTIAL_SAMPLE_CONTEXT", na.rm = TRUE )
-    ), paste0(
-      "NOT_CONFIRMED: ", sum( preview_vs_full$confirmation_status == "NOT_CONFIRMED", na.rm = TRUE )
-    ), "", "TOP CONFIRMED CORE AXES:", top_core_text, "", "PATHWAY SUMMARY:", paste(
-      capture.output( print( pathway_summary, row.names = FALSE ) ), collapse = "\n"
-    ), "", "FINAL DECISION:", paste(
-      capture.output( print( final_decision, row.names = FALSE ) ), collapse = "\n"
-    ), "", "INTERPRETATION BOUNDARY:", paste0(
-      "CellChat P values are cell-level bootstrap/permutation results and must ", "not be reported as biological-replicate inference."
-    ), paste0(
-      "REPLICATED_IN_ALL_7DPI_SAMPLES means that sender ligand direction, ", "recipient cell count and receptor availability were supported in both ", "7 dpi samples."
-    ), paste0(
-      "The result remains an integrated association until spatial proximity, ", "external replication or perturbation validates the axis."
-    ), "", "NEXT ACTION:", paste0(
-      "Proceed to Step8C recipient-program integration using only the ", "CONFIRMED_CORE and selected TIER_2 axes. Test whether fibroblast, ", "astrocyte, vascular, OPC and myeloid recipients exhibit the expected ", "ECM/scar, inflammatory, barrier-remodeling, myelination or phagocytic ", "response programs."
-    ), "", "PRIMARY OUTPUTS:", paste0(
-      "Confirmation table: ", safe_path( PREVIEW_VS_FULL_FILE )
-    ), paste0(
-      "Confirmed core axes: ", safe_path( CONFIRMED_CORE_FILE )
-    ), paste0(
-      "Sample audit: ", safe_path( SAMPLE_AUDIT_LONG_FILE )
-    ), paste0(
-      "Final decision: ", safe_path( FINAL_DECISION_FILE )
-    ), paste0(
-      "Result RDS: ", safe_path( RESULT_RDS_FILE )
-    ), "", "KEY OUTPUTS:", "1) reports/Step8B_7dpi_targeted_fullcell_nboot100_confirmation_report.txt", "2) tables/06_preview_vs_full_confirmation.tsv", "3) tables/07_confirmed_core_axes.tsv", "4) tables/08_targeted_pathway_confirmation_summary.tsv", "5) tables/09_final_decision.csv", "======================================================================"
-  )
-  writeLines( report_lines, con = REPORT_FILE, useBytes = TRUE )
-  msg( "==============================================================" )
-  msg( "STEP 8B TARGETED FULL-CELL CONFIRMATION COMPLETE" )
-  msg( "Status: ", if ( overall_pass ) {
-      "PASS"
-    } else {
-      "REVIEW_REQUIRED"
-    }
-  )
-  msg( "Confirmed core axes: ", nrow( confirmed_core ) )
-  msg( "Report: ", safe_path( REPORT_FILE ) )
-  msg( "==============================================================" )
   invisible( result_object )
 }
 tryCatch( main(), error = function(e) {
@@ -640,9 +563,8 @@ tryCatch( main(), error = function(e) {
         NA_character_
       }
     )
-    error_lines <- c( "======================================================================", "GSE162610 | STEP 8B TARGETED FULL-CELL CONFIRMATION ERROR", "======================================================================", paste0( "Time: ", timestamp() ), paste0( "Message: ", conditionMessage( e ) ), paste0( "Failed call: ", failed_call ), "", paste0( "If the targeted checkpoint was already saved, rerunning this same ", "file will reuse it." ), "Do not rerun Step1-Step8B preview.", "======================================================================" )
+    error_lines <- c( "======================================================================", "GSE162610 | STEP 8B TARGETED FULL-CELL CONFIRMATION ERROR", "======================================================================", paste0( "Time: ", timestamp() ), paste0( "Message: ", conditionMessage( e ) ), paste0( "Failed call: ", failed_call ), "", paste0( "If the targeted checkpoint was already saved, rerunning this same ", "file will reuse it." ), "rerun Step1-Step8B preview.", "======================================================================" )
     writeLines( error_lines, con = ERROR_FILE, useBytes = TRUE )
-    cat( paste0( error_lines, collapse = "\n" ), "\n" )
     stop( e )
   }
 )

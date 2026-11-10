@@ -2,7 +2,6 @@ rm(list = ls())
 gc()
 options( stringsAsFactors = FALSE, width = 280, warn = 1, timeout = 86400, future.globals.maxSize = 32 * 1024^3 )
 set.seed(20260803L)
-cat( "R parser check PASS: the complete Step8C file was parsed by source().\n" )
 PROJECT_ROOT <- Sys.getenv("GLIA_PROJECT_ROOT", unset = normalizePath(".", winslash = "/", mustWork = FALSE))
 FORMAL_TIMEPOINTS <- c( "1dpi", "3dpi", "7dpi" )
 FORMAL_7DPI_SAMPLES_EXPECTED <- 2L
@@ -56,10 +55,6 @@ PROGRAM_GENE_SETS <- list( TNF_NFKB_RESPONSE = c( "Nfkbia", "Tnfaip3", "Relb", "
 PROGRAM_ANNOTATION <- data.frame( response_program = names( PROGRAM_GENE_SETS ), program_class = c( "INFLAMMATORY", "INFLAMMATORY", "INFLAMMATORY", "MYELOID_CLEARANCE", "RESOLUTION_ADAPTATION", "TAM_SIGNALING", "SCAR_ECM", "SCAR_ECM", "SCAR_ECM", "OSM_RESPONSE", "VASCULAR", "VASCULAR", "VASCULAR_INTEGRITY", "VASCULAR", "OLIGODENDROGLIAL_STRESS", "OLIGODENDROGLIAL_DIFFERENTIATION", "T_CELL", "T_CELL" ), stringsAsFactors = FALSE )
 timestamp <- function() {
   format( Sys.time(), "%Y-%m-%d %H:%M:%S" )
-}
-msg <- function(...) {
-  cat( sprintf( "[%s] %s\n", timestamp(), paste0( ..., collapse = "" ) ) )
-  flush.console()
 }
 safe_path <- function(path) {
   normalizePath( path, winslash = "/", mustWork = FALSE )
@@ -368,9 +363,6 @@ build_axis_program_map <- function( confirmed_axes ) {
 }
 main <- function() {
   start_time <- Sys.time()
-  msg( "==============================================================" )
-  msg( "GSE162610 Step 8C v2 | recipient-program integration" )
-  msg( "==============================================================" )
   required_files <- c( ATLAS_RDS_FILE, STEP8A_MANIFEST_FILE, STEP8A_DECISION_FILE, STEP8B_CONFIRM_DECISION_FILE, STEP8B_CONFIRMED_AXES_FILE, STEP8B_PREVIEW_VS_FULL_FILE )
   input_audit <- data.frame( role = c( "Full normalized atlas", "Step8A input manifest", "Step8A final decision", "Step8B confirmation final decision", "Step8B confirmed core axes", "Step8B preview versus full table" ), path = safe_path( required_files ), exists = file.exists( required_files ), size_bytes = ifelse( file.exists( required_files ), file.info( required_files )$size, NA_real_ ), stringsAsFactors = FALSE )
   write_csv_utf8( input_audit, INPUT_AUDIT_FILE )
@@ -438,7 +430,6 @@ main <- function() {
   if ( length( samples_7dpi ) != FORMAL_7DPI_SAMPLES_EXPECTED ) {
     abort_step( paste0( "Expected ", FORMAL_7DPI_SAMPLES_EXPECTED, " 7 dpi samples but found ", length( samples_7dpi ), "." ) )
   }
-  msg( "Loading normalized RNA data for ", nrow( metadata_target ), " recipient cells..." )
   atlas <- readRDS( ATLAS_RDS_FILE )
   if (!inherits(atlas, "Seurat")) {
     abort_step( "The full atlas input is not a Seurat object." )
@@ -472,7 +463,6 @@ main <- function() {
   if (length(insufficient_used_programs) > 0L) {
     abort_step( paste0( "Insufficient gene coverage for used program(s): ", paste( insufficient_used_programs, collapse = ", " ) ) )
   }
-  msg( "Scoring recipient programs within each target cell type..." )
   relevant_programs_by_target <- split( axis_program_map$response_program, axis_program_map$target )
   relevant_programs_by_target <- lapply( relevant_programs_by_target, unique )
   cell_score_parts <- list()
@@ -506,7 +496,6 @@ main <- function() {
   timepoint_wide$delta_7dpi_minus_3dpi <- timepoint_wide[["7dpi"]] - timepoint_wide[["3dpi"]]
   program_time_trend <- as.data.frame( timepoint_wide, stringsAsFactors = FALSE )
   write_tsv( program_time_trend, PROGRAM_TIME_TREND_FILE )
-  msg( "Auditing receptor-program associations in both 7 dpi samples..." )
   seven_dpi_scores <- recipient_program_cell_scores[ recipient_program_cell_scores$timepoint == "7dpi", , drop = FALSE ]
   receptor_score_cache <- new.env( parent = emptyenv() )
   get_receptor_score <- function( receptor, target, sample_id ) {
@@ -682,55 +671,6 @@ main <- function() {
   } else {
     "No mechanism axes were produced."
   }
-  report_lines <- c( "======================================================================", "GSE162610 | STEP 8C v2 RECIPIENT-PROGRAM INTEGRATION", "======================================================================", "", paste0( "Generated: ", timestamp() ), paste0( "Technical status: ", if ( technical_pass ) {
-        "PASS"
-      } else {
-        "FAIL"
-      }
-    ), paste0(
-      "Biological result: ", biological_status
-    ), paste0(
-      "Elapsed time: ", round( elapsed_minutes, 2 ), " min"
-    ), "", "INPUT:", paste0(
-      nrow( confirmed_axes ), " formally confirmed 7 dpi CellChat axes."
-    ), paste0(
-      nrow( metadata_target ), " recipient cells across 1, 3 and 7 dpi."
-    ), paste0(
-      length( target_groups ), " recipient cell groups: ", paste( target_groups, collapse = " | " ), "."
-    ), "", "RESULT SUMMARY:", paste0(
-      "MECHANISM_TIER_1 axes: ", sum( axis_level$final_mechanism_tier == "MECHANISM_TIER_1", na.rm = TRUE )
-    ), paste0(
-      "MECHANISM_TIER_2 axes: ", sum( axis_level$final_mechanism_tier == "MECHANISM_TIER_2", na.rm = TRUE )
-    ), paste0(
-      "MECHANISM_TIER_3 axes: ", sum( axis_level$final_mechanism_tier == "MECHANISM_TIER_3", na.rm = TRUE )
-    ), paste0(
-      "COMMUNICATION_ONLY axes: ", sum( axis_level$final_mechanism_tier == "COMMUNICATION_ONLY", na.rm = TRUE )
-    ), "", "PRIORITIZED MECHANISM AXES:", top_mechanism_text, "", "RECIPIENT TARGET SUMMARY:", paste(
-      capture.output( print( target_summary, row.names = FALSE ) ), collapse = "\n"
-    ), "", "FINAL DECISION:", paste(
-      capture.output( print( final_decision, row.names = FALSE ) ), collapse = "\n"
-    ), "", "INTERPRETATION BOUNDARY:", paste0(
-      "Recipient-program support means that receptor-positive cells showed ", "the expected program direction within the target cell type and that ", "the direction was evaluated separately in both 7 dpi samples."
-    ), paste0(
-      "Cell-level Wilcoxon and Spearman P values are descriptive and are not ", "biological-replicate inference."
-    ), paste0(
-      "The integrated chain remains associative until spatial proximity, ", "external replication or perturbation provides additional support."
-    ), "", "NEXT ACTION:", paste0(
-      "Use MECHANISM_TIER_1 axes to define the GSE162610 discovery mechanism. ", "Then proceed to external validation: first GSE142849 for long-term DAM/", "branch persistence, followed by GSE234774 spatial niche validation and ", "GSE196928 microglia-depletion testing."
-    ), "", "KEY OUTPUTS:", "1) reports/Step8C_recipient_program_integration_report.txt", "2) tables/06_axis_program_integrated_evidence.tsv", "3) tables/07_prioritized_mechanism_axes.tsv", "4) tables/08_recipient_target_summary.tsv", "5) tables/09_final_decision.csv", "======================================================================"
-  )
-  writeLines( report_lines, con = REPORT_FILE, useBytes = TRUE )
-  msg( "==============================================================" )
-  msg( "STEP 8C RECIPIENT-PROGRAM INTEGRATION COMPLETE" )
-  msg( "Technical status: ", if ( technical_pass ) {
-      "PASS"
-    } else {
-      "FAIL"
-    }
-  )
-  msg( "MECHANISM_TIER_1 axes: ", n_tier1_mechanisms )
-  msg( "Report: ", safe_path( REPORT_FILE ) )
-  msg( "==============================================================" )
   invisible( result_object )
 }
 tryCatch( main(), error = function(e) {
@@ -738,9 +678,8 @@ tryCatch( main(), error = function(e) {
         NA_character_
       }
     )
-    error_lines <- c( "======================================================================", "GSE162610 | STEP 8C v2 ERROR", "======================================================================", paste0( "Time: ", timestamp() ), paste0( "Message: ", conditionMessage( e ) ), paste0( "Failed call: ", failed_call ), "", "Do not rerun Step1-Step8B.", "Correct only this Step8C file and rerun it.", "======================================================================" )
+    error_lines <- c( "======================================================================", "GSE162610 | STEP 8C v2 ERROR", "======================================================================", paste0( "Time: ", timestamp() ), paste0( "Message: ", conditionMessage( e ) ), paste0( "Failed call: ", failed_call ), "", "rerun Step1-Step8B.", "Correct only this Step8C file and rerun it.", "======================================================================" )
     writeLines( error_lines, con = ERROR_FILE, useBytes = TRUE )
-    cat( paste0( error_lines, collapse = "\n" ), "\n" )
     stop( e )
   }
 )

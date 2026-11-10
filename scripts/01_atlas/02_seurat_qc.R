@@ -30,9 +30,6 @@ suppressPackageStartupMessages({
   library(ggplot2)
   library(patchwork)
 })
-cat("============================================================\n")
-cat("Step 1A | GSE162610 Seurat + QC audit\n")
-cat("============================================================\n\n")
 read_gz_tab <- function(path) {
   con <- gzfile(path, "rt")
   on.exit(close(con))
@@ -60,9 +57,6 @@ if (mean(grepl("^ENSMUSG", gene_names, ignore.case = TRUE)) > 0.50 && ncol(genes
   }
 }
 gene_names <- make.unique(gene_names)
-cat("Genes file:", length(gene_names), "\n")
-cat("Barcodes file:", length(barcodes), "\n\n")
-cat("开始读取 GSE162610_sci_mat.mtx.gz ...\n")
 t0 <- Sys.time()
 con <- gzfile(f_matrix, open = "rt")
 counts <- Matrix::readMM(con)
@@ -72,8 +66,6 @@ rownames(counts) <- gene_names
 colnames(counts) <- barcodes
 t1 <- Sys.time()
 load_minutes <- as.numeric(difftime(t1, t0, units = "mins"))
-cat("矩阵读取完成：", nrow(counts), "genes x", ncol(counts), "cells\n")
-cat("耗时：", round(load_minutes, 2), "min\n\n")
 if (nrow(counts) != length(gene_names)) {
   stop("矩阵行数与 genes 不一致。")
 }
@@ -85,7 +77,7 @@ rm(counts)
 gc()
 cell_meta <- data.table::fread(f_cellmeta, data.table = FALSE)
 if (!all(c("barcode", "sample_id", "timepoint") %in% colnames(cell_meta))) {
-  stop( "确认版 cell metadata 中缺少 barcode/sample_id/timepoint 列。\n", "Check required", f_cellmeta )
+  stop( "确认版 cell metadata 中缺少 barcode/sample_id/timepoint 列。\n", "Check", f_cellmeta )
 }
 cell_meta$barcode <- clean_chr(cell_meta$barcode)
 cell_meta$sample_id <- clean_chr(cell_meta$sample_id)
@@ -104,7 +96,7 @@ mt_genes <- grep("^mt-", rownames(pbmc), value = TRUE, ignore.case = TRUE)
 if (length(mt_genes) > 0) {
   pbmc[["percent.mt"]] <- PercentageFeatureSet(pbmc, features = mt_genes)
 } else {
-  warning("未识别到 mt- mitochondrial genes，percent.mt 设置为 0，Check required")
+  warning("未识别到 mt- mitochondrial genes，percent.mt 设置为 0，Check")
   pbmc$percent.mt <- 0
 }
 hb_genes <- grep("^Hb[ab]", rownames(pbmc), value = TRUE, ignore.case = TRUE)
@@ -114,8 +106,6 @@ if (length(hb_genes) > 0) {
   warning("未识别到 Hb genes，percent.HB 设置为 0。")
   pbmc$percent.HB <- 0
 }
-cat("Detected mitochondrial genes:", length(mt_genes), "\n")
-cat("Detected hemoglobin genes:", length(hb_genes), "\n\n")
 writeLines(mt_genes, file.path(tab_dir, "01_detected_mitochondrial_genes.txt"))
 writeLines(hb_genes, file.path(tab_dir, "02_detected_hemoglobin_genes.txt"))
 sample_counts <- as.data.frame(table(pbmc$sample_id), stringsAsFactors = FALSE)
@@ -166,8 +156,3 @@ ggsave( file.path(fig_dir, "03_QC_feature_scatter_BEFORE_filter.pdf"), plot = sc
 saveRDS( pbmc, file.path(out_dir, "GSE162610_raw_with_QCmetrics.rds"), compress = FALSE )
 manifest <- fread(f_manifest, data.table = FALSE)
 sample_counts_ok <- ( ncol(pbmc) == sum(manifest$n_cells) && ncol(pbmc) == 66178 )
-report <- c( "============================================================", "GSE162610 STEP 1A | Seurat + QC AUDIT REPORT", "============================================================", paste0("Date: ", Sys.time()), "", paste0("Seurat dimensions: ", nrow(pbmc), " genes x ", ncol(pbmc), " cells"), paste0("Expected cells: 66178"), paste0("Cell count check: ", sample_counts_ok), paste0("Matrix load time (min): ", round(load_minutes, 2)), "", paste0("Detected mitochondrial genes: ", length(mt_genes)), paste0("Detected hemoglobin genes: ", length(hb_genes)), "", "Cells by sample:", paste0("  ", qc_summary$sample_id, " | ", qc_summary$timepoint, " | n=", qc_summary$n_cells, " | median nFeature=", round(qc_summary$median_nFeature, 1), " | median nCount=", round(qc_summary$median_nCount, 1), " | median mt%=", round(qc_summary$median_percent_mt, 3), " | median HB%=", round(qc_summary$median_percent_HB, 3)), "", "IMPORTANT:", "No cells were filtered in Step 1A.", "QC cutoffs must be selected after reviewing per-sample distributions.", "", "STEP 1A COMPLETE = TRUE", "", "STATUS:", "Review QC summary/quantiles/plots, then run Step 1B with final sample-aware QC thresholds.", "============================================================" )
-writeLines( report, file.path(out_dir, "08_STEP1A_QC_audit_report.txt") )
-cat(paste(report, collapse = "\n"))
-cat("\n\nStep 1A 完成：尚未删除任何细胞。\n")
-cat("QC status: REVIEW REQUIRED\n")

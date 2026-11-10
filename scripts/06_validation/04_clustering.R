@@ -33,23 +33,13 @@ if (file.exists(run_log)) {
 }
 normalized_data_dir <- file.path( bpcells_dir, "GSE234774_step10B_LogNormalize_data" )
 output_object_path <- file.path( rds_dir, "GSE234774_step10B_LogNormalize_PCA_UMAP_clusters_BPCells.rds" )
-log_message <- function(...) {
-  msg <- paste0(...)
-  stamp <- format( Sys.time(), "%Y-%m-%d %H:%M:%S" )
-  line <- paste0( "[", stamp, "] ", msg )
-  cat(line, "\n")
-  cat( line, "\n", file = run_log, append = TRUE )
-}
 write_csv_safe <- function( x, filename ) {
   path <- file.path( tables_dir, filename )
   utils::write.csv( x, path, row.names = FALSE, na = "" )
-  log_message( "Wrote: ", path )
   invisible(path)
 }
 stop_with_report <- function(reason) {
   report_path <- file.path( output_dir, "12_STEP10B_FINAL_REPORT.txt" )
-  report <- c( "GSE234774 STEP 10B NORMALIZATION / PCA / UMAP / CLUSTERING", "============================================================", paste0( "Run time: ", format( Sys.time(), "%Y-%m-%d %H:%M:%S" ) ), paste0( "Output directory: ", output_dir ), "", "FINAL DECISION: STOP", "", paste0( "Reason: ", reason ), "", "Do not start resident-microglia identification until this error is resolved." )
-  writeLines( report, report_path, useBytes = TRUE )
   stop( reason, call. = FALSE )
 }
 safe_package_version <- function(pkg) {
@@ -82,7 +72,6 @@ collapse_unique <- function( x, max_values = 20L ) {
   }
   paste( x, collapse = " | " )
 }
-log_message( "Starting package preflight." )
 required_packages <- c( "Matrix", "data.table", "ggplot2", "patchwork", "scales", "Seurat", "SeuratObject", "BPCells" )
 missing_packages <- required_packages[ !vapply( required_packages, requireNamespace, quietly = TRUE, FUN.VALUE = logical(1) ) ]
 if (length(missing_packages) > 0L) {
@@ -106,7 +95,6 @@ write_csv_safe( package_versions, "00_package_versions.csv" )
 if (!file.exists(input_object_path)) {
   stop_with_report( paste0( "Input singlet object not found: ", input_object_path ) )
 }
-log_message( "Loading Step 9C singlet-only object." )
 obj <- readRDS( input_object_path )
 if (!inherits( obj, "Seurat" )) {
   stop_with_report( "The input RDS is not a Seurat object." )
@@ -145,11 +133,10 @@ if (length(counts_layers) != 1L) {
 counts_layer <- counts_layers[[1L]]
 counts_mat <- SeuratObject::LayerData( object = obj, assay = "RNA", layer = counts_layer, fast = FALSE )
 if ( !identical( colnames(counts_mat), colnames(obj) ) ) {
-  stop_with_report( "Counts-layer barcodes do not match the Seurat object." )
+  stop_with_report( "Counts-layer barcodes match the Seurat object." )
 }
 input_audit <- data.frame( item = c( "Input object", "Features", "Singlet nuclei", "Biological libraries", "Timepoints", "Counts layer", "All nuclei are singlets", "Normalization present before Step 10B", "PCA present before Step 10B", "Harmony present before Step 10B" ), value = c( normalizePath( input_object_path, winslash = "/", mustWork = TRUE ), nrow(obj), ncol(obj), n_libraries, length(observed_timepoints), counts_layer, all( as.character( obj$scDblFinder.class ) == "singlet" ), any( grepl( "^data($|\\.)", layer_names_before ) ), "pca" %in% names( obj@reductions ), "harmony" %in% names( obj@reductions ) ), stringsAsFactors = FALSE )
 write_csv_safe( input_audit, "01_input_object_audit.csv" )
-log_message( "Running LogNormalize on the RNA assay." )
 set.seed(SEED)
 obj <- Seurat::NormalizeData( object = obj, assay = "RNA", normalization.method = "LogNormalize", scale.factor = NORMALIZATION_SCALE_FACTOR, block.size = NORMALIZATION_BLOCK_SIZE, verbose = TRUE )
 data_layers <- SeuratObject::Layers( object = obj, assay = "RNA", search = "^data" )
@@ -159,15 +146,11 @@ if (length(data_layers) != 1L) {
 normalized_layer_name <- data_layers[[1L]]
 normalized_layer <- SeuratObject::LayerData( object = obj, assay = "RNA", layer = normalized_layer_name, fast = FALSE )
 if ( isTRUE( FORCE_REWRITE_NORMALIZED_DATA ) && dir.exists(normalized_data_dir) ) {
-  log_message( "Deleting the existing normalized BPCells directory." )
   unlink( normalized_data_dir, recursive = TRUE, force = TRUE )
 }
 if (!dir.exists(normalized_data_dir)) {
-  log_message( "Writing LogNormalize data to a stable BPCells directory." )
   BPCells::write_matrix_dir( mat = normalized_layer, dir = normalized_data_dir, compress = TRUE, overwrite = FALSE )
-  log_message( "Completed normalized BPCells directory." )
 } else {
-  log_message( "Reusing existing normalized BPCells directory: ", normalized_data_dir )
 }
 normalized_disk <- open_bpcells_safe( normalized_data_dir )
 if (inherits( normalized_disk, "error" )) {
@@ -181,7 +164,6 @@ rm( normalized_layer )
 invisible(gc())
 normalization_audit <- data.frame( item = c( "Normalization method", "Scale factor", "Block size", "Normalized data storage", "Normalized features", "Normalized nuclei", "SCTransform run", "Cell-cycle regression run", "Technical-covariate regression run" ), value = c( "LogNormalize", NORMALIZATION_SCALE_FACTOR, NORMALIZATION_BLOCK_SIZE, normalizePath( normalized_data_dir, winslash = "/", mustWork = TRUE ), nrow(normalized_disk), ncol(normalized_disk), FALSE, FALSE, FALSE ), stringsAsFactors = FALSE )
 write_csv_safe( normalization_audit, "02_normalization_audit.csv" )
-log_message( "Selecting variable features." )
 obj <- Seurat::FindVariableFeatures( object = obj, assay = "RNA", selection.method = "vst", nfeatures = N_VARIABLE_FEATURES, verbose = TRUE )
 variable_features <- Seurat::VariableFeatures( object = obj, assay = "RNA" )
 if ( length(variable_features) != N_VARIABLE_FEATURES ) {
@@ -195,9 +177,7 @@ if (length(pca_features) < 2000L) {
 }
 variable_feature_table <- data.frame( rank = seq_along( variable_features ), gene = variable_features, excluded_from_PCA = variable_features %in% union( mt_hvg, hb_hvg ), exclusion_reason = ifelse( variable_features %in% mt_hvg, "mitochondrial", ifelse( variable_features %in% hb_hvg, "hemoglobin", "" ) ), stringsAsFactors = FALSE )
 write_csv_safe( variable_feature_table, "03_variable_features.csv" )
-log_message( "Scaling PCA features without regressing cell cycle, timepoint, library, or QC covariates." )
 obj <- Seurat::ScaleData( object = obj, assay = "RNA", features = pca_features, vars.to.regress = NULL, do.center = TRUE, do.scale = TRUE, block.size = 1000L, verbose = TRUE )
-log_message( "Running PCA." )
 set.seed(SEED)
 obj <- Seurat::RunPCA( object = obj, assay = "RNA", features = pca_features, npcs = N_PCS_COMPUTE, reduction.name = "pca", reduction.key = "PC_", approx = TRUE, seed.use = SEED, verbose = TRUE )
 if (!"pca" %in% names( obj@reductions )) {
@@ -237,7 +217,6 @@ pc_technical_correlations <- do.call( rbind, technical_rows )
 pc_technical_correlations$absolute_r <- abs( pc_technical_correlations$spearman_r )
 pc_technical_correlations$review_abs_r_ge_0_50 <- pc_technical_correlations$absolute_r >= 0.50
 write_csv_safe( pc_technical_correlations, "06_PC_technical_correlations.csv" )
-log_message( "Constructing PCA neighbor and SNN graphs." )
 obj <- Seurat::FindNeighbors( object = obj, reduction = "pca", dims = PCS_USE, k.param = K_PARAM, compute.SNN = TRUE, prune.SNN = SNN_PRUNE, nn.method = "annoy", n.trees = N_TREES, graph.name = c( "RNA_pca_nn", "RNA_pca_snn" ), verbose = TRUE )
 if ( !all( c( "RNA_pca_nn", "RNA_pca_snn" ) %in% names( obj@graphs ) ) ) {
   stop_with_report( "PCA neighbor/SNN graphs were not created." )
@@ -246,7 +225,6 @@ resolution_rows <- list()
 for (i in seq_along( CLUSTER_RESOLUTIONS )) {
   resolution <- CLUSTER_RESOLUTIONS[[i]]
   cluster_column <- resolution_column_name( resolution )
-  log_message( "Clustering resolution ", resolution, "." )
   obj <- Seurat::FindClusters( object = obj, graph.name = "RNA_pca_snn", cluster.name = cluster_column, resolution = resolution, algorithm = 1, n.start = 10L, n.iter = 10L, random.seed = SEED + i, group.singletons = TRUE, verbose = TRUE )
   if (!cluster_column %in% names(obj@meta.data)) {
     stop_with_report( paste0( "Cluster column was not created: ", cluster_column ) )
@@ -262,7 +240,6 @@ if (!primary_cluster_column %in% names(obj@meta.data)) {
 }
 obj$seurat_clusters <- factor( obj@meta.data[ , primary_cluster_column ] )
 Seurat::Idents( object = obj ) <- primary_cluster_column
-log_message( "Running unintegrated PCA UMAP." )
 set.seed(SEED)
 obj <- Seurat::RunUMAP( object = obj, reduction = "pca", dims = PCS_USE, reduction.name = "umap_pca_unintegrated", reduction.key = "UMAPpca_", umap.method = "uwot", n.neighbors = UMAP_N_NEIGHBORS, n.components = 2L, metric = "cosine", min.dist = UMAP_MIN_DIST, uwot.sgd = TRUE, seed.use = SEED, verbose = TRUE )
 if (!"umap_pca_unintegrated" %in% names(obj@reductions)) {
@@ -316,7 +293,6 @@ if (length(author_cross_rows) > 0L) {
   author_cross_table <- data.frame( primary_cluster = character(0), author_label = character(0), n_cells = integer(0), author_label_column = character(0), stringsAsFactors = FALSE )
 }
 write_csv_safe( author_cross_table, "10_primary_cluster_vs_author_labels.csv" )
-log_message( "Creating PCA/UMAP technical-audit figures." )
 variable_feature_plot <- Seurat::VariableFeaturePlot( object = obj, assay = "RNA" )
 top_variable_features <- head( variable_features, 20L )
 variable_feature_plot_labeled <- Seurat::LabelPoints( plot = variable_feature_plot, points = top_variable_features, repel = TRUE )
@@ -332,9 +308,7 @@ p_cluster_size <- ggplot2::ggplot( cluster_summary, ggplot2::aes( x = reorder( p
 ggplot2::ggsave( filename = file.path( figures_dir, "04_primary_cluster_sizes.pdf" ), plot = p_cluster_size, width = 9, height = 7, limitsize = FALSE )
 obj[["RNA"]]$scale.data <- NULL
 obj@misc$GSE234774_step10B <- list( input_object = normalizePath( input_object_path, winslash = "/", mustWork = TRUE ), normalization = "LogNormalize", normalization_scale_factor = NORMALIZATION_SCALE_FACTOR, variable_features = N_VARIABLE_FEATURES, pca_features = length(pca_features), pca_dimensions_computed = N_PCS_COMPUTE, pca_dimensions_used = PCS_USE, primary_reduction = "pca", umap_reduction = "umap_pca_unintegrated", cluster_resolutions = CLUSTER_RESOLUTIONS, primary_resolution = PRIMARY_RESOLUTION, primary_cluster_column = primary_cluster_column, harmony_run = FALSE, sctransform_run = FALSE, cell_cycle_regression_run = FALSE, technical_covariate_regression_run = FALSE, biological_unit = "biological_library", age_status = "METHODS_REVIEW_REQUIRED", completed_at = as.character( Sys.time() ), interpretation = paste( "Whole-atlas technical clustering only.", "No cell-type annotation and no Arm_1/Arm_2 scoring." ) )
-log_message( "Saving the Step 10B object." )
 saveRDS( obj, output_object_path, compress = FALSE )
-log_message( "Saved object: ", output_object_path )
 reload_obj <- tryCatch( readRDS( output_object_path ), error = function(e) e )
 reload_pass <- !inherits( reload_obj, "error" ) && inherits( reload_obj, "Seurat" ) && nrow(reload_obj) == 26918L && ncol(reload_obj) == 144359L && "pca" %in%
     names( reload_obj@reductions ) && "umap_pca_unintegrated" %in%
@@ -355,32 +329,12 @@ final_decision <- if ( any( required_fail ) ) {
   "PASS_WITH_CLUSTER_REVIEW"
 }
 resolution_lines <- paste0( "resolution ", resolution_summary$resolution, ": ", resolution_summary$n_clusters, " clusters; min/median/max size=", resolution_summary$minimum_cluster_size, "/", round( resolution_summary$median_cluster_size, 1 ), "/", resolution_summary$maximum_cluster_size )
-report_lines <- c( "GSE234774 STEP 10B NORMALIZATION / PCA / UMAP / CLUSTERING", "============================================================", paste0( "Run time: ", format( Sys.time(), "%Y-%m-%d %H:%M:%S" ) ), paste0( "Input object: ", input_object_path ), paste0( "Output directory: ", output_dir ), "", paste0( "FINAL DECISION: ", final_decision ), "", "INPUT", paste0( "Features: ", nrow(obj) ), paste0( "QC singlets: ", ncol(obj) ), paste0( "Biological libraries: ", n_libraries ), paste0( "Timepoints: ", paste( expected_timepoints, collapse = ", " ) ), "", "NORMALIZATION", "Primary method: LogNormalize", paste0( "Scale factor: ", NORMALIZATION_SCALE_FACTOR ), paste0( "Variable features: ", length(variable_features) ), paste0( "PCA features after mt/HB exclusion: ", length(pca_features) ), "SCTransform: NOT RUN", "Cell-cycle regression: NOT RUN", "Technical-covariate regression: NOT RUN", "", "PCA / GRAPH / UMAP", paste0( "PCs computed: ", ncol(pca_embeddings) ), paste0( "PCs used: ", min(PCS_USE), "-", max(PCS_USE) ), paste0( "Maximum absolute PC-versus-technical Spearman correlation: ", round( maximum_abs_technical_r, 3 ) ), paste0( "Neighbor k: ", K_PARAM ), "Primary dimensional reduction: unintegrated PCA", "UMAP: umap_pca_unintegrated", "Harmony/integration: NOT RUN", "", "CLUSTERING RESOLUTION SWEEP", resolution_lines, "", paste0( "Primary resolution: ", PRIMARY_RESOLUTION ), paste0( "Primary cluster column: ", primary_cluster_column ), paste0( "Primary clusters: ", n_primary_clusters ), paste0( "Clusters flagged for >=80% single-library dominance: ", n_library_dominant_clusters ), paste0( "Clusters flagged for >=95% single-timepoint dominance: ", n_timepoint_dominant_clusters ), "", "INTERPRETATION", "1. This is a whole-atlas technical clustering, not a final biological annotation.", "2. biological_library is nested within timepoint; automatic global Harmony could remove true longitudinal biology.", "3. A library- or timepoint-dominant cluster is a review flag, not automatic evidence of artifact.", "4. Author labels are retained only as supporting cross-checks.", "5. No cluster is called resident microglia, macrophage, Arm_1, or Arm_2 in this step.", "6. GSE234774 validates frozen GSE162610 programs and does not redefine them.", "", "PRIMARY OBJECT", output_object_path, "", "STATUS", "Review PCA technical correlations, UMAP structure, and cluster composition.", "Then perform marker-first resident microglia versus monocyte/macrophage identification.", "Do not start frozen Arm_1/Arm_2 signature transfer before the clean resident-microglia object is frozen." )
 if (final_decision == "STOP") {
   failed <- audit_checks[ audit_checks$required_for_pass & audit_checks$status != "PASS", , drop = FALSE ]
-  report_lines <- c( report_lines, "", "STOP REASONS" )
   for (i in seq_len( nrow(failed) )) {
-    report_lines <- c( report_lines, paste0( i, ". ", failed$check[[i]], " -- ", failed$detail[[i]] ) )
   }
 }
 report_path <- file.path( output_dir, "12_STEP10B_FINAL_REPORT.txt" )
-writeLines( report_lines, report_path, useBytes = TRUE )
-log_message( "Final decision: ", final_decision )
-log_message( "Final report: ", report_path )
-cat("\n")
-cat("============================================================\n")
-cat("GSE234774 STEP 10B COMPLETED\n")
-cat( "FINAL DECISION:", final_decision, "\n" )
-cat( "Output:", output_dir, "\n" )
-cat("Primary object:\n")
-cat( " ", output_object_path, "\n", sep = "" )
-cat("Key outputs:\n")
-cat(" 1) tables/04_PCA_variance.csv\n")
-cat(" 2) tables/06_PC_technical_correlations.csv\n")
-cat(" 3) tables/09_primary_cluster_summary.csv\n")
-cat(" 4) tables/11_STEP10B_audit_checks.csv\n")
-cat(" 5) 12_STEP10B_FINAL_REPORT.txt\n")
-cat("============================================================\n")
 if (final_decision == "STOP") {
   stop( "GSE234774 Step 10B decision is STOP. Review the final report.", call. = FALSE )
 }

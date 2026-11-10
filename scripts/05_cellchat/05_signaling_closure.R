@@ -2,7 +2,6 @@ rm(list = ls())
 gc()
 options( stringsAsFactors = FALSE, width = 300, warn = 1, timeout = 86400, future.globals.maxSize = 32 * 1024^3 )
 set.seed(20260803L)
-cat( "R parser check PASS: the complete Step8D file was parsed by source().\n" )
 PROJECT_ROOT <- Sys.getenv("GLIA_PROJECT_ROOT", unset = normalizePath(".", winslash = "/", mustWork = FALSE))
 RECEPTOR_POSITIVE_PERCENT_THRESHOLD <- 5
 MIN_RECEPTOR_POSITIVE_CELLS <- 10L
@@ -67,10 +66,6 @@ if (length(missing_packages) > 0L) {
 }
 timestamp <- function() {
   format( Sys.time(), "%Y-%m-%d %H:%M:%S" )
-}
-msg <- function(...) {
-  cat( sprintf( "[%s] %s\n", timestamp(), paste0( ..., collapse = "" ) ) )
-  flush.console()
 }
 safe_path <- function(path) {
   normalizePath( path, winslash = "/", mustWork = FALSE )
@@ -266,9 +261,6 @@ resolve_auc_matrix <- function(object) {
 }
 main <- function() {
   start_time <- Sys.time()
-  msg( "==============================================================" )
-  msg( "GSE162610 Step 8D v2 | mechanism closure and QC" )
-  msg( "==============================================================" )
   required_files <- c( ATLAS_RDS_FILE, STEP7A_METADATA_FILE, STEP7C_TARGET_FILE, STEP7C_DECISION_FILE, STEP7D_AUC_FILE, STEP7D_DECISION_FILE, STEP7G_CLOSURE_FILE, STEP7G_DECISION_FILE, STEP8A_MANIFEST_FILE, STEP8A_CANDIDATE_LIGAND_FILE, STEP8A_DECISION_FILE, STEP8C_RECEPTOR_AUDIT_FILE, STEP8C_AXIS_PROGRAM_FILE, STEP8C_AXIS_FILE, STEP8C_DECISION_FILE )
   input_audit <- data.frame( role = c( "Full normalized atlas", "Step7A frozen branch metadata", "Step7C motif-supported targets", "Step7C final decision", "Step7D continuous regulon AUC", "Step7D final decision", "Step7G candidate closure table", "Step7G final decision", "Step8A authoritative CellChat manifest", "Step8A candidate regulon-ligand catalog", "Step8A final decision", "Step8C sample receptor audit", "Step8C axis-program evidence", "Step8C prioritized mechanism axes", "Step8C final decision" ), path = safe_path( required_files ), exists = file.exists( required_files ), size_bytes = ifelse( file.exists( required_files ), file.info( required_files )$size, NA_real_ ), stringsAsFactors = FALSE )
   write_csv_utf8( input_audit, INPUT_AUDIT_FILE )
@@ -296,7 +288,6 @@ main <- function() {
   if ( !decision_pass( step8c_decision, "Overall Step 8C technical" ) ) {
     abort_step( "Step8C technical PASS was not found." )
   }
-  msg( "Applying the strict >=5% receptor-positive threshold..." )
   receptor_audit <- data.table::fread( STEP8C_RECEPTOR_AUDIT_FILE, data.table = FALSE, showProgress = FALSE )
   axis_program_original <- data.table::fread( STEP8C_AXIS_PROGRAM_FILE, data.table = FALSE, showProgress = FALSE )
   axis_original <- data.table::fread( STEP8C_AXIS_FILE, data.table = FALSE, showProgress = FALSE )
@@ -332,7 +323,6 @@ main <- function() {
   strict_axis_level$strict_mechanism_chain <- paste0( strict_axis_level$dominant_branch, " -> ", strict_axis_level$ligand, " -> ", strict_axis_level$receptor, " -> ", strict_axis_level$target, " -> ", ifelse( is.na( strict_axis_level$supported_programs_two_sample_strict ), strict_axis_level$supported_programs_any_strict, strict_axis_level$supported_programs_two_sample_strict ) )
   strict_axis_level <- strict_axis_level[ order( match( strict_axis_level$final_mechanism_tier_strict, c( "MECHANISM_TIER_1_STRICT", "MECHANISM_TIER_2_STRICT", "MECHANISM_TIER_3_STRICT", "COMMUNICATION_ONLY_STRICT" ) ), -strict_axis_level$n_programs_two_sample_strict, -strict_axis_level$top_effect_in_expected_direction_strict ), , drop = FALSE ]
   write_tsv( strict_axis_level, STRICT_MECHANISM_AXES_FILE )
-  msg( "Loading Step7 motif targets, AUC, metadata and normalized expression..." )
   regulon_targets <- data.table::fread( STEP7C_TARGET_FILE, data.table = FALSE, showProgress = FALSE )
   require_columns( regulon_targets, c( "regulon", "TF", "sign", "target", "weight" ), "Step7C regulon-target table" )
   regulon_targets$regulon <- as.character( regulon_targets$regulon )
@@ -379,7 +369,7 @@ main <- function() {
   }
   metadata <- metadata[ metadata_index, , drop = FALSE ]
   if ( !identical( metadata$cell, colnames( auc_matrix ) ) ) {
-    abort_step( "AUC matrix and metadata cell order do not match exactly." )
+    abort_step( "AUC matrix and metadata cell order match exactly." )
   }
   terminal_7dpi <- metadata[ metadata$timepoint_standard == "7dpi" & metadata$step5CR_state %in% FORMAL_7DPI_STATES, , drop = FALSE ]
   observed_arm1 <- sum( terminal_7dpi$step5CR_state == "Arm_1" )
@@ -387,7 +377,6 @@ main <- function() {
   observed_samples <- sort( unique( terminal_7dpi$sample_id ) )
   metadata_source_used <- "Step7A_frozen_metadata_after_standardization"
   if ( observed_arm1 != EXPECTED_7DPI_ARM1_CELLS || observed_arm2 != EXPECTED_7DPI_ARM2_CELLS || length( observed_samples ) != EXPECTED_7DPI_SAMPLES ) {
-    msg( "Step7A timepoint/state labels did not reproduce the frozen 7 dpi ", "branch counts. Falling back to the verified Step8A manifest." )
     step8a_manifest <- readRDS( STEP8A_MANIFEST_FILE )
     if ( !is.list( step8a_manifest ) || !"cell_metadata" %in% names( step8a_manifest ) ) {
       abort_step( "Step8A manifest does not contain cell_metadata." )
@@ -404,7 +393,7 @@ main <- function() {
     }
     metadata <- manifest_metadata[ manifest_index, c( "cell", "sample_id", "timepoint_standard", "step5CR_state" ), drop = FALSE ]
     if ( !identical( metadata$cell, colnames( auc_matrix ) ) ) {
-      abort_step( "AUC matrix and Step8A manifest cell order do not match exactly." )
+      abort_step( "AUC matrix and Step8A manifest cell order match exactly." )
     }
     terminal_7dpi <- metadata[ metadata$timepoint_standard == "7dpi" & metadata$step5CR_state %in% FORMAL_7DPI_STATES, , drop = FALSE ]
     observed_arm1 <- sum( terminal_7dpi$step5CR_state == "Arm_1" )
@@ -417,7 +406,6 @@ main <- function() {
     raw_state_values <- collapse_unique( metadata$step5CR_state )
     abort_step( paste0( "Unexpected 7 dpi terminal branch structure after metadata fallback: ", "Arm_1=", observed_arm1, "; Arm_2=", observed_arm2, "; samples=", length( observed_samples ), "; metadata_source=", metadata_source_used, "; standardized_timepoints=", raw_time_values, "; standardized_states=", raw_state_values, "." ) )
   }
-  msg( "Resolved 7 dpi branch metadata from ", metadata_source_used, ": Arm_1=", observed_arm1, "; Arm_2=", observed_arm2, "; samples=", paste( observed_samples, collapse = " | " ), "." )
   atlas <- readRDS( ATLAS_RDS_FILE )
   if (!inherits(atlas, "Seurat")) {
     abort_step( "The full atlas input is not a Seurat object." )
@@ -615,54 +603,6 @@ main <- function() {
   strict_axis_text <- paste( capture.output( print( strict_axis_level[ , intersect( c( "target", "ligand", "receptor", "interaction_name", "pathway_name", "dominant_branch", "final_mechanism_tier", "final_mechanism_tier_strict", "tier_changed_by_5pct_QC", "minimum_receptor_positive_percent", "supported_programs_two_sample_strict", "strict_mechanism_chain" ), colnames( strict_axis_level ) ), drop = FALSE ], row.names = FALSE ) ), collapse = "\n" )
   closure_text <- paste( capture.output( print( closure_summary[ , intersect( c( "TF", "regulon", "ligand", "motif_supported_direct_target", "target_weight", "n_samples_state_concordant", "n_samples_positive_correlation", "mean_sample_rho", "adjusted_spearman_rho", "regulatory_closure_status", "manuscript_interpretation" ), colnames( closure_summary ) ), drop = FALSE ], row.names = FALSE ) ), collapse = "\n" )
   final_model_text <- paste( capture.output( print( final_model[ , intersect( c( "target", "ligand", "receptor", "dominant_branch", "final_mechanism_tier_strict", "upstream_direct_motif_TFs", "upstream_closure_statuses", "final_model_status", "final_chain" ), colnames( final_model ) ), drop = FALSE ], row.names = FALSE ) ), collapse = "\n" )
-  report_lines <- c( "======================================================================", "GSE162610 | STEP 8D v2 MECHANISM CLOSURE AND QC", "======================================================================", "", paste0( "Generated: ", timestamp() ), paste0( "Technical status: ", if ( technical_pass ) {
-        "PASS"
-      } else {
-        "FAIL"
-      }
-    ), paste0(
-      "Biological closure result: ", biological_closure_status
-    ), paste0(
-      "Elapsed time: ", round( elapsed_minutes, 2 ), " min"
-    ), paste0(
-      "7 dpi branch metadata source: ", metadata_source_used
-    ), "", "PART A | STRICT >=5% RECIPIENT RECEPTOR QC:", paste0(
-      "Strict MECHANISM_TIER_1 axes: ", n_strict_tier1
-    ), paste0(
-      "Strict MECHANISM_TIER_2 axes: ", n_strict_tier2
-    ), paste0(
-      "Axes whose tier changed after strict QC: ", n_changed
-    ), "", strict_axis_text, "", "PART B | Nfkb1/Nfe2l2 -> Tnf/Icam1/Ccl2/Ccl3 CLOSURE:", paste0(
-      "Motif-supported direct TF-ligand edges: ", sum( motif_audit$motif_supported_direct_target ), "/", nrow( motif_audit )
-    ), paste0(
-      "Strong direct two-sample closures: ", n_direct_strong
-    ), "", closure_text, "", "PART C | STRICT FINAL MECHANISM MODEL:", final_model_text, "", "FINAL DECISION:", paste(
-      capture.output( print( final_decision, row.names = FALSE ) ), collapse = "\n"
-    ), "", "INTERPRETATION BOUNDARY:", paste0(
-      "The >=5% threshold is applied separately to every recipient sample. ", "Axes below this threshold are downgraded rather than deleted."
-    ), paste0(
-      "A direct motif-supported edge plus replicated AUC-expression association ", "is still an associative regulatory closure, not perturbational proof."
-    ), paste0(
-      "If Nfkb1 lacks a direct ligand edge, describe it as an Arm_2 state ", "regulator rather than as a proven direct driver of that ligand."
-    ), paste0(
-      "If Nfe2l2 is linked to an inflammatory ligand, do not automatically ", "interpret Nfe2l2 as pro-inflammatory; it may represent stress adaptation ", "coexisting with inflammatory output."
-    ), "", "NEXT ACTION:", paste0(
-      "Use the strict final mechanism model to freeze the GSE162610 discovery ", "signatures and axes. Then begin GSE142849 external long-term DAM/branch ", "validation without rerunning GSE162610 Steps 1-8D."
-    ), "", "KEY OUTPUTS:", "1) reports/Step8D_mechanism_closure_QC_report.txt", "2) tables/03_strict_prioritized_mechanism_axes.tsv", "3) tables/06_focus_TF_ligand_closure_summary.tsv", "4) tables/07_strict_final_mechanism_model.tsv", "5) tables/08_final_decision.csv", "======================================================================"
-  )
-  writeLines( report_lines, con = REPORT_FILE, useBytes = TRUE )
-  msg( "==============================================================" )
-  msg( "STEP 8D MECHANISM CLOSURE AND QC COMPLETE" )
-  msg( "Technical status: ", if ( technical_pass ) {
-      "PASS"
-    } else {
-      "FAIL"
-    }
-  )
-  msg( "Strict Tier1 axes: ", n_strict_tier1 )
-  msg( "Strong direct TF-ligand closures: ", n_direct_strong )
-  msg( "Report: ", safe_path( REPORT_FILE ) )
-  msg( "==============================================================" )
   invisible( result_object )
 }
 tryCatch( main(), error = function(e) {
@@ -670,9 +610,8 @@ tryCatch( main(), error = function(e) {
         NA_character_
       }
     )
-    error_lines <- c( "======================================================================", "GSE162610 | STEP 8D ERROR", "======================================================================", paste0( "Time: ", timestamp() ), paste0( "Message: ", conditionMessage( e ) ), paste0( "Failed call: ", failed_call ), "", "Do not rerun Step1-Step8C.", "Correct only this Step8D file and rerun it.", "======================================================================" )
+    error_lines <- c( "======================================================================", "GSE162610 | STEP 8D ERROR", "======================================================================", paste0( "Time: ", timestamp() ), paste0( "Message: ", conditionMessage( e ) ), paste0( "Failed call: ", failed_call ), "", "rerun Step1-Step8C.", "Correct only this Step8D file and rerun it.", "======================================================================" )
     writeLines( error_lines, con = ERROR_FILE, useBytes = TRUE )
-    cat( paste0( error_lines, collapse = "\n" ), "\n" )
     stop( e )
   }
 )

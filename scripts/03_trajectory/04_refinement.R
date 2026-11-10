@@ -62,9 +62,6 @@ TIME_COLORS <- c( "1 dpi" = "#FC8D62", "3 dpi" = "#8DA0CB", "7 dpi" = "#E78AC3" 
 CLUSTER_COLORS <- c( "0"  = "#4E79A7", "1"  = "#E15759", "2"  = "#59A14F", "4"  = "#B07AA1", "5"  = "#76B7B2", "10" = "#2F4B7C" )
 ROOT_COL <- "#D73027"
 BG_COL <- "#D9D9D9"
-msg <- function(...) {
-  cat( sprintf("[%s] ", format(Sys.time(), "%H:%M:%S")), ..., "\n", sep = "" )
-}
 capture_table <- function(x) {
   paste( capture.output( print( tibble::as_tibble(x), n = Inf, width = Inf ) ), collapse = "\n" )
 }
@@ -141,9 +138,6 @@ add_sheet_safe <- function(wb, name, df) {
   }
   openxlsx::freezePane( wb, sheet = name, firstRow = TRUE )
 }
-msg("====================================================")
-msg("GSE162610 Step 5B-R | injury-response trajectory")
-msg("====================================================")
 if (!file.exists(INPUT_RDS)) {
   stop( paste0( "找不到Step5A-R正式输入：\n", INPUT_RDS ), call. = FALSE )
 }
@@ -175,17 +169,14 @@ DefaultAssay(obj) <- "RNA"
 time_vec <- as.character( obj[[TIME_COL, drop = TRUE]] )
 sample_vec <- as.character( obj[[SAMPLE_COL, drop = TRUE]] )
 cluster_vec <- as.character( obj[[CLUSTER_COL, drop = TRUE]] )
-msg( "Primary injury-response trajectory cells: ", ncol(obj) )
 injury_input_summary <- obj[[]] |> dplyr::count( .data[[TIME_COL]], .data[[CLUSTER_COL]], name = "n_cells" )
 colnames(injury_input_summary)[ colnames(injury_input_summary) == TIME_COL ] <- "timepoint"
 colnames(injury_input_summary)[ colnames(injury_input_summary) == CLUSTER_COL ] <- "cluster"
 time_counts <- tibble::tibble( timepoint = time_vec ) |> dplyr::count( timepoint, name = "n_cells" )
-msg("Cells by injury time:")
 print(time_counts)
 if ( !all( c("1 dpi", "3 dpi", "7 dpi") %in% time_counts$timepoint ) ) {
   stop( "Primary injury trajectory does not contain all 1/3/7 dpi timepoints.", call. = FALSE )
 }
-msg("Building sample-balanced 1 dpi early-activated root...")
 root_candidate_cells <- colnames(obj)[ time_vec == "1 dpi" & cluster_vec %in% EARLY_ROOT_CLUSTERS ]
 root_candidate_tbl <- tibble::tibble( cell = root_candidate_cells, sample = sample_vec[ match( root_candidate_cells, colnames(obj) ) ], cluster = cluster_vec[ match( root_candidate_cells, colnames(obj) ) ] )
 root_samples <- sort( unique( root_candidate_tbl$sample ) )
@@ -193,7 +184,6 @@ if (length(root_samples) < 2) {
   stop( "1 dpi early-activated root candidates contain fewer than two biological samples.", call. = FALSE )
 }
 root_candidate_counts <- root_candidate_tbl |> dplyr::count( sample, cluster, name = "n_cells" )
-msg( "1 dpi root biological samples: ", paste(root_samples, collapse = ", ") )
 harmony <- Seurat::Embeddings( obj_full, reduction = HARMONY_REDUCTION )
 if (ncol(harmony) < max(HARMONY_DIMS)) {
   stop( paste0( HARMONY_REDUCTION, " has fewer than 30 dimensions." ), call. = FALSE )
@@ -229,7 +219,6 @@ cross_list <- lapply( root_samples, function(target_sample) {
 ) |> dplyr::bind_rows()
 root_candidate_tbl <- root_candidate_tbl |> dplyr::left_join( cross_list, by = "cell" ) |> dplyr::group_by(sample) |> dplyr::mutate( consensus_centrality_percentile = 1 - dplyr::percent_rank( distance_to_consensus ), cross_sample_proximity_percentile = 1 - dplyr::percent_rank( nearest_other_sample_max ) ) |> dplyr::ungroup() |> dplyr::mutate( highconf_root = consensus_centrality_percentile >= CENTRALITY_PCT_MIN & cross_sample_proximity_percentile >= CROSS_SAMPLE_PCT_MIN, root_priority = W_CENTRAL * consensus_centrality_percentile + W_CROSS * cross_sample_proximity_percentile )
 highconf_root_counts <- root_candidate_tbl |> dplyr::filter( highconf_root ) |> dplyr::count( sample, name = "n_highconf" ) |> tidyr::complete( sample = root_samples, fill = list( n_highconf = 0 ) )
-msg("High-confidence 1 dpi root candidates:")
 print(highconf_root_counts)
 min_highconf_root <- min( highconf_root_counts$n_highconf )
 if ( min_highconf_root < MIN_ROOT_PER_SAMPLE ) {
@@ -239,9 +228,6 @@ root_n_per_sample <- min( TARGET_ROOT_PER_SAMPLE, min_highconf_root )
 primary_root_tbl <- root_candidate_tbl |> dplyr::filter( highconf_root ) |> dplyr::group_by(sample) |> dplyr::arrange( dplyr::desc(root_priority), .by_group = TRUE ) |> dplyr::mutate( within_sample_rank = dplyr::row_number() ) |> dplyr::filter( within_sample_rank <= root_n_per_sample ) |> dplyr::ungroup()
 primary_root_cells <- primary_root_tbl$cell
 sensitivity_root_cells <- root_candidate_tbl$cell[ root_candidate_tbl$highconf_root ]
-msg( "Primary 1 dpi consensus root cells/sample: ", root_n_per_sample )
-msg( "Primary 1 dpi consensus root total: ", length(primary_root_cells) )
-msg( "Sensitivity root total: ", length(sensitivity_root_cells) )
 formal_umap_full <- Seurat::Embeddings( obj_full, reduction = UMAP_REDUCTION )
 formal_umap <- formal_umap_full[ colnames(obj), 1:2, drop = FALSE ]
 root_plot_df <- tibble::tibble( cell = root_candidate_cells, UMAP_1 = formal_umap_full[ root_candidate_cells, 1 ], UMAP_2 = formal_umap_full[ root_candidate_cells, 2 ] ) |> dplyr::left_join( root_candidate_tbl, by = "cell" ) |> dplyr::mutate( primary_root = cell %in% primary_root_cells )
@@ -252,7 +238,6 @@ names(sample_palette) <- injury_samples
 root_sample_palette <- grDevices::hcl.colors( length(root_samples), palette = "Dark 3" )
 names(root_sample_palette) <- root_samples
 theme5 <- ggplot2::theme_classic( base_size = 11 ) + ggplot2::theme( axis.text = ggplot2::element_text( color = "#222222" ), axis.title = ggplot2::element_text( color = "#222222" ), plot.title = ggplot2::element_text( face = "bold", color = "#111111" ) )
-msg("Creating Fig5BR_01_injury_input_and_root.pdf...")
 p1a <- ggplot2::ggplot( injury_plot_df, ggplot2::aes( UMAP_1, UMAP_2, color = factor(timepoint) ) ) + ggplot2::geom_point( size = 0.45, alpha = 0.60 ) + ggplot2::scale_color_manual( values = TIME_COLORS, name = "True time" ) + ggplot2::labs( title = "Primary injury-response trajectory input", subtitle = "1 dpi early activated -> 3 dpi transition/DAM -> 7 dpi DAM landscape" ) + theme5
 p1b <- ggplot2::ggplot( injury_plot_df, ggplot2::aes( UMAP_1, UMAP_2, color = factor(cluster) ) ) + ggplot2::geom_point( size = 0.45, alpha = 0.60 ) + ggplot2::scale_color_manual( values = CLUSTER_COLORS, name = "Step3A cluster" ) + ggplot2::labs( title = "Step3A states in injury trajectory" ) + theme5
 p1c <- ggplot2::ggplot( root_plot_df, ggplot2::aes( UMAP_1, UMAP_2, color = factor(sample) ) ) + ggplot2::geom_point( size = 0.65, alpha = 0.70 ) + ggplot2::scale_color_manual( values = root_sample_palette, name = "1 dpi sample" ) + ggplot2::geom_point( data = root_plot_df |> dplyr::filter( primary_root ), inherit.aes = FALSE, ggplot2::aes( UMAP_1, UMAP_2 ), color = ROOT_COL, size = 0.95, alpha = 0.95 ) + ggplot2::labs( title = "Sample-balanced 1 dpi consensus root", subtitle = paste0( root_n_per_sample, " cells/sample; red = primary root" ) ) + theme5
@@ -261,7 +246,6 @@ p1d <- ggplot2::ggplot( root_metric_long, ggplot2::aes( x = factor(sample), y = 
 grDevices::pdf( OUT_FIG1, width = 14, height = 10, useDingbats = FALSE )
 print( (p1a | p1b) / (p1c | p1d) + patchwork::plot_annotation( title = "Step 5B-R | Injury-response input and 1 dpi root" ) )
 grDevices::dev.off()
-msg("Building injury-response Monocle3 CDS...")
 counts <- get_counts_matrix(obj)
 if (!identical( colnames(counts), colnames(obj) )) {
   counts <- counts[ , colnames(obj), drop = FALSE ]
@@ -270,9 +254,7 @@ cell_metadata <- obj[[]]
 cell_metadata <- cell_metadata[ colnames(counts), , drop = FALSE ]
 gene_metadata <- data.frame( gene_short_name = rownames(counts), row.names = rownames(counts), stringsAsFactors = FALSE )
 cds <- monocle3::new_cell_data_set( counts, cell_metadata = cell_metadata, gene_metadata = gene_metadata )
-msg("Preprocessing CDS with PCA...")
 cds <- monocle3::preprocess_cds( cds, num_dim = NUM_DIM, method = "PCA" )
-msg( "Importing formal UMAP: ", UMAP_REDUCTION )
 colnames(formal_umap) <- c( "UMAP_1", "UMAP_2" )
 assign_ok <- tryCatch( {
     SingleCellExperiment::reducedDim( cds, "UMAP" ) <- formal_umap
@@ -286,40 +268,29 @@ if (!assign_ok) {
 }
 imported_umap <- SingleCellExperiment::reducedDim( cds, "UMAP" )
 umap_max_abs_diff <- max( abs( imported_umap - formal_umap ), na.rm = TRUE )
-msg( "Formal UMAP import max abs difference: ", signif( umap_max_abs_diff, 4 ) )
 if (umap_max_abs_diff > 1e-8) {
   stop( "Imported Monocle UMAP does not exactly match formal Step3A UMAP.", call. = FALSE )
 }
-msg("Running cluster_cells...")
 cds <- monocle3::cluster_cells( cds, reduction_method = "UMAP", k = MONOCLE_K, cluster_method = "leiden", random_seed = 20260731, verbose = FALSE )
 mono_cluster <- get_clusters_safe(cds)
 mono_partition <- get_partitions_safe(cds)
 colData(cds)$monocle3_cluster <- as.character(mono_cluster)
 colData(cds)$monocle3_partition <- as.character(mono_partition)
-msg( "Monocle3 partitions: ", length( unique( mono_partition ) ) )
-msg("Learning principal graph independently...")
 cds <- monocle3::learn_graph( cds, use_partition = FALSE, close_loop = LEARN_GRAPH_CLOSE_LOOP, learn_graph_control = list( euclidean_distance_ratio = LEARN_GRAPH_EUCLIDEAN_DISTANCE_RATIO ) )
 pg <- monocle3::principal_graph( cds )[["UMAP"]]
 if (is.null(pg)) {
   stop( "Monocle3 principal graph was not generated.", call. = FALSE )
 }
 graph_components <- igraph::components(pg)$no
-msg( "Principal graph vertices: ", igraph::vcount(pg) )
-msg( "Principal graph edges: ", igraph::ecount(pg) )
-msg( "Principal graph connected components: ", graph_components )
-msg("Ordering cells using primary 1 dpi consensus root...")
 cds <- monocle3::order_cells( cds, reduction_method = "UMAP", root_cells = primary_root_cells )
 pt_primary <- get_pseudotime_safe( cds )
 pt_primary <- pt_primary[ colnames(cds) ]
 finite_fraction <- mean( is.finite( pt_primary ) )
-msg( "Finite primary pseudotime fraction: ", round( 100 * finite_fraction, 2 ), "%" )
-msg("Running broad-root sensitivity on the SAME graph...")
 cds_sens <- monocle3::order_cells( cds, reduction_method = "UMAP", root_cells = sensitivity_root_cells )
 pt_sens <- get_pseudotime_safe( cds_sens )
 pt_sens <- pt_sens[ colnames(cds_sens) ]
 both_finite <- ( is.finite(pt_primary) & is.finite(pt_sens) )
 root_sensitivity_spearman <- suppressWarnings( stats::cor( pt_primary[both_finite], pt_sens[both_finite], method = "spearman" ) )
-msg( "Primary vs sensitivity pseudotime Spearman: ", round( root_sensitivity_spearman, 4 ) )
 colData(cds)$pseudotime_primary <- as.numeric( pt_primary )
 colData(cds)$pseudotime_sensitivity <- as.numeric( pt_sens )
 cell_df <- tibble::tibble( cell = colnames(cds), timepoint = as.character( colData(cds)[[TIME_COL]] ), sample = as.character( colData(cds)[[SAMPLE_COL]] ), cluster = as.character( colData(cds)[[CLUSTER_COL]] ), shared_transition_3dpi_highconf = as.logical( colData(cds)$shared_transition_3dpi_highconf ), transition_status = as.character( colData(cds)$transition_status ), repair_candidate_score = as.numeric( colData(cds)[[REPAIR_SCORE_COL]] ), scar_candidate_score = as.numeric( colData(cds)[[SCAR_SCORE_COL]] ), primary_root = colnames(cds) %in% primary_root_cells, sensitivity_root = colnames(cds) %in% sensitivity_root_cells, pseudotime = as.numeric( pt_primary ), pseudotime_sensitivity = as.numeric( pt_sens ), monocle3_cluster = as.character( mono_cluster ), monocle3_partition = as.character( mono_partition ) )
@@ -336,7 +307,6 @@ sample_pt_summary <- cell_df |> dplyr::filter( is.finite( pseudotime ) ) |> dply
 sample_level_time_spearman <- suppressWarnings( stats::cor( sample_pt_summary$true_day, sample_pt_summary$median_pseudotime, method = "spearman" ) )
 reference_df <- cell_df |> dplyr::mutate( reference_state = dplyr::case_when( primary_root ~ "1dpi_consensus_root", timepoint == "1 dpi" & cluster %in% EARLY_ROOT_CLUSTERS ~ "1dpi_early_activated", timepoint == "3 dpi" & shared_transition_3dpi_highconf ~ "3dpi_shared_transition", timepoint == "7 dpi" & cluster == "1" & transition_status == "Mature_DAM_like" ~ "7dpi_established_DAM", TRUE ~ "Other" ) )
 reference_summary <- reference_df |> dplyr::filter( reference_state != "Other", is.finite( pseudotime ) ) |> dplyr::group_by( reference_state ) |> dplyr::summarise( n_cells = dplyr::n(), pseudotime_mean = mean( pseudotime ), pseudotime_median = median( pseudotime ), pseudotime_q25 = stats::quantile( pseudotime, 0.25 ), pseudotime_q75 = stats::quantile( pseudotime, 0.75 ), .groups = "drop" )
-msg("Auditing injury principal-graph topology...")
 closest_vertex <- get_closest_vertex( cds, pg )
 closest_vertex <- closest_vertex[ cell_df$cell ]
 cell_df$principal_vertex <- as.character( closest_vertex[ cell_df$cell ] )
@@ -345,15 +315,11 @@ if (nrow(root_vertex_counts) == 0) {
   stop( "Primary root cells could not be mapped to principal graph vertices.", call. = FALSE )
 }
 ROOT_ANCHOR_VERTEX <- root_vertex_counts$principal_vertex[1]
-msg( "Root cells map to ", nrow(root_vertex_counts), " principal vertices." )
-msg( "Objective root-anchor principal vertex: ", ROOT_ANCHOR_VERTEX, " (", root_vertex_counts$n_root_cells[1], " primary-root cells)" )
 degree_vec <- igraph::degree( pg )
 branch_vertices <- names( degree_vec[ degree_vec >= 3 ] )
 leaf_vertices <- names( degree_vec[ degree_vec == 1 ] )
 root_dist <- igraph::distances( pg, v = ROOT_ANCHOR_VERTEX, to = igraph::V(pg) )
 graph_vertex_table <- tibble::tibble( vertex = names( degree_vec ), degree = as.integer( degree_vec ), is_root_anchor = names(degree_vec) == ROOT_ANCHOR_VERTEX, is_branch = names(degree_vec) %in% branch_vertices, is_leaf = names(degree_vec) %in% leaf_vertices, graph_distance_from_root = as.numeric( root_dist[ 1, names(degree_vec) ] ) )
-msg( "Branch vertices: ", length( branch_vertices ) )
-msg( "Leaf vertices: ", length( leaf_vertices ) )
 branchpoint_rows <- list()
 branch_component_cache <- list()
 if (length(branch_vertices) > 0) {
@@ -387,9 +353,7 @@ branchpoint_summary <- if ( length(branchpoint_rows) > 0 ) {
 primary_branchpoint <- NA_character_
 if ( nrow(branchpoint_summary) > 0 && any( branchpoint_summary$candidate_bifurcation, na.rm = TRUE ) ) {
   primary_branchpoint <- branchpoint_summary$branch_vertex[ which( branchpoint_summary$candidate_bifurcation )[1] ]
-  msg( "Objective injury-response bifurcation candidate: ", primary_branchpoint )
 } else {
-  msg( "No branch point satisfied the predefined two-major-7dpi-arm criterion." )
 }
 cell_df$branch_arm <- NA_character_
 cell_df$major_late_arm <- FALSE
@@ -440,7 +404,6 @@ obj_full$step5BR_principal_vertex[ idx_full ] <- cell_df$principal_vertex
 obj_full$step5BR_branch_arm[ idx_full ] <- cell_df$branch_arm
 obj_full$step5BR_major_late_arm[ idx_full ] <- cell_df$major_late_arm
 obj_full$step5BR_primary_branchpoint <- ifelse( is.na( primary_branchpoint ), NA_character_, primary_branchpoint )
-msg("Creating Fig5BR_02_Monocle3_injury_pseudotime.pdf...")
 p2a <- monocle3::plot_cells( cds, reduction_method = "UMAP", color_cells_by = TIME_COL, show_trajectory_graph = TRUE, label_cell_groups = FALSE, label_leaves = TRUE, label_branch_points = TRUE, graph_label_size = 3, cell_size = 0.45 ) + ggplot2::scale_color_manual( values = TIME_COLORS ) + ggplot2::ggtitle( "Injury-response principal graph by true time" )
 p2b <- monocle3::plot_cells( cds, reduction_method = "UMAP", color_cells_by = "pseudotime", show_trajectory_graph = TRUE, label_cell_groups = FALSE, label_leaves = TRUE, label_branch_points = TRUE, graph_label_size = 3, cell_size = 0.45 ) + ggplot2::ggtitle( "Primary injury-response pseudotime" )
 pt_violin_df <- cell_df |> dplyr::filter( is.finite( pseudotime ) ) |> dplyr::mutate( timepoint = factor( timepoint, levels = injury_time_levels, ordered = TRUE ) )
@@ -451,7 +414,6 @@ p2d <- ggplot2::ggplot( reference_plot_df, ggplot2::aes( x = reference_state, y 
 grDevices::pdf( OUT_FIG2, width = 14, height = 10, useDingbats = FALSE )
 print( (p2a | p2b) / (p2c | p2d) + patchwork::plot_annotation( title = "Step 5B-R | Injury-response Monocle3 pseudotime" ) )
 grDevices::dev.off()
-msg("Creating Fig5BR_03_branchpoint_and_arms.pdf...")
 if (!is.na(primary_branchpoint)) {
   colData(cds)$branch_arm_display <- ifelse( is.na( cell_df$branch_arm ), "Unassigned", cell_df$branch_arm )
   p3a <- monocle3::plot_cells( cds, reduction_method = "UMAP", color_cells_by = "branch_arm_display", show_trajectory_graph = TRUE, label_cell_groups = FALSE, label_leaves = TRUE, label_branch_points = TRUE, graph_label_size = 3, cell_size = 0.45 ) + ggplot2::ggtitle( paste0( "Objective downstream arms from ", primary_branchpoint ) )
@@ -475,7 +437,6 @@ if (nrow(branchpoint_summary) > 0) {
 grDevices::pdf( OUT_FIG3, width = 14, height = 10, useDingbats = FALSE )
 print( (p3a | p3b) / (p3c | p3d) + patchwork::plot_annotation( title = "Step 5B-R | Injury-response branch-point discovery" ) )
 grDevices::dev.off()
-msg("Creating Fig5BR_04_posthoc_repair_scar_projection.pdf...")
 p4a <- monocle3::plot_cells( cds, reduction_method = "UMAP", color_cells_by = REPAIR_SCORE_COL, show_trajectory_graph = TRUE, label_cell_groups = FALSE, label_leaves = FALSE, label_branch_points = TRUE, graph_label_size = 3, cell_size = 0.45 ) + ggplot2::ggtitle( "Post-hoc repair-related candidate program" )
 p4b <- monocle3::plot_cells( cds, reduction_method = "UMAP", color_cells_by = SCAR_SCORE_COL, show_trajectory_graph = TRUE, label_cell_groups = FALSE, label_leaves = FALSE, label_branch_points = TRUE, graph_label_size = 3, cell_size = 0.45 ) + ggplot2::ggtitle( "Post-hoc scar-related candidate program" )
 colData(cds)$repair_minus_scar <- cell_df$repair_minus_scar
@@ -489,7 +450,6 @@ if ( !is.na( primary_branchpoint ) && nrow( branch_program_sample_summary ) > 0 
 grDevices::pdf( OUT_FIG4, width = 14, height = 10, useDingbats = FALSE )
 print( (p4a | p4b) / (p4c | p4d) + patchwork::plot_annotation( title = "Step 5B-R | Step4 programs projected after injury-graph learning" ) )
 grDevices::dev.off()
-msg("Creating Fig5BR_05_root_sensitivity.pdf...")
 sens_df <- cell_df |> dplyr::filter( is.finite( pseudotime ), is.finite( pseudotime_sensitivity ) )
 p5a <- ggplot2::ggplot( sens_df, ggplot2::aes( x = pseudotime, y = pseudotime_sensitivity ) ) + ggplot2::geom_point( size = 0.45, alpha = 0.30 ) + ggplot2::labs( title = "Primary versus broad-root injury pseudotime", subtitle = paste0( "Spearman = ", round( root_sensitivity_spearman, 4 ) ), x = "Primary pseudotime", y = "Sensitivity pseudotime" ) + theme5
 sens_time <- sens_df |> dplyr::group_by( timepoint ) |> dplyr::summarise( primary_median = median( pseudotime ), sensitivity_median = median( pseudotime_sensitivity ), .groups = "drop" ) |> tidyr::pivot_longer( cols = c( primary_median, sensitivity_median ), names_to = "root_definition", values_to = "median_pseudotime" ) |> dplyr::mutate( timepoint = factor( timepoint, levels = injury_time_levels, ordered = TRUE ), root_definition = dplyr::recode( root_definition, primary_median = "Primary balanced 1 dpi root", sensitivity_median = "Broad high-confidence 1 dpi root" ) )
@@ -501,7 +461,6 @@ p5d <- ggplot2::ggplot( normalized_diff, ggplot2::aes( x = scaled_difference ) )
 grDevices::pdf( OUT_FIG5, width = 14, height = 10, useDingbats = FALSE )
 print( (p5a | p5b) / (p5c | p5d) + patchwork::plot_annotation( title = "Step 5B-R | Injury-root sensitivity" ) )
 grDevices::dev.off()
-msg("Writing Table5BR_injury_trajectory_results.xlsx...")
 parameter_tbl <- tibble::tibble( parameter = c( "Primary injury trajectory cells", "1 dpi early-root clusters", "3 dpi inclusion rule", "7 dpi DAM clusters", "1 dpi root samples", "Primary root cells/sample", "Primary root total", "Sensitivity root total", "Formal UMAP", "Formal Harmony", "Principal graph vertices", "Principal graph edges", "Principal graph connected components", "Finite pseudotime fraction", "Cell-level true-time Spearman", "Sample-level true-time Spearman", "True-time medians monotonic", "Root sensitivity Spearman", "Root principal vertices", "Root anchor vertex", "Branch vertices", "Leaf vertices", "Objective primary branchpoint" ), value = c( ncol(obj), paste( EARLY_ROOT_CLUSTERS, collapse = ";" ), "cluster 0/1/4 OR shared_transition_3dpi_highconf", paste( DAM_CLUSTERS, collapse = ";" ), paste( root_samples, collapse = ";" ), root_n_per_sample, length( primary_root_cells ), length( sensitivity_root_cells ), UMAP_REDUCTION, paste0( HARMONY_REDUCTION, " dims 1:30" ), igraph::vcount(pg), igraph::ecount(pg), graph_components, finite_fraction, cell_level_time_spearman, sample_level_time_spearman, time_monotonic, root_sensitivity_spearman, nrow( root_vertex_counts ), ROOT_ANCHOR_VERTEX, length( branch_vertices ), length( leaf_vertices ), ifelse( is.na( primary_branchpoint ), "None", primary_branchpoint ) ) )
 wb <- openxlsx::createWorkbook()
 add_sheet_safe( wb, "Parameters", parameter_tbl )
@@ -524,44 +483,4 @@ add_sheet_safe( wb, "Cell_results", cell_df )
 openxlsx::saveWorkbook( wb, OUT_XLSX, overwrite = TRUE )
 saveRDS( cds, OUT_CDS, compress = TRUE )
 saveRDS( obj_full, OUT_RDS, compress = TRUE )
-msg("Writing Step5BR_report.txt...")
-report_lines <- c( "======================================================================", "GSE162610 | STEP 5B-R REPORT", "Injury-response Monocle3 trajectory refinement", "======================================================================", "", "RATIONALE:", "The full Uninjured-to-7dpi trajectory was technically stable but failed", "true-time validation. Step5B-R therefore tests only the post-injury process:", "1 dpi early activated -> 3 dpi shared transition/DAM -> 7 dpi DAM landscape.", "", "ANTI-CIRCULARITY:", "Step4 repair/scar scores were NOT used to select injury cells, select root", "cells, learn the graph, rank branch points, or assign graph arms.", "", "-------------------------- INJURY INPUT -------------------------------", paste0( "Primary injury trajectory cells: ", ncol(obj) ), "", "Cells by injury time:", capture_table( time_counts ), "", "--------------------------- 1 dpi ROOT -------------------------------", paste0( "Root clusters: ", paste( EARLY_ROOT_CLUSTERS, collapse = ", " ) ), paste0( "Root biological samples: ", paste( root_samples, collapse = ", " ) ), paste0( "Primary root cells/sample: ", root_n_per_sample ), paste0( "Primary root total: ", length( primary_root_cells ) ), paste0( "Sensitivity root total: ", length( sensitivity_root_cells ) ), "", "High-confidence root counts:", capture_table( highconf_root_counts ), "", "----------------------- MONOCLE3 GRAPH -------------------------------", paste0( "Partitions: ", length( unique( mono_partition ) ) ), paste0( "Graph vertices: ", igraph::vcount(pg) ), paste0( "Graph edges: ", igraph::ecount(pg) ), paste0( "Connected components: ", graph_components ), paste0( "Root principal vertices: ", nrow( root_vertex_counts ) ), paste0( "Objective root-anchor vertex: ", ROOT_ANCHOR_VERTEX ), paste0( "Branch vertices: ", length( branch_vertices ) ), paste0( "Leaf vertices: ", length( leaf_vertices ) ), "", "----------------------- TRUE-TIME VALIDATION --------------------------", paste0( "Finite pseudotime fraction: ", round( 100 * finite_fraction, 2 ), "%" ), paste0( "Cell-level true-time/pseudotime Spearman: ", round( cell_level_time_spearman, 4 ) ), paste0( "Sample-level true-time/median-pseudotime Spearman: ", round( sample_level_time_spearman, 4 ) ), paste0( "1 -> 3 -> 7 dpi medians strictly monotonic: ", time_monotonic ), "", "Pseudotime by injury time:", capture_table( time_summary ), "", "Formal biological references:", capture_table( reference_summary ), "", "------------------------ ROOT SENSITIVITY -----------------------------", paste0( "Primary-vs-broad-root pseudotime Spearman: ", round( root_sensitivity_spearman, 4 ) ), "", "----------------------- BRANCH-POINT AUDIT -----------------------------", paste0( "Objective primary branchpoint: ", ifelse( is.na( primary_branchpoint ), "None satisfying predefined two-major-7dpi-arm criterion", primary_branchpoint ) ), "", if ( nrow( branchpoint_summary ) > 0 ) {
-    paste0( "Branch-point ranking:\n", capture_table( branchpoint_summary ) )
-  } else {
-    "No degree>=3 branch vertices detected."
-  },
-  "", if ( nrow( arm_summary ) > 0 ) {
-    paste0( "Downstream arm summary:\n", capture_table( arm_summary ) )
-  } else {
-    "No downstream arms were formally assigned."
-  },
-  "", "------------------- POST-HOC STEP4 PROGRAMS ----------------------------", if ( nrow( branch_program_summary ) > 0 ) {
-    capture_table( branch_program_summary )
-  } else {
-    "No arm-level program comparison because no objective bifurcation was assigned."
-  },
-  "", "--------------------------- DECISION RULE ------------------------------", "Step5B-R can support the post-injury bifurcation model only if:", "  1. primary pseudotime broadly follows 1 dpi -> 3 dpi -> 7 dpi;", "  2. the ordering is robust to the broader 1 dpi root;", "  3. shared 3 dpi transition cells lie before/around a principal branchpoint;", "  4. that branchpoint has >=2 substantial downstream arms with 7 dpi cells;", "  5. only after topology is established do the Step4 repair/scar programs", "     show different biases across the terminal arms.", "", "If criteria 1-4 fail, do NOT force repair/scar fate branches.", "", "Formal outputs:", paste0("  ", OUT_FIG1), paste0("  ", OUT_FIG2), paste0("  ", OUT_FIG3), paste0("  ", OUT_FIG4), paste0("  ", OUT_FIG5), paste0("  ", OUT_XLSX), paste0("  ", OUT_CDS), paste0("  ", OUT_RDS), paste0("  ", OUT_REP), paste0("  ", OUT_SESS)
-)
-writeLines( report_lines, OUT_REP, useBytes = TRUE )
 writeLines( capture.output( sessionInfo() ), OUT_SESS, useBytes = TRUE )
-msg("====================================================")
-msg("STEP 5B-R COMPLETE")
-msg("====================================================")
-msg( "Injury trajectory cells: ", ncol(obj) )
-msg( "Primary root total: ", length( primary_root_cells ) )
-msg( "Finite pseudotime: ", round( 100 * finite_fraction, 2 ), "%" )
-msg( "Cell-level true-time Spearman: ", round( cell_level_time_spearman, 4 ) )
-msg( "Sample-level true-time Spearman: ", round( sample_level_time_spearman, 4 ) )
-msg( "1->3->7 dpi medians monotonic: ", time_monotonic )
-msg( "Primary vs sensitivity root Spearman: ", round( root_sensitivity_spearman, 4 ) )
-msg( "Objective branchpoint: ", ifelse( is.na( primary_branchpoint ), "NONE", primary_branchpoint ) )
-msg("")
-msg("Key outputs:")
-msg("  1) Fig5BR_01_injury_input_and_root.pdf")
-msg("  2) Fig5BR_02_Monocle3_injury_pseudotime.pdf")
-msg("  3) Fig5BR_03_branchpoint_and_arms.pdf")
-msg("  4) Fig5BR_04_posthoc_repair_scar_projection.pdf")
-msg("  5) Fig5BR_05_root_sensitivity.pdf")
-msg("  6) Step5BR_report.txt")
-msg("")
-msg("Trajectory refinement status: complete")

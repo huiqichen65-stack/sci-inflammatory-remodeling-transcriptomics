@@ -56,9 +56,6 @@ BG_COL   <- "#D9D9D9"
 REPAIR_COLORS <- c("#F7FBFF", "#6BAED6", "#08306B")
 SCAR_COLORS   <- c("#FFF5F0", "#FB6A4A", "#99000D")
 DIFF_COLORS   <- c("#B2182B", "#F7F7F7", "#2166AC")
-msg <- function(...) {
-  cat( sprintf("[%s] ", format(Sys.time(), "%H:%M:%S")), ..., "\n", sep = "" )
-}
 capture_table <- function(x) {
   paste( capture.output( print( tibble::as_tibble(x), n = Inf, width = Inf ) ), collapse = "\n" )
 }
@@ -144,9 +141,6 @@ summarize_branch_vertex <- function( bp, pg, closest_vertex, root_vertices, cell
   near_df <- cell_df |> dplyr::filter( cell %in% near_cells_vec )
   tibble::tibble( branch_vertex = bp, degree = igraph::degree(pg, v = bp), root_side_components = length(root_comp_ids), downstream_components = nrow(downstream), downstream_major_arms = nrow(major), min_top2_7dpi_cells = ifelse( length(top2) >= 2, min(top2), 0 ), top2_7dpi_sum = ifelse( length(top2) >= 2, sum(top2), sum(top2) ), near_cells = nrow(near_df), near_3dpi_cells = sum( near_df$timepoint == "3 dpi" ), near_transition_cells = sum( near_df$shared_transition_3dpi_highconf, na.rm = TRUE ), near_transition_fraction = ifelse( nrow(near_df) > 0, mean( near_df$shared_transition_3dpi_highconf, na.rm = TRUE ), NA_real_ ) )
 }
-msg("====================================================")
-msg("GSE162610 Step 5B | Monocle3 fate-bifurcation discovery")
-msg("====================================================")
 if (!file.exists(INPUT_RDS)) {
   stop( paste0( "找不到Step5A-R正式输入：\n", INPUT_RDS ), call. = FALSE )
 }
@@ -165,16 +159,12 @@ if (!UMAP_REDUCTION %in% Seurat::Reductions(obj)) {
 }
 primary_root_cells <- colnames(obj)[ as.logical( obj[[PRIMARY_ROOT_COL, drop = TRUE]] ) ]
 sens_root_cells <- colnames(obj)[ as.logical( obj[[SENS_ROOT_COL, drop = TRUE]] ) ]
-msg( "Trajectory input cells: ", ncol(obj) )
-msg( "Primary frozen root cells: ", length(primary_root_cells) )
-msg( "Broad high-confidence sensitivity root cells: ", length(sens_root_cells) )
 if (length(primary_root_cells) != 72) {
   warning( paste0( "Primary root contains ", length(primary_root_cells), " cells rather than expected 72. ", "The script will continue using the stored frozen root metadata." ) )
 }
 if (length(primary_root_cells) < 30) {
   stop( "Primary root contains <30 cells.", call. = FALSE )
 }
-msg("Building Monocle3 cell_data_set...")
 counts <- get_counts_matrix(obj)
 if (!identical( colnames(counts), colnames(obj) )) {
   counts <- counts[ , colnames(obj), drop = FALSE ]
@@ -183,9 +173,7 @@ cell_metadata <- obj[[]]
 cell_metadata <- cell_metadata[ colnames(counts), , drop = FALSE ]
 gene_metadata <- data.frame( gene_short_name = rownames(counts), row.names = rownames(counts), stringsAsFactors = FALSE )
 cds <- monocle3::new_cell_data_set( counts, cell_metadata = cell_metadata, gene_metadata = gene_metadata )
-msg("Preprocessing CDS with PCA...")
 cds <- monocle3::preprocess_cds( cds, num_dim = NUM_DIM, method = "PCA" )
-msg( "Importing formal Seurat UMAP: ", UMAP_REDUCTION )
 formal_umap <- Seurat::Embeddings( obj, reduction = UMAP_REDUCTION )
 formal_umap <- formal_umap[ colnames(cds), 1:2, drop = FALSE ]
 colnames(formal_umap) <- c( "UMAP_1", "UMAP_2" )
@@ -198,58 +186,46 @@ assign_ok <- tryCatch( {
   }
 )
 if (!assign_ok) {
-  msg( "Direct UMAP assignment failed; initializing Monocle UMAP once and replacing it." )
   cds <- monocle3::reduce_dimension( cds, reduction_method = "UMAP", preprocess_method = "PCA" )
   cds@int_colData$reducedDims$UMAP <- formal_umap
 }
 imported_umap <- SingleCellExperiment::reducedDim( cds, "UMAP" )
 if ( nrow(imported_umap) != nrow(formal_umap) ) {
-  stop( "Imported UMAP dimensions do not match formal Seurat UMAP.", call. = FALSE )
+  stop( "Imported UMAP dimensions match formal Seurat UMAP.", call. = FALSE )
 }
 umap_max_abs_diff <- max( abs( imported_umap - formal_umap ), na.rm = TRUE )
-msg( "Formal UMAP import max absolute difference: ", signif(umap_max_abs_diff, 4) )
 if (umap_max_abs_diff > 1e-8) {
   stop( "Monocle3 UMAP does not exactly match formal Seurat UMAP.", call. = FALSE )
 }
-msg("Running Monocle3 cluster_cells on imported formal UMAP...")
 cds <- monocle3::cluster_cells( cds, reduction_method = "UMAP", k = MONOCLE_K, cluster_method = "leiden", random_seed = 20260731, verbose = FALSE )
 mono_cluster <- get_clusters_safe(cds)
 mono_partition <- get_partitions_safe(cds)
 colData(cds)$monocle3_cluster <- as.character(mono_cluster)
 colData(cds)$monocle3_partition <- as.character(mono_partition)
 partition_summary <- tibble::tibble( cell = colnames(cds), partition = as.character(mono_partition), timepoint = as.character( colData(cds)[[TIME_COL]] ), sample = as.character( colData(cds)[[SAMPLE_COL]] ) ) |> dplyr::count( partition, timepoint, name = "n_cells" )
-msg( "Monocle3 partitions detected: ", length(unique(mono_partition)) )
-msg( "Learning Monocle3 principal graph with use_partition = FALSE..." )
 cds <- monocle3::learn_graph( cds, use_partition = FALSE, close_loop = LEARN_GRAPH_CLOSE_LOOP, learn_graph_control = list( euclidean_distance_ratio = LEARN_GRAPH_EUCLIDEAN_DISTANCE_RATIO ) )
 pg <- monocle3::principal_graph( cds )[["UMAP"]]
 if (is.null(pg)) {
   stop( "Monocle3 principal graph was not generated.", call. = FALSE )
 }
 graph_components <- igraph::components(pg)$no
-msg( "Principal graph vertices: ", igraph::vcount(pg) )
-msg( "Principal graph edges: ", igraph::ecount(pg) )
-msg( "Principal graph connected components: ", graph_components )
 if (graph_components != 1) {
   warning( paste0( "Principal graph has ", graph_components, " connected components. ", "Interpretation requires extra caution." ) )
 }
-msg("Ordering cells using frozen primary consensus root...")
 cds <- monocle3::order_cells( cds, reduction_method = "UMAP", root_cells = primary_root_cells )
 pt_primary <- get_pseudotime_safe(cds)
 pt_primary <- pt_primary[ colnames(cds) ]
 finite_primary <- is.finite(pt_primary)
 finite_fraction <- mean( finite_primary )
-msg( "Finite primary pseudotime fraction: ", round( 100 * finite_fraction, 2 ), "%" )
 if (finite_fraction < 0.90) {
   warning( "Less than 90% of trajectory cells have finite primary pseudotime." )
 }
 colData(cds)$pseudotime_primary <- as.numeric(pt_primary)
-msg("Running broad-root sensitivity ordering on the SAME graph...")
 cds_sens <- monocle3::order_cells( cds, reduction_method = "UMAP", root_cells = sens_root_cells )
 pt_sens <- get_pseudotime_safe( cds_sens )
 pt_sens <- pt_sens[ colnames(cds_sens) ]
 both_finite <- is.finite(pt_primary) & is.finite(pt_sens)
 pseudotime_root_sensitivity_spearman <- suppressWarnings( stats::cor( pt_primary[both_finite], pt_sens[both_finite], method = "spearman" ) )
-msg( "Primary vs broad-root pseudotime Spearman: ", round( pseudotime_root_sensitivity_spearman, 4 ) )
 colData(cds)$pseudotime_sensitivity <- as.numeric(pt_sens)
 cell_df <- tibble::tibble( cell = colnames(cds), timepoint = as.character( colData(cds)[[TIME_COL]] ), sample = as.character( colData(cds)[[SAMPLE_COL]] ), step3A_cluster = as.character( colData(cds)[[CLUSTER_COL]] ), transition_status = as.character( colData(cds)$transition_status ), shared_transition_3dpi_highconf = as.logical( colData(cds)$shared_transition_3dpi_highconf ), primary_root = cell %in% primary_root_cells, sensitivity_root = cell %in% sens_root_cells, repair_candidate_score = as.numeric( colData(cds)[[REPAIR_SCORE_COL]] ), scar_candidate_score = as.numeric( colData(cds)[[SCAR_SCORE_COL]] ), pseudotime = as.numeric(pt_primary), pseudotime_sensitivity = as.numeric(pt_sens), monocle3_cluster = as.character(mono_cluster), monocle3_partition = as.character(mono_partition) )
 cell_df$repair_minus_scar <- cell_df$repair_candidate_score - cell_df$scar_candidate_score
@@ -264,7 +240,6 @@ sample_level_time_spearman <- suppressWarnings( stats::cor( sample_pt_summary$tr
 cell_df$true_day <- unname( time_days[ cell_df$timepoint ] )
 cell_level_time_spearman <- suppressWarnings( stats::cor( cell_df$true_day[ is.finite( cell_df$pseudotime ) ], cell_df$pseudotime[ is.finite( cell_df$pseudotime ) ], method = "spearman" ) )
 reference_state_summary <- cell_df |> dplyr::mutate( reference_state = dplyr::case_when( primary_root ~ "Balanced_homeostatic_root", timepoint == "1 dpi" & step3A_cluster %in% c("2", "5", "10") ~ "Early_activated_reference", shared_transition_3dpi_highconf ~ "Shared_transition_3dpi", timepoint == "7 dpi" & step3A_cluster == "1" & transition_status == "Mature_DAM_like" ~ "Established_DAM_7dpi", TRUE ~ "Other" ) ) |> dplyr::filter( reference_state != "Other", is.finite(pseudotime) ) |> dplyr::group_by( reference_state ) |> dplyr::summarise( n_cells = dplyr::n(), pseudotime_mean = mean(pseudotime), pseudotime_median = median(pseudotime), pseudotime_q25 = stats::quantile( pseudotime, 0.25 ), pseudotime_q75 = stats::quantile( pseudotime, 0.75 ), .groups = "drop" )
-msg("Auditing principal-graph topology and branch points...")
 closest_vertex <- get_closest_vertex( cds, pg )
 closest_vertex <- closest_vertex[ cell_df$cell ]
 cell_df$principal_vertex <- as.character( closest_vertex[ cell_df$cell ] )
@@ -273,9 +248,6 @@ root_vertices <- unique( root_vertices[ !is.na(root_vertices) ] )
 degree_vec <- igraph::degree( pg )
 branch_vertices <- names( degree_vec[ degree_vec >= 3 ] )
 leaf_vertices <- names( degree_vec[ degree_vec == 1 ] )
-msg( "Root principal vertices: ", length(root_vertices) )
-msg( "Branch-point vertices (degree >=3): ", length(branch_vertices) )
-msg( "Leaf vertices (degree =1): ", length(leaf_vertices) )
 graph_vertex_table <- tibble::tibble( vertex = names(degree_vec), degree = as.integer(degree_vec), is_root_vertex = names(degree_vec) %in% root_vertices, is_branch_vertex = names(degree_vec) %in% branch_vertices, is_leaf_vertex = names(degree_vec) %in% leaf_vertices )
 root_dist_mat <- igraph::distances( pg, v = igraph::V(pg), to = root_vertices )
 root_dist_min <- apply( root_dist_mat, 1, min )
@@ -296,9 +268,7 @@ if (length(branch_vertices) > 0) {
 primary_branchpoint <- NA_character_
 if ( nrow(branchpoint_summary) > 0 && any( branchpoint_summary$candidate_bifurcation, na.rm = TRUE ) ) {
   primary_branchpoint <- branchpoint_summary$branch_vertex[ which( branchpoint_summary$candidate_bifurcation )[1] ]
-  msg( "Primary objective bifurcation candidate: ", primary_branchpoint )
 } else {
-  msg( "No branch point satisfied the predefined two-major-late-arm criterion." )
 }
 arm_summary <- tibble::tibble()
 leaf_summary <- tibble::tibble()
@@ -359,7 +329,6 @@ obj$step5B_principal_vertex[idx_obj] <- cell_df$principal_vertex
 obj$step5B_branch_arm[idx_obj] <- cell_df$branch_arm
 obj$step5B_major_late_arm[idx_obj] <- cell_df$major_late_arm
 obj$step5B_primary_branchpoint <- ifelse( is.na(primary_branchpoint), NA_character_, primary_branchpoint )
-msg("Creating Fig5B_01_Monocle3_graph_topology.pdf...")
 p1a <- monocle3::plot_cells( cds, reduction_method = "UMAP", color_cells_by = TIME_COL, show_trajectory_graph = FALSE, label_cell_groups = FALSE, label_leaves = FALSE, label_branch_points = FALSE, cell_size = 0.5 ) + ggplot2::scale_color_manual( values = TIME_COLORS ) + ggplot2::ggtitle( "True time on formal Step3A UMAP" )
 p1b <- monocle3::plot_cells( cds, reduction_method = "UMAP", color_cells_by = CLUSTER_COL, show_trajectory_graph = FALSE, label_cell_groups = FALSE, label_leaves = FALSE, label_branch_points = FALSE, cell_size = 0.5 ) + ggplot2::scale_color_manual( values = CLUSTER_COLORS ) + ggplot2::ggtitle( "Formal Step3A states" )
 p1c <- monocle3::plot_cells( cds, reduction_method = "UMAP", color_cells_by = "monocle3_partition", show_trajectory_graph = FALSE, label_cell_groups = FALSE, label_leaves = FALSE, label_branch_points = FALSE, cell_size = 0.5 ) + ggplot2::ggtitle( "Monocle3 partitions" )
@@ -367,7 +336,6 @@ p1d <- monocle3::plot_cells( cds, reduction_method = "UMAP", color_cells_by = TI
 grDevices::pdf( OUT_FIG1, width = 14, height = 10, useDingbats = FALSE )
 print( (p1a | p1b) / (p1c | p1d) + patchwork::plot_annotation( title = "Step 5B | Monocle3 graph topology" ) )
 grDevices::dev.off()
-msg("Creating Fig5B_02_primary_pseudotime_validation.pdf...")
 p2a <- monocle3::plot_cells( cds, reduction_method = "UMAP", color_cells_by = "pseudotime", show_trajectory_graph = TRUE, label_cell_groups = FALSE, label_leaves = TRUE, label_branch_points = TRUE, graph_label_size = 3, cell_size = 0.45 ) + ggplot2::ggtitle( "Primary pseudotime | frozen 72-cell consensus root" )
 pt_plot_df <- cell_df |> dplyr::filter( is.finite(pseudotime) ) |> dplyr::mutate( timepoint = factor( timepoint, levels = time_levels, ordered = TRUE ) )
 p2b <- ggplot2::ggplot( pt_plot_df, ggplot2::aes( x = timepoint, y = pseudotime, fill = timepoint ) ) + ggplot2::geom_violin( trim = TRUE, scale = "width", alpha = 0.75, linewidth = 0.25 ) + ggplot2::geom_boxplot( width = 0.12, outlier.shape = NA, fill = "#FFFFFF", linewidth = 0.25 ) + ggplot2::scale_fill_manual( values = TIME_COLORS, guide = "none" ) + ggplot2::labs( title = "Pseudotime versus true time", subtitle = paste0( "Cell-level Spearman = ", round( cell_level_time_spearman, 3 ) ), x = "True time", y = "Primary pseudotime" ) + ggplot2::theme_classic(base_size = 11)
@@ -378,7 +346,6 @@ p2d <- ggplot2::ggplot( ref_cell_plot, ggplot2::aes( x = reference_state, y = ps
 grDevices::pdf( OUT_FIG2, width = 14, height = 10, useDingbats = FALSE )
 print( (p2a | p2b) / (p2c | p2d) + patchwork::plot_annotation( title = "Step 5B | Primary pseudotime validation" ) )
 grDevices::dev.off()
-msg("Creating Fig5B_03_branchpoint_and_arm_assignment.pdf...")
 if (!is.na(primary_branchpoint)) {
   colData(cds)$branch_arm_display <- ifelse( is.na(cell_df$branch_arm), "Unassigned", cell_df$branch_arm )
   p3a <- monocle3::plot_cells( cds, reduction_method = "UMAP", color_cells_by = "branch_arm_display", show_trajectory_graph = TRUE, label_cell_groups = FALSE, label_leaves = TRUE, label_branch_points = TRUE, graph_label_size = 3, cell_size = 0.45 ) + ggplot2::ggtitle( paste0( "Graph arms after objective branch point ", primary_branchpoint ) )
@@ -399,7 +366,6 @@ if (!is.na(primary_branchpoint)) {
 grDevices::pdf( OUT_FIG3, width = 14, height = 10, useDingbats = FALSE )
 print( (p3a | p3b) / (p3c | p3d) + patchwork::plot_annotation( title = "Step 5B | Objective branch-point and arm discovery" ) )
 grDevices::dev.off()
-msg("Creating Fig5B_04_Step4_program_projection.pdf...")
 p4a <- monocle3::plot_cells( cds, reduction_method = "UMAP", color_cells_by = REPAIR_SCORE_COL, show_trajectory_graph = TRUE, label_cell_groups = FALSE, label_leaves = FALSE, label_branch_points = TRUE, graph_label_size = 3, cell_size = 0.45 ) + ggplot2::scale_color_gradientn( colors = REPAIR_COLORS ) + ggplot2::ggtitle( "Post-hoc repair-related candidate program" )
 p4b <- monocle3::plot_cells( cds, reduction_method = "UMAP", color_cells_by = SCAR_SCORE_COL, show_trajectory_graph = TRUE, label_cell_groups = FALSE, label_leaves = FALSE, label_branch_points = TRUE, graph_label_size = 3, cell_size = 0.45 ) + ggplot2::scale_color_gradientn( colors = SCAR_COLORS ) + ggplot2::ggtitle( "Post-hoc scar-related candidate program" )
 colData(cds)$repair_minus_scar <- cell_df$repair_minus_scar
@@ -413,7 +379,6 @@ if ( !is.na(primary_branchpoint) && nrow( branch_program_sample_summary ) > 0 ) 
 grDevices::pdf( OUT_FIG4, width = 14, height = 10, useDingbats = FALSE )
 print( (p4a | p4b) / (p4c | p4d) + patchwork::plot_annotation( title = "Step 5B | Step4 programs projected only after independent graph learning" ) )
 grDevices::dev.off()
-msg("Creating Fig5B_05_root_sensitivity.pdf...")
 sens_df <- cell_df |> dplyr::filter( is.finite(pseudotime), is.finite( pseudotime_sensitivity ) )
 p5a <- ggplot2::ggplot( sens_df, ggplot2::aes( x = pseudotime, y = pseudotime_sensitivity ) ) + ggplot2::geom_point( size = 0.45, alpha = 0.30 ) + ggplot2::labs( title = "Primary vs broad-root pseudotime", subtitle = paste0( "Spearman = ", round( pseudotime_root_sensitivity_spearman, 4 ) ), x = "Primary 72-cell-root pseudotime", y = "Broad high-confidence-root pseudotime" ) + ggplot2::theme_classic(base_size = 11)
 sens_time <- sens_df |> dplyr::group_by( timepoint ) |> dplyr::summarise( primary_median = median(pseudotime), sensitivity_median = median( pseudotime_sensitivity ), .groups = "drop" ) |> tidyr::pivot_longer( cols = c( primary_median, sensitivity_median ), names_to = "root_definition", values_to = "median_pseudotime" ) |> dplyr::mutate( timepoint = factor( timepoint, levels = time_levels, ordered = TRUE ), root_definition = dplyr::recode( root_definition, primary_median = "Primary 72-cell root", sensitivity_median = "Broad high-confidence root" ) )
@@ -425,7 +390,6 @@ p5d <- ggplot2::ggplot( pt_diff, ggplot2::aes( x = scaled_difference ) ) + ggplo
 grDevices::pdf( OUT_FIG5, width = 14, height = 10, useDingbats = FALSE )
 print( (p5a | p5b) / (p5c | p5d) + patchwork::plot_annotation( title = "Step 5B | Root-orientation sensitivity analysis" ) )
 grDevices::dev.off()
-msg("Writing Table5B_Monocle3_trajectory_results.xlsx...")
 parameter_tbl <- tibble::tibble( parameter = c( "Trajectory input cells", "Primary root cells", "Sensitivity root cells", "Formal UMAP", "PCA dimensions", "Monocle k", "learn_graph use_partition", "learn_graph close_loop", "euclidean_distance_ratio", "Principal graph vertices", "Principal graph edges", "Principal graph connected components", "Finite pseudotime fraction", "Cell-level true-time Spearman", "Sample-level true-time Spearman", "True-time median monotonic", "Primary-vs-sensitivity pseudotime Spearman", "Branch vertices", "Leaf vertices", "Primary objective branch point" ), value = c( ncol(obj), length(primary_root_cells), length(sens_root_cells), UMAP_REDUCTION, NUM_DIM, MONOCLE_K, FALSE, LEARN_GRAPH_CLOSE_LOOP, LEARN_GRAPH_EUCLIDEAN_DISTANCE_RATIO, igraph::vcount(pg), igraph::ecount(pg), graph_components, finite_fraction, cell_level_time_spearman, sample_level_time_spearman, time_monotonic, pseudotime_root_sensitivity_spearman, length(branch_vertices), length(leaf_vertices), ifelse( is.na( primary_branchpoint ), "None", primary_branchpoint ) ) )
 root_cells_tbl <- tibble::tibble( cell = primary_root_cells, sample = as.character( colData(cds)[ primary_root_cells, SAMPLE_COL ] ), step3A_cluster = as.character( colData(cds)[ primary_root_cells, CLUSTER_COL ] ), pseudotime = pt_primary[ primary_root_cells ] )
 wb <- openxlsx::createWorkbook()
@@ -454,41 +418,4 @@ add_sheet("Cell_results", cell_df)
 openxlsx::saveWorkbook( wb, OUT_XLSX, overwrite = TRUE )
 saveRDS( cds, OUT_CDS, compress = TRUE )
 saveRDS( obj, OUT_RDS, compress = TRUE )
-msg("Writing Step5B_report.txt...")
-report_lines <- c( "======================================================================", "GSE162610 | STEP 5B REPORT", "Monocle3 trajectory and objective fate-bifurcation discovery", "======================================================================", "", "ANTI-CIRCULARITY:", "Repair/scar candidate scores were NOT used to construct the CDS, learn", "the principal graph, choose the root, rank branch points, or assign arms.", "They were projected only after topology was fixed.", "", "------------------------------- INPUT ---------------------------------", paste0("Input RDS: ", INPUT_RDS), paste0("Trajectory cells: ", ncol(obj)), paste0("Primary frozen root cells: ", length(primary_root_cells)), paste0("Sensitivity root cells: ", length(sens_root_cells)), paste0("Formal UMAP reused: ", UMAP_REDUCTION), "", "-------------------------- PRINCIPAL GRAPH -----------------------------", paste0("Monocle3 partitions detected: ", length(unique(mono_partition))), paste0("Principal graph vertices: ", igraph::vcount(pg)), paste0("Principal graph edges: ", igraph::ecount(pg)), paste0("Principal graph connected components: ", graph_components), paste0("Branch vertices (degree >=3): ", length(branch_vertices)), paste0("Leaf vertices (degree=1): ", length(leaf_vertices)), "", "---------------------- PRIMARY PSEUDOTIME QC --------------------------", paste0( "Finite pseudotime fraction: ", round(100 * finite_fraction, 2), "%" ), paste0( "Cell-level true-time/pseudotime Spearman: ", round(cell_level_time_spearman, 4) ), paste0( "Sample-level true-time/median-pseudotime Spearman: ", round(sample_level_time_spearman, 4) ), paste0( "True-time medians strictly monotonic: ", time_monotonic ), "", "Pseudotime by true time:", capture_table(time_summary), "", "Pseudotime in pre-defined biological references:", capture_table(reference_state_summary), "", "-------------------------- ROOT SENSITIVITY ----------------------------", paste0( "Primary-vs-broad-root pseudotime Spearman: ", round( pseudotime_root_sensitivity_spearman, 4 ) ), "", "----------------------- OBJECTIVE BRANCH AUDIT -------------------------", paste0( "Primary branch point: ", ifelse( is.na(primary_branchpoint), "None satisfying predefined two-major-late-arm criterion", primary_branchpoint ) ), "", if (nrow(branchpoint_summary) > 0) {
-    paste0( "Branch-point ranking:\n", capture_table( branchpoint_summary ) )
-  } else {
-    "No degree>=3 branch vertices detected."
-  },
-  "", if (nrow(arm_summary) > 0) {
-    paste0( "Downstream arm summary:\n", capture_table( arm_summary ) )
-  } else {
-    "No downstream arms were formally assigned."
-  },
-  "", "----------------------- STEP4 PROGRAM PROJECTION -----------------------", "The following is POST-HOC interpretation only.", if (nrow(branch_program_summary) > 0) {
-    capture_table( branch_program_summary )
-  } else {
-    "No branch-level program summary because no objective bifurcation was assigned."
-  },
-  "", "---------------------------- DECISION RULE -----------------------------", "Step 5B can support a fate-bifurcation model only if:", "  1. pseudotime broadly follows true time;", "  2. shared 3 dpi transition cells lie before/around a principal branch point;", "  3. that branch point has >=2 substantial downstream arms with 7 dpi cells;", "  4. the topology is stable to the broader-root sensitivity analysis;", "  5. only AFTER those conditions are met do Step4 program projections show", "     differential repair/scar bias across terminal arms.", "", "If the graph does not satisfy these conditions, do NOT force a two-branch", "repair/scar interpretation.", "", "Formal outputs:", paste0("  ", OUT_FIG1), paste0("  ", OUT_FIG2), paste0("  ", OUT_FIG3), paste0("  ", OUT_FIG4), paste0("  ", OUT_FIG5), paste0("  ", OUT_XLSX), paste0("  ", OUT_CDS), paste0("  ", OUT_RDS), paste0("  ", OUT_REP), paste0("  ", OUT_SESS)
-)
-writeLines( report_lines, OUT_REP, useBytes = TRUE )
 writeLines( capture.output( sessionInfo() ), OUT_SESS, useBytes = TRUE )
-msg("====================================================")
-msg("STEP 5B COMPLETE")
-msg("====================================================")
-msg( "Finite pseudotime: ", round(100 * finite_fraction, 2), "%" )
-msg( "Sample-level true-time Spearman: ", round(sample_level_time_spearman, 4) )
-msg( "Primary vs sensitivity-root pseudotime Spearman: ", round( pseudotime_root_sensitivity_spearman, 4 ) )
-msg( "Principal-graph branch vertices: ", length(branch_vertices) )
-msg( "Objective primary branch point: ", ifelse( is.na(primary_branchpoint), "NONE", primary_branchpoint ) )
-msg("")
-msg("Key outputs:")
-msg("  1) Fig5B_01_Monocle3_graph_topology.pdf")
-msg("  2) Fig5B_02_primary_pseudotime_validation.pdf")
-msg("  3) Fig5B_03_branchpoint_and_arm_assignment.pdf")
-msg("  4) Fig5B_04_Step4_program_projection.pdf")
-msg("  5) Fig5B_05_root_sensitivity.pdf")
-msg("  6) Step5B_report.txt")
-msg("")
-msg("Trajectory status: complete")

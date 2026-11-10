@@ -11,11 +11,6 @@ dir.create(out_dir, recursive = TRUE, showWarnings = FALSE)
 dir.create(fig_dir, recursive = TRUE, showWarnings = FALSE)
 dir.create(tab_dir, recursive = TRUE, showWarnings = FALSE)
 log_file <- file.path(out_dir, "00_run_log.txt")
-log_msg <- function(...) {
-  msg <- paste0(...)
-  cat(msg, "\n")
-  cat( paste0(format(Sys.time(), "%Y-%m-%d %H:%M:%S"), " | ", msg, "\n"), file = log_file, append = TRUE )
-}
 writeLines( paste0("GSE162610 Step 1F started: ", Sys.time()), log_file )
 if (!file.exists(in_rds)) {
   stop("找不到 Step 1E 对象：\n", in_rds)
@@ -32,9 +27,6 @@ suppressPackageStartupMessages({
   library(ggplot2)
   library(patchwork)
 })
-log_msg("============================================================")
-log_msg("Step 1F | Cluster markers + broad lineage annotation audit")
-log_msg("============================================================")
 pbmc <- readRDS(in_rds)
 DefaultAssay(pbmc) <- "RNA"
 required_meta <- c( "sample_id", "timepoint", "cluster_provisional" )
@@ -47,8 +39,6 @@ if (!"umap.harmony" %in% Reductions(pbmc)) {
 pbmc$cluster_provisional <- as.character(pbmc$cluster_provisional)
 Idents(pbmc) <- "cluster_provisional"
 cluster_ids <- sort( unique(as.character(pbmc$cluster_provisional)) )
-log_msg( "Input object: ", nrow(pbmc), " genes x ", ncol(pbmc), " cells" )
-log_msg( "Broad clusters: ", length(cluster_ids), " (resolution 0.4)" )
 if (length(cluster_ids) != 19) {
   warning( "当前 cluster 数不是预期的 19，而是 ", length(cluster_ids) )
 }
@@ -70,13 +60,9 @@ marker_availability <- do.call( rbind, lapply( names(marker_sets_raw), function(
 )
 fwrite( marker_availability, file.path( tab_dir, "00_marker_gene_availability.csv" ) )
 marker_sets <- marker_sets[ vapply(marker_sets, length, integer(1)) >= 2 ]
-log_msg( "Usable lineage programs: ", paste(names(marker_sets), collapse = ", ") )
-log_msg("Running FindAllMarkers for 19 broad clusters ...")
-log_msg("Computation running.")
 t0 <- Sys.time()
 pbmc_markers <- FindAllMarkers( object = pbmc, assay = "RNA", only.pos = TRUE, min.pct = 0.10, logfc.threshold = 0.25, test.use = "wilcox", return.thresh = 0.01, random.seed = 20260730, verbose = TRUE )
 marker_runtime <- as.numeric( difftime( Sys.time(), t0, units = "mins" ) )
-log_msg( "FindAllMarkers finished in ", round(marker_runtime, 2), " min" )
 if (nrow(pbmc_markers) == 0) {
   stop("FindAllMarkers 没有返回任何 marker。")
 }
@@ -155,7 +141,6 @@ ggsave( file.path( fig_dir, "07_cluster_lineage_score_heatmap.pdf" ), p_score_he
 author_annotation_col <- NA_character_
 author_annotation_available <- FALSE
 if (file.exists(step0_meta_file)) {
-  log_msg( "Step 0 confirmed metadata found; checking for author annotation ..." )
   raw_meta <- fread( step0_meta_file, data.table = FALSE )
   if ("barcode" %in% colnames(raw_meta)) {
     original_cols <- grep( "^original_V", colnames(raw_meta), value = TRUE )
@@ -174,7 +159,6 @@ if (file.exists(step0_meta_file)) {
       if ( length(candidate_scores) > 0 && max(candidate_scores, na.rm = TRUE) >= 2 ) {
         author_annotation_col <- names( candidate_scores )[ which.max(candidate_scores) ]
         author_annotation_available <- TRUE
-        log_msg( "Detected probable author annotation column: ", author_annotation_col )
         idx_raw <- match( colnames(pbmc), raw_meta$barcode )
         if (anyNA(idx_raw)) {
           warning( "作者 metadata 有 ", sum(is.na(idx_raw)), " 个 barcode 无法映射。" )
@@ -250,7 +234,7 @@ writeLines( c( "STRICT MICROGLIA CANDIDATES:", if (length(strict_clusters) > 0) 
     } else {
       "[none]"
     },
-    "", "IMPORTANT:", "Do not extract microglia automatically from this file.", "Final selection must be made after reviewing DotPlot, top markers, UMAP, and author annotation."
+    "", "Status:", "extract microglia automatically from this file.", "Final selection must be made after reviewing DotPlot, top markers, UMAP, and author annotation."
   ), file.path(
     tab_dir, "07_candidate_microglia_clusters.txt"
   )
@@ -293,10 +277,3 @@ saveRDS( pbmc, file.path( out_dir, "GSE162610_broad_annotation_audit.rds" ), com
 n_markers <- nrow(pbmc_markers)
 n_strict <- length(strict_clusters)
 n_extended <- length(extended_clusters)
-report <- c( "============================================================", "GSE162610 STEP 1F | BROAD ANNOTATION AUDIT REPORT", "============================================================", paste0("Date: ", Sys.time()), "", paste0("Input cells: ", ncol(pbmc)), paste0("Genes: ", nrow(pbmc)), paste0("Broad clusters (resolution 0.4): ", length(cluster_ids)), paste0("FindAllMarkers rows: ", n_markers), paste0("Marker runtime (min): ", round(marker_runtime, 2)), "", "Broad-lineage suggestion by cluster:", paste0( "  cluster ", broad_suggestion_df$cluster, " -> ", broad_suggestion_df$broad_type_suggestion, " | margin=", round( broad_suggestion_df$score_margin, 3 ), " | ", broad_suggestion_df$suggestion_confidence ), "", paste0( "Probable author annotation available: ", author_annotation_available ), paste0( "Detected author annotation column: ", ifelse( is.na(author_annotation_col), "[none]", author_annotation_col ) ), "", paste0( "Strict microglia candidates: ", n_strict, " | ", ifelse( n_strict > 0, paste(strict_clusters, collapse = ", "), "[none]" ) ), paste0( "Extended myeloid clusters for review: ", n_extended, " | ", ifelse( n_extended > 0, paste(extended_clusters, collapse = ", "), "[none]" ) ), "", "IMPORTANT:", "broad_type_suggestion is algorithm-assisted and is NOT the final manual annotation.", "Microglia must be separated from infiltrating macrophage/monocyte using multiple markers, cluster markers, time distribution, and original annotation if available.", "Activated microglia may downregulate P2ry12/Tmem119, so extended myeloid clusters must also be reviewed.", "", "STEP 1F COMPLETE = TRUE", "", "NEXT AFTER REVIEW:", "Finalize broad annotation and define clean resident-microglia candidate clusters.", "Then proceed to microglia-only re-clustering.", "============================================================" )
-writeLines( report, file.path( out_dir, "12_broad_annotation_report.txt" ) )
-log_msg("Step 1F complete.")
-cat("\n")
-cat(paste(report, collapse = "\n"))
-cat("\n\n")
-cat( "Step 1F 完成。分析完成。\n" )

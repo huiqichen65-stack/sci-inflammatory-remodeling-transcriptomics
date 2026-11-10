@@ -10,11 +10,6 @@ dir.create(out_dir, recursive = TRUE, showWarnings = FALSE)
 dir.create(fig_dir, recursive = TRUE, showWarnings = FALSE)
 dir.create(tab_dir, recursive = TRUE, showWarnings = FALSE)
 log_file <- file.path(out_dir, "00_run_log.txt")
-log_msg <- function(...) {
-  msg <- paste0(...)
-  cat(msg, "\n")
-  cat( paste0(format(Sys.time(), "%Y-%m-%d %H:%M:%S"), " | ", msg, "\n"), file = log_file, append = TRUE )
-}
 writeLines( paste0("GSE162610 Step 1E started: ", Sys.time()), log_file )
 if (!file.exists(in_rds)) {
   stop("找不到 Step 1D 对象：\n", in_rds)
@@ -32,13 +27,8 @@ suppressPackageStartupMessages({
   library(harmony)
   library(clustree)
 })
-log_msg("============================================================")
-log_msg("Step 1E | Harmony + formal UMAP + multi-resolution clustering")
-log_msg("============================================================")
-log_msg("Reading Step 1D object ...")
 pbmc <- readRDS(in_rds)
 DefaultAssay(pbmc) <- "RNA"
-log_msg( "Input object: ", nrow(pbmc), " genes x ", ncol(pbmc), " cells" )
 required_meta <- c( "sample_id", "timepoint" )
 if (!all(required_meta %in% colnames(pbmc@meta.data))) {
   stop( "对象缺少 metadata：", paste( setdiff(required_meta, colnames(pbmc@meta.data)), collapse = ", " ) )
@@ -55,41 +45,28 @@ resolution_seq <- seq( 0.2, 1.2, by = 0.1 )
 provisional_resolution <- 0.4
 parameter_table <- data.frame( parameter = c( "Harmony group", "PCs", "Harmony theta", "Harmony max iterations", "Resolution range", "Provisional resolution" ), value = c( "sample_id", "1:20", as.character(harmony_theta), "20", "0.2 to 1.2 by 0.1", as.character(provisional_resolution) ) )
 fwrite( parameter_table, file.path( tab_dir, "01_step1E_parameters.csv" ) )
-log_msg("Harmony group.by.vars = sample_id")
-log_msg("Harmony PCs = 1:20")
-log_msg("Harmony theta = ", harmony_theta)
-log_msg("timepoint will NOT be corrected.")
-log_msg("Running Harmony ...")
 t0 <- Sys.time()
 pbmc <- RunHarmony( object = pbmc, group.by.vars = "sample_id", reduction.use = "pca", dims.use = pcs_use, theta = harmony_theta, max.iter.harmony = 20, reduction.save = "harmony", plot_convergence = FALSE, verbose = TRUE )
 t_harmony <- Sys.time()
 harmony_minutes <- as.numeric( difftime( t_harmony, t0, units = "mins" ) )
-log_msg( "Harmony finished in ", round(harmony_minutes, 2), " min" )
 if (!"harmony" %in% Reductions(pbmc)) {
   stop("Harmony 未生成 harmony reduction。")
 }
 harmony_dims <- ncol( Embeddings( pbmc, "harmony" ) )
-log_msg( "Harmony dimensions available: ", harmony_dims )
 if (harmony_dims < 20) {
   stop("Harmony 维度少于 20，无法继续使用 PCs 1:20。")
 }
-log_msg("Running formal Harmony UMAP ...")
 pbmc <- RunUMAP( object = pbmc, reduction = "harmony", dims = pcs_use, reduction.name = "umap.harmony", reduction.key = "UMAPHARM_", seed.use = 20260730, verbose = FALSE )
 if (!"umap.harmony" %in% Reductions(pbmc)) {
   stop("正式 Harmony UMAP 未Completed生成。")
 }
-log_msg("Harmony UMAP finished.")
-log_msg("Building Harmony neighbor/SNN graph ...")
 pbmc <- FindNeighbors( object = pbmc, reduction = "harmony", dims = pcs_use, graph.name = c( "harmony_nn", "harmony_snn" ), verbose = FALSE )
 if (!"harmony_snn" %in% names(pbmc@graphs)) {
   stop("harmony_snn graph 未Completed生成。")
 }
-log_msg("Harmony neighbor graph finished.")
-log_msg( "Running clustering resolutions: ", paste(resolution_seq, collapse = ", ") )
 for (res in resolution_seq) {
   pbmc <- FindClusters( object = pbmc, graph.name = "harmony_snn", resolution = res, algorithm = 1, random.seed = 20260730, verbose = FALSE )
 }
-log_msg("Multi-resolution clustering finished.")
 res_cols <- grep( "^harmony_snn_res\\.", colnames(pbmc@meta.data), value = TRUE )
 if (length(res_cols) == 0) {
   stop("没有找到 harmony_snn_res.* 聚类列。")
@@ -112,8 +89,6 @@ if (!provisional_col %in% colnames(pbmc@meta.data)) {
 }
 pbmc$cluster_provisional <- as.character( pbmc@meta.data[[provisional_col]] )
 Idents(pbmc) <- "cluster_provisional"
-log_msg( "Provisional display clustering = ", provisional_col, " | clusters = ", length(unique(pbmc$cluster_provisional)) )
-log_msg("Generating clustree ...")
 p_tree <- clustree( pbmc@meta.data, prefix = "harmony_snn_res." ) + ggtitle( "GSE162610 Harmony clustering stability" )
 ggsave( filename = file.path( fig_dir, "01_clustree_resolution_0.2_to_1.2.pdf" ), plot = p_tree, width = 13, height = 10 )
 p_cluster <- DimPlot( pbmc, reduction = "umap.harmony", group.by = "cluster_provisional", label = TRUE, repel = TRUE, pt.size = 0.08 ) + ggtitle( paste0( "Harmony UMAP - provisional resolution ", provisional_resolution ) )
@@ -182,14 +157,6 @@ umap_ok <- ( "umap.harmony" %in% Reductions(pbmc) )
 resolution_ok <- ( length(res_cols) >= length(resolution_seq) )
 step_pass <- all( all_samples_preserved, all_timepoints_preserved, harmony_ok, umap_ok, resolution_ok )
 runtime_total <- as.numeric( difftime( Sys.time(), t0, units = "mins" ) )
-report <- c( "============================================================", "GSE162610 STEP 1E | HARMONY + MULTI-RESOLUTION CLUSTERING REPORT", "============================================================", paste0("Date: ", Sys.time()), paste0("Total runtime (min): ", round(runtime_total, 2)), paste0("Harmony runtime (min): ", round(harmony_minutes, 2)), "", paste0("Input cells: ", ncol(pbmc)), paste0("Genes: ", nrow(pbmc)), "", "Harmony settings:", "  group.by.vars = sample_id", "  timepoint correction = NO", "  reduction.use = pca", "  dims.use = 1:20", paste0("  theta = ", harmony_theta), "  max.iter.harmony = 20", "", "Formal downstream embedding:", "  UMAP reduction = harmony", "  FindNeighbors reduction = harmony", "  dims = 1:20", "", paste0( "Resolutions calculated: ", paste( cluster_number_table$resolution, collapse = ", " ) ), "", "Cluster number by resolution:", paste0( "  res ", cluster_number_table$resolution, " -> ", cluster_number_table$n_clusters, " clusters" ), "", paste0( "Provisional display resolution: ", provisional_resolution ), paste0( "Provisional number of clusters: ", length(unique(pbmc$cluster_provisional)) ), "", paste0( "All 10 samples preserved: ", all_samples_preserved ), paste0( "All 4 timepoints preserved: ", all_timepoints_preserved ), paste0( "Harmony successful: ", harmony_ok ), paste0( "Harmony UMAP successful: ", umap_ok ), paste0( "All requested resolutions generated: ", resolution_ok ), "", "IMPORTANT:", "Resolution 0.4 is provisional only.", "Do NOT start cell-type annotation until the clustree and pre/post-Harmony plots are reviewed.", "The key acceptance criterion is better replicate mixing without erasing timepoint-associated biology.", "", paste0( "STEP 1E COMPLETE = ", step_pass ), "", "NEXT AFTER REVIEW:", "Step 1F | Choose final broad-clustering resolution and identify cluster markers for major-cell-type annotation.", "============================================================" )
-writeLines( report, file.path( out_dir, "08_STEP1E_Harmony_cluster_report.txt" ) )
-log_msg( "Step 1E complete = ", step_pass )
-cat("\n")
-cat(paste(report, collapse = "\n"))
-cat("\n\n")
 if (step_pass) {
-  cat( "Step 1E 运行完成。分析完成。\n" )
 } else {
-  cat("Step 1E status: REVIEW REQUIRED\n")
 }

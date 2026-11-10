@@ -36,9 +36,6 @@ read_mtx_dims <- function(path) {
   v <- strsplit(trimws(z), "\\s+")[[1]]
   c(n_genes = as.integer(v[1]), n_cells = as.integer(v[2]), n_nonzero = as.double(v[3]))
 }
-cat("============================================================\n")
-cat("Step 0C | GSE162610 metadata 自适应解析\n")
-cat("============================================================\n\n")
 barcodes_df <- read_tab(f_barcodes, header = FALSE)
 genes_df    <- read_tab(f_genes, header = FALSE)
 bmeta_raw   <- read_tab(f_bmeta, header = FALSE)
@@ -46,10 +43,6 @@ gmeta_raw   <- read_tab(f_gmeta, header = FALSE)
 dims        <- read_mtx_dims(f_matrix)
 barcodes <- clean_chr(barcodes_df[[1]])
 barcodes <- barcodes[nzchar(barcodes)]
-cat("Matrix:", dims["n_genes"], "genes x", dims["n_cells"], "cells\n")
-cat("barcodes.tsv:", length(barcodes), "\n")
-cat("barcode metadata raw rows:", nrow(bmeta_raw), "\n")
-cat("gene metadata raw rows:", nrow(gmeta_raw), "\n\n")
 for (j in seq_len(ncol(bmeta_raw))) {
   bmeta_raw[[j]] <- clean_chr(bmeta_raw[[j]])
 }
@@ -66,9 +59,6 @@ if (barcode_overlap_max < 0.95 * length(barcodes)) {
 }
 real_row <- bmeta_raw[[barcode_col_idx]] %in% barcodes
 bmeta <- bmeta_raw[real_row, , drop = FALSE]
-cat("自动识别 barcode 列: V", barcode_col_idx, "\n", sep = "")
-cat("真实 barcode 行:", nrow(bmeta), "\n")
-cat("自动删除 header/非细胞行:", nrow(bmeta_raw) - nrow(bmeta), "\n\n")
 idx <- match(barcodes, bmeta[[barcode_col_idx]])
 if (anyNA(idx)) {
   stop("metadata 中仍有 barcode 缺失，缺失数 = ", sum(is.na(idx)))
@@ -147,17 +137,6 @@ fwrite(manifest, file.path(out_dir, "02_GSE162610_sample_manifest_CONFIRMED.csv"
 fwrite(time_counts, file.path(out_dir, "03_GSE162610_timepoint_counts.csv"))
 detect_info <- data.frame( item = c( "barcode_col", "barcode_overlap", "sample_col", "sample_match_fraction", "time_col_candidate", "time_match_fraction", "time_source", "gene_header_removed" ), value = c( paste0("V", barcode_col_idx), barcode_overlap_max, paste0("V", sample_col_idx), round(sample_scores[sample_col_idx], 6), paste0("V", time_col_idx), round(time_scores[time_col_idx], 6), time_source, gene_header_removed ) )
 fwrite(detect_info, file.path(out_dir, "04_auto_detection_info.csv"))
-report <- c( "============================================================", "GSE162610 STEP 0C CONFIRMED REPORT", "============================================================", paste0("Matrix: ", dims["n_genes"], " genes x ", dims["n_cells"], " cells"), paste0("barcodes.tsv: ", length(barcodes)), paste0("barcode metadata raw rows: ", nrow(bmeta_raw)), paste0("real cell metadata rows after barcode filtering: ", nrow(cell_metadata)), paste0("barcode column: V", barcode_col_idx), paste0("barcode exact overlap: ", barcode_overlap_max, " / ", length(barcodes)), paste0("barcode order identical after reordering: ", barcode_order_ok), paste0("sample column: V", sample_col_idx), paste0("time source: ", time_source), "", "Samples:", paste0("  ", manifest$sample_id, " | ", manifest$timepoint, " | n=", manifest$n_cells), "", "Timepoint totals:", paste0("  ", time_counts$timepoint, " | n=", time_counts$n_cells), "", paste0("All expected 10 samples detected exactly: ", sample_check), paste0("All expected 4 timepoints detected exactly: ", time_check), paste0("All cells have timepoint: ", all(!is.na(cell_metadata$timepoint))), paste0("Gene metadata corrected rows: ", nrow(gmeta_data)), paste0("Gene metadata count matches matrix genes: ", gene_meta_count_ok), "", paste0("STEP 0 FINAL PASS = ", pass), "", if (pass) {
-    "NEXT: Step 1A | Build Seurat object and perform sample-level QC."
-  } else {
-    "STOP: Send this report and 04_auto_detection_info.csv for review."
-  },
-  "============================================================"
-)
-writeLines(report, file.path(out_dir, "05_STEP0_CONFIRMED_report.txt"))
-cat(paste(report, collapse = "\n"))
 if (pass) {
-  cat("\n\nStep 0 status: PASS\n")
 } else {
-  cat("\n\nWarning: Step 0 仍有自动解析项未通过。\n")
 }

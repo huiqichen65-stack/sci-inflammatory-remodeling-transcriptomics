@@ -48,7 +48,6 @@ SESSION_FILE <- file.path(REPORTDIR, "Step7B_sessionInfo.txt")
 if (!requireNamespace("data.table", quietly = TRUE))
   stop("Missing R package: data.table", call. = FALSE)
 ts <- function() format(Sys.time(), "%Y-%m-%d %H:%M:%S")
-msg <- function(...) { cat(sprintf("[%s] %s\n", ts(), paste0(..., collapse = ""))); flush.console() }
 qcmd <- function(x) shQuote(as.character(x), type = "cmd")
 safe <- function(x) normalizePath(x, winslash = "/", mustWork = FALSE)
 fmt_time <- function(s) {
@@ -72,7 +71,6 @@ abort_step <- function(x) {
 }
 run_cmd <- function(command, args, log_file, env = character()) {
   if (file.exists(log_file)) file.remove(log_file)
-  cat(sprintf("[%s] COMMAND\n%s %s\n\n", ts(), safe(command), paste(args, collapse = " ")), file = log_file, append = TRUE)
   env_names <- character(0)
   old_values <- character(0)
   if (length(env) > 0L) {
@@ -93,7 +91,6 @@ run_cmd <- function(command, args, log_file, env = character()) {
   }, add = TRUE)
   st <- Sys.time()
   code <- tryCatch( system2(command, args = args, stdout = log_file, stderr = log_file), error = function(e) {
-      cat(conditionMessage(e), file = log_file, append = TRUE)
       999L
     }
   )
@@ -106,9 +103,6 @@ valid_adj <- function(p) {
   !is.null(h) && all(c("TF","target","importance") %in% names(h))
 }
 start_all <- Sys.time()
-msg("==============================================================")
-msg("GSE162610 Step 7B | GRNBoost2 network inference")
-msg("==============================================================")
 required <- c(MTX_FILE, GENE_FILE, BARCODE_FILE, METADATA_FILE, TF_FILE, FEATHER_FILE)
 if (any(!file.exists(required))) abort_step(paste("Missing files:", paste(required[!file.exists(required)], collapse = "\n")))
 python_candidates <- c( file.path(Sys.getenv("USERPROFILE"), "anaconda3", "envs", CONDA_ENV_NAME, "python.exe"), file.path(Sys.getenv("USERPROFILE"), "miniconda3", "envs", CONDA_ENV_NAME, "python.exe") )
@@ -118,14 +112,10 @@ PYSCENIC_EXE <- file.path(dirname(ENV_PYTHON), "Scripts", "pyscenic.exe")
 if (!file.exists(PYSCENIC_EXE)) abort_step(paste("Cannot find pySCENIC CLI:", PYSCENIC_EXE))
 ENV_PYTHON <- safe(ENV_PYTHON); PYSCENIC_EXE <- safe(PYSCENIC_EXE)
 grn_env <- c(paste0("TEMP=", safe(TMPDIR_GRN)), paste0("TMP=", safe(TMPDIR_GRN)), paste0("TMPDIR=", safe(TMPDIR_GRN)), "PYTHONUTF8=1", "OMP_NUM_THREADS=1", "OPENBLAS_NUM_THREADS=1", "MKL_NUM_THREADS=1")
-msg("Python: ", ENV_PYTHON)
-msg("pySCENIC: ", PYSCENIC_EXE)
-msg("Workers: ", NUM_WORKERS, " | Seed: ", GRN_SEED)
 PREP_PY <- file.path(PYDIR, "35_prepare_GRNBoost2_input.py")
 py <- c( "import sys", "from pathlib import Path", "import numpy as np", "import pandas as pd", "import loompy", "from scipy import sparse", "from scipy.io import mmread", "from ctxcore.rnkdb import FeatherRankingDatabase", "mtx,gf,bf,mf,tf,ff,loom,smoke,smoketf,audit = map(Path, sys.argv[1:11])", "force = sys.argv[11].lower() == 'true'", "eg=int(sys.argv[12]); ec=int(sys.argv[13])", "def onecol(p):", " return [x.strip().split('\\t')[0] for x in p.open(encoding='utf-8-sig') if x.strip()]", "genes=onecol(gf); cells=onecol(bf); tfs=onecol(tf); md=pd.read_csv(mf, low_memory=False)", "req=['cell','step5CR_state','sample_id','timepoint','retained_step5BR_pseudotime','Y29_signed_progress']", "miss=[x for x in req if x not in md.columns]", "assert not miss, f'Missing metadata: {miss}'", "assert len(genes)==eg and len(cells)==ec", "assert len(set(genes))==len(genes) and len(set(cells))==len(cells)", "assert md.shape[0]==len(cells) and md['cell'].astype(str).tolist()==cells", "states=md['step5CR_state'].astype(str).value_counts().to_dict()", "assert states=={'Shared_prebranch':116,'Arm_1':2289,'Arm_2':1798}, states", "x=mmread(str(mtx)); x=sparse.csr_matrix(x, dtype=np.float32)", "assert x.shape==(len(genes),len(cells)) and x.nnz>0", "assert np.all(np.isfinite(x.data)) and np.all(x.data>=0)", "tfset=set(tfs); overlap=[g for g in genes if g in tfset]", "db=FeatherRankingDatabase(fname=str(ff),name='mm10_10kb'); dbg=set(db.genes); dbo=[g for g in genes if g in dbg]", "rebuild=force or not loom.exists()", "if not rebuild:", " try:", " with loompy.connect(str(loom),'r') as ds:", " rebuild=tuple(ds.shape)!=tuple(x.shape) or list(ds.ra.Gene.astype(str))!=genes or list(ds.ca.CellID.astype(str))!=cells", " except Exception:", " rebuild=True", "if rebuild:", " if loom.exists(): loom.unlink()", " ca={'CellID':np.asarray(cells,dtype=object),'BranchState':np.asarray(md['step5CR_state'].astype(str),dtype=object),", " 'SampleID':np.asarray(md['sample_id'].astype(str),dtype=object),'Timepoint':np.asarray(md['timepoint'].astype(str),dtype=object),", " 'Pseudotime':pd.to_numeric(md['retained_step5BR_pseudotime'],errors='coerce').to_numpy(dtype=float),", " 'Y29SignedProgress':pd.to_numeric(md['Y29_signed_progress'],errors='coerce').to_numpy(dtype=float)}", " loompy.create(str(loom),x,{'Gene':np.asarray(genes,dtype=object)},ca)", "# smoke subset: all prebranch + 100 cells from each arm; 1000 variable genes + 60 variable TFs", "idx=[]", "for s,n in [('Shared_prebranch',116),('Arm_1',100),('Arm_2',100)]: idx += np.flatnonzero(md['step5CR_state'].astype(str).to_numpy()==s)[:n].tolist()", "idx=np.asarray(sorted(set(idx)),dtype=int)", "mu=np.asarray(x.mean(axis=1)).ravel(); va=np.maximum(np.asarray(x.power(2).mean(axis=1)).ravel()-mu**2,0)", "top=np.argsort(va)[-1000:]; tfi=np.asarray([i for i,g in enumerate(genes) if g in tfset],dtype=int); stfi=tfi[np.argsort(va[tfi])[-60:]]", "gi=np.asarray(sorted(set(top.tolist()+stfi.tolist())),dtype=int); sx=x[gi,:][:,idx].tocsr(); sg=[genes[i] for i in gi]; sc=[cells[i] for i in idx]; st=[g for g in sg if g in tfset]", "assert len(st)>=20", "if smoke.exists(): smoke.unlink()", "loompy.create(str(smoke),sx,{'Gene':np.asarray(sg,dtype=object)},{'CellID':np.asarray(sc,dtype=object)})", "smoketf.write_text('\\n'.join(st)+'\\n',encoding='utf-8')", "metrics=[('matrix_genes',len(genes)),('matrix_cells',len(cells)),('matrix_nnz',x.nnz),('TF_overlap',len(overlap)),", "('feather_overlap',len(dbo)),('feather_overlap_fraction',len(dbo)/len(genes)),('loom_rebuilt',rebuild),", "('smoke_genes',len(sg)),('smoke_cells',len(sc)),('smoke_TFs',len(st)),", "('state_Shared_prebranch',states['Shared_prebranch']),('state_Arm_1',states['Arm_1']),('state_Arm_2',states['Arm_2'])]", "with audit.open('w',encoding='utf-8') as h:", " h.write('metric\\tvalue\\n')", " [h.write(f'{k}\\t{v}\\n') for k,v in metrics]", "print('STEP7B_PREFLIGHT_PASS'); [print(k,v) for k,v in metrics]" )
 writeLines(py, PREP_PY, useBytes = TRUE)
 prep_log <- file.path(LOGDIR, "01_prepare_sparse_loom_and_preflight.log")
-msg("Preparing and auditing the sparse loom input...")
 prep <- run_cmd(ENV_PYTHON, c(qcmd(PREP_PY), qcmd(MTX_FILE), qcmd(GENE_FILE), qcmd(BARCODE_FILE), qcmd(METADATA_FILE), qcmd(TF_FILE), qcmd(FEATHER_FILE), qcmd(FULL_LOOM), qcmd(SMOKE_LOOM), qcmd(SMOKE_TFS), qcmd(PRECHECK_FILE), tolower(as.character(FORCE_REBUILD_LOOM)), EXPECTED_GENES, EXPECTED_CELLS), prep_log, grn_env)
 if (prep$status != 0L) abort_step(paste("Preflight failed:\n", log_tail(prep_log, 160)))
 pre <- data.table::fread(PRECHECK_FILE, data.table = FALSE)
@@ -133,12 +123,10 @@ pm <- setNames(as.character(pre$value), pre$metric)
 pre_pass <- as.integer(pm['matrix_genes'])==EXPECTED_GENES && as.integer(pm['matrix_cells'])==EXPECTED_CELLS && as.integer(pm['TF_overlap'])>=MIN_TF_OVERLAP && as.numeric(pm['feather_overlap_fraction'])>=MIN_FEATHER_OVERLAP && as.integer(pm['state_Shared_prebranch'])==116L && as.integer(pm['state_Arm_1'])==2289L && as.integer(pm['state_Arm_2'])==1798L
 if (!pre_pass) abort_step("Step 7B preflight thresholds were not met.")
 write_csv(pre, file.path(TABDIR, "01_step7B_preflight_audit.csv"))
-msg("Preflight PASS: ", pm['matrix_genes'], " genes, ", pm['matrix_cells'], " cells, ", pm['TF_overlap'], " TFs.")
 smoke_pass <- TRUE; smoke_edges <- NA_integer_; smoke_tfs_n <- NA_integer_; smoke_elapsed <- NA_real_
 if (RUN_SMOKE_TEST) {
   if (file.exists(SMOKE_ADJ)) file.remove(SMOKE_ADJ)
   smoke_log <- file.path(LOGDIR, "02_GRNBoost2_smoke_test.log")
-  msg("Running a small technical GRNBoost2 smoke test...")
   sr <- run_cmd(PYSCENIC_EXE, c("grn","--num_workers","2","--client_or_address","local","--sparse","--method","grnboost2", "--seed",GRN_SEED,"--cell_id_attribute","CellID","--gene_attribute","Gene","--output",qcmd(SMOKE_ADJ), qcmd(SMOKE_LOOM),qcmd(SMOKE_TFS)), smoke_log, grn_env)
   smoke_elapsed <- sr$elapsed
   if (sr$status==0L && valid_adj(SMOKE_ADJ)) {
@@ -147,7 +135,6 @@ if (RUN_SMOKE_TEST) {
   } else smoke_pass <- FALSE
   write_csv(data.frame(metric=c("status","elapsed_seconds","edges","unique_TFs","pass"), value=c(sr$status,sr$elapsed,smoke_edges,smoke_tfs_n,smoke_pass)), file.path(TABDIR,"02_smoke_test_audit.csv"))
   if (!smoke_pass) abort_step(paste("Smoke test failed; full run was not started.\n",log_tail(smoke_log,160)))
-  msg("Smoke test PASS: ", smoke_edges, " edges, ", smoke_tfs_n, " TFs, ", fmt_time(smoke_elapsed), ".")
 }
 gr_status <- 0L; gr_elapsed <- 0; reused <- FALSE
 if (!FORCE_RERUN_GRN && valid_adj(ADJ_FILE)) {
@@ -155,13 +142,10 @@ if (!FORCE_RERUN_GRN && valid_adj(ADJ_FILE)) {
 } else {
   if (file.exists(ADJ_FILE)) file.remove(ADJ_FILE)
   grn_log <- file.path(LOGDIR, "03_GRNBoost2_full_run.log")
-  msg("Starting full GRNBoost2. External command running.")
-  msg("Progress log: ", safe(grn_log))
   gr <- run_cmd(PYSCENIC_EXE, c("grn","--num_workers",NUM_WORKERS,"--client_or_address","local","--sparse","--method","grnboost2", "--seed",GRN_SEED,"--cell_id_attribute","CellID","--gene_attribute","Gene","--output",qcmd(ADJ_FILE), qcmd(FULL_LOOM),qcmd(TF_FILE)), grn_log, grn_env)
   gr_status <- gr$status; gr_elapsed <- gr$elapsed
   if (gr_status!=0L || !valid_adj(ADJ_FILE)) abort_step(paste("Full GRNBoost2 failed.\n",log_tail(grn_log,220)))
 }
-msg("Auditing the full TF-target network...")
 adj <- data.table::fread(ADJ_FILE, showProgress = TRUE)
 if (!all(c("TF","target","importance") %in% names(adj))) abort_step("Adjacency columns are invalid.")
 adj <- adj[, .(TF=as.character(TF), target=as.character(target), importance=as.numeric(importance))]
@@ -195,13 +179,5 @@ FINAL_STATUS <- if (tail(decision$pass,1)) "PASS" else "FAIL"
 result <- list(step="Step7B",generated_at=ts(),method="GRNBoost2",seed=GRN_SEED,workers=NUM_WORKERS, input_genes=input_genes,input_cells=EXPECTED_CELLS,input_TFs=input_tfs,full_loom=safe(FULL_LOOM), adjacency_file=safe(ADJ_FILE),network_summary=summary,TF_summary=as.data.frame(tf_summary), key_TF_summary=as.data.frame(key),key_TF_top_targets=as.data.frame(key_targets),preflight=pre,decision=decision)
 saveRDS(result,file.path(OUTDIR,"GSE162610_step7B_GRNBoost2_results.rds"),compress=TRUE)
 elapsed_all <- as.numeric(difftime(Sys.time(),start_all,units="secs"))
-report <- c("======================================================================", "GSE162610 | STEP 7B REPORT","GRNBoost2 TF-target co-expression network inference","======================================================================","", paste0("Generated: ",ts()),paste0("Overall Step 7B status: ",FINAL_STATUS),"", "SCOPE:","GRNBoost2 co-expression inference only. No motif pruning, regulon calling, AUCell, RSS/CSI, or fate-driver claim.","", "FROZEN INPUT:",paste0("Cells: ",EXPECTED_CELLS," (Shared_prebranch=116; Arm_1=2,289; Arm_2=1,798)"), paste0("Genes: ",input_genes),paste0("Expressed TFs: ",input_tfs),paste0("Final feather overlap: ",round(100*as.numeric(pm['feather_overlap_fraction']),3),"%"),"", "PARAMETERS:",paste0("Method: GRNBoost2; seed=",GRN_SEED,"; workers=",NUM_WORKERS,"; sparse=TRUE"),"", "TIMING:",paste0("Loom/preflight: ",fmt_time(prep$elapsed)),paste0("Smoke test: ",fmt_time(smoke_elapsed)), paste0("Full GRNBoost2: ",fmt_time(gr_elapsed)),paste0("Total Step7B: ",fmt_time(elapsed_all)),"", "NETWORK SUMMARY:",paste(capture.output(print(summary,row.names=FALSE)),collapse="\n"),"", "FINAL DECISION:",paste(capture.output(print(decision,row.names=FALSE)),collapse="\n"),"", "INTERPRETATION BOUNDARY:","These are regression-based TF-target co-expression associations, not yet direct regulatory relationships or high-confidence regulons.","", "NEXT ACTION:",if (FINAL_STATUS=="PASS") "Proceed to Step 7C motif pruning." else "Do not run motif pruning; review the failed audit domain.","", "KEY OUTPUTS:", "1) reports/Step7B_report.txt","2) tables/03_GRNBoost2_network_summary.csv","3) tables/05_TF_network_summary.tsv", "4) tables/07_key_TF_network_audit.tsv","5) tables/10_final_decision.csv")
-writeLines(report,REPORT_FILE,useBytes=TRUE)
 writeLines(capture.output(sessionInfo()),SESSION_FILE,useBytes=TRUE)
 rm(adj,tf_summary,key,key_targets); gc()
-msg("==============================================================")
-msg("STEP 7B COMPLETE | Status: ",FINAL_STATUS)
-msg("Network: ",n_edges," edges; ",n_tfs," TFs; ",n_targets," targets.")
-msg("Full GRNBoost2 time: ",fmt_time(gr_elapsed)," | Total: ",fmt_time(elapsed_all))
-msg("Report: ",safe(REPORT_FILE))
-msg("Key outputs are listed in the report and tables.")

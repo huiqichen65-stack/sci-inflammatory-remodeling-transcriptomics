@@ -68,13 +68,6 @@ suppressPackageStartupMessages({
   library(BPCells)
 })
 run_log <- character()
-log_message <- function(...) {
-  message_text <- paste0(...)
-  timestamp <- format( Sys.time(), "%Y-%m-%d %H:%M:%S" )
-  line <- paste0( "[", timestamp, "] ", message_text )
-  cat(line, "\n")
-  run_log <<- c(run_log, line)
-}
 write_run_log <- function() {
   writeLines( run_log, RUN_LOG_FILE, useBytes = TRUE )
 }
@@ -309,9 +302,6 @@ add_review <- function( check_id, category, description, observed, required, act
   audit_checks <<- rbind( audit_checks, data.table( check_id = as.character(check_id), category = as.character(category), description = as.character(description), status = "REVIEW", observed = as.character(observed), required = as.character(required), critical = FALSE, action_if_not_pass = as.character( action_if_not_pass ) ), fill = TRUE )
 }
 write_fatal_report <- function(error_message) {
-  report_lines <- c( "============================================================", "GSE234774 Step 12B-FAST BPCells spatial section QC", "============================================================", paste0( "Generated: ", format( Sys.time(), "%Y-%m-%d %H:%M:%S" ) ), paste0( "Output directory: ", OUTPUT_DIR ), "", "FINAL_STATUS: STOP", "", "FATAL ERROR", paste0( "- ", error_message ), "", "BOUNDARIES", "- No RCTD was run.", "- No target-program score was calculated.", "- No normalization, PCA, clustering, or spatial statistics were run.", "", "NEXT ACTION", "- review this report and 00_run_log.txt.", "- Do not delete a valid BPCells cache.", "- Do not proceed to RCTD or target scoring.", "============================================================" )
-  writeLines( report_lines, FINAL_REPORT_OUTPUT, useBytes = TRUE )
-  log_message( "FATAL ERROR: ", error_message )
   write_run_log()
 }
 resolve_hcl_palette <- function( palette_name, fallback = "Viridis") {
@@ -403,12 +393,9 @@ draw_summary_panel <- function( capture_area_id, capture_spot_count, section_ids
 }
 main <- function() {
   workflow_start <- Sys.time()
-  log_message( "============================================================" )
-  log_message( "GSE234774 Step 12B-FAST started." )
-  log_message( "============================================================" )
   required_files <- c( matrix = MATRIX_FILE, barcodes = BARCODE_FILE, features = FEATURE_FILE, metadata = METADATA_FILE, repaired_asset_manifest = REPAIRED_ASSET_MANIFEST_FILE, repaired_report = REPAIRED_STEP12A2_REPORT, prior_section_manifest = PRIOR_SECTION_MANIFEST_FILE )
   input_exists <- file.exists( required_files )
-  add_check( "C01", "input", "All required Step 12B-fast inputs exist.", all(input_exists), paste( paste0( names(required_files), "=", input_exists ), collapse = "; " ), "All required files TRUE", TRUE, paste( "Restore missing local inputs.", "Do not silently download or substitute files." ) )
+  add_check( "C01", "input", "All required Step 12B-fast inputs exist.", all(input_exists), paste( paste0( names(required_files), "=", input_exists ), collapse = "; " ), "All required files TRUE", TRUE, paste( "Restore missing local inputs.", "silently download or substitute files." ) )
   if (!all(input_exists)) {
     stop( "Missing input file(s): ", paste( names(required_files)[ !input_exists ], collapse = ", " ) )
   }
@@ -420,7 +407,7 @@ main <- function() {
     } else {
       "No FINAL_STATUS line"
     },
-    "PASS or PASS_WITH_REVIEW", TRUE, "Do not continue until Step 12A2 is technically complete."
+    "PASS or PASS_WITH_REVIEW", TRUE, "continue until Step 12A2 is technically complete."
   )
   if (!prior_status_ok) {
     stop( "Repaired Step 12A2 status does not permit Step 12B." )
@@ -434,7 +421,6 @@ main <- function() {
   if (!asset_manifest_ok) {
     stop( "Repaired capture-area asset manifest is not complete." )
   }
-  log_message( "[1/6] Reading metadata, barcodes, and features." )
   metadata <- data.table::fread( METADATA_FILE, header = TRUE, data.table = TRUE, showProgress = FALSE )
   setnames( metadata, trimws( names(metadata) ) )
   required_columns_present( metadata, c( "barcode", "id", "slide", "spot", "group", "replicate", "sections", "x", "y", "z", "nCount_Spatial", "nFeature_Spatial" ), "Spatial 2D metadata" )
@@ -461,7 +447,7 @@ main <- function() {
   barcodes <- trimws( as.character(barcodes) )
   features <- read_features( FEATURE_FILE )
   metadata_barcode_order_ok <- nrow(metadata) == length(barcodes) && !anyDuplicated(metadata$barcode) && !anyDuplicated(barcodes) && identical( metadata$barcode, barcodes )
-  add_check( "C04", "metadata", "Metadata barcode order exactly matches the matrix barcode file.", metadata_barcode_order_ok, paste0( "metadata rows=", nrow(metadata), "; barcode rows=", length(barcodes), "; exact order=", identical( metadata$barcode, barcodes ), "; duplicates=", anyDuplicated(barcodes) ), "Exact order and zero duplicated barcodes", TRUE, "Do not import the matrix with misaligned column names." )
+  add_check( "C04", "metadata", "Metadata barcode order exactly matches the matrix barcode file.", metadata_barcode_order_ok, paste0( "metadata rows=", nrow(metadata), "; barcode rows=", length(barcodes), "; exact order=", identical( metadata$barcode, barcodes ), "; duplicates=", anyDuplicated(barcodes) ), "Exact order and zero duplicated barcodes", TRUE, "import the matrix with misaligned column names." )
   if (!metadata_barcode_order_ok) {
     stop( "Metadata and barcode order are not identical." )
   }
@@ -470,9 +456,7 @@ main <- function() {
   if (!metadata_structure_ok) {
     stop( "Spatial metadata structure differs from the repaired audit." )
   }
-  log_message( "[2/6] Preparing the disk-backed BPCells spatial matrix." )
   if ( isTRUE( FORCE_REIMPORT_BPCELLS ) && dir.exists( FULL_BPCELLS_MATRIX_DIR ) ) {
-    log_message( "FORCE_REIMPORT_BPCELLS=TRUE; deleting the existing BPCells directory." )
     unlink( FULL_BPCELLS_MATRIX_DIR, recursive = TRUE, force = TRUE )
   }
   bpcells_import_start <- Sys.time()
@@ -489,10 +473,7 @@ main <- function() {
     full_counts <- existing_matrix
     rm(existing_matrix)
     cache_reused <- TRUE
-    log_message( "Reusing the existing valid BPCells matrix." )
   } else {
-    log_message( "No valid spatial BPCells cache exists. Starting the one-time import." )
-    log_message( "Scanning compressed mtx.gz." )
     imported_matrix <- BPCells::import_matrix_market( mtx_path = MATRIX_FILE, outdir = FULL_BPCELLS_MATRIX_DIR, row_names = features$feature_name_unique, col_names = barcodes, row_major = FALSE, tmpdir = TMP_DIR, load_bytes = BPCELLS_LOAD_BYTES, sort_bytes = BPCELLS_SORT_BYTES )
     rm(imported_matrix)
     invisible(gc())
@@ -500,7 +481,6 @@ main <- function() {
     if ( inherits( full_counts, "error" ) ) {
       stop( "The newly imported BPCells directory cannot be opened: ", conditionMessage(full_counts) )
     }
-    log_message( "Completed the one-time BPCells import." )
   }
   bpcells_import_minutes <- elapsed_minutes( bpcells_import_start )
   bpcells_dimensions_ok <- identical( as.integer( dim(full_counts) ), as.integer( c( nrow(features), length(barcodes) ) ) ) && identical( rownames(full_counts), features$feature_name_unique ) && identical( colnames(full_counts), barcodes )
@@ -517,7 +497,6 @@ main <- function() {
   if (!bpcells_dimensions_ok) {
     stop( "BPCells matrix integrity check failed." )
   }
-  log_message( "[3/6] Computing nCount, nFeature, and percent.mt from BPCells." )
   qc_metric_start <- Sys.time()
   ncount_bpcells <- as.numeric( Matrix::colSums( full_counts ) )
   nfeature_bpcells <- as.numeric( Matrix::colSums( full_counts > 0 ) )
@@ -537,17 +516,16 @@ main <- function() {
   metadata[ , percent.mt := percent_mt ]
   ncount_match <- all( metadata$nCount_Spatial_source == metadata$nCount_Spatial_BPCells )
   nfeature_match <- all( metadata$nFeature_Spatial_source == metadata$nFeature_Spatial_BPCells )
-  add_check( "C07", "QC", "BPCells-derived nCount exactly matches the processed metadata.", ncount_match, paste0( "matching spots=", sum( metadata$nCount_Spatial_source == metadata$nCount_Spatial_BPCells ), "/", nrow(metadata) ), "33,941/33,941 exact matches", TRUE, "Do not use QC metrics if matrix and metadata counts disagree." )
-  add_check( "C08", "QC", "BPCells-derived nFeature exactly matches the processed metadata.", nfeature_match, paste0( "matching spots=", sum( metadata$nFeature_Spatial_source == metadata$nFeature_Spatial_BPCells ), "/", nrow(metadata) ), "33,941/33,941 exact matches", TRUE, "Do not use QC metrics if matrix and metadata feature counts disagree." )
+  add_check( "C07", "QC", "BPCells-derived nCount exactly matches the processed metadata.", ncount_match, paste0( "matching spots=", sum( metadata$nCount_Spatial_source == metadata$nCount_Spatial_BPCells ), "/", nrow(metadata) ), "33,941/33,941 exact matches", TRUE, "use QC metrics if matrix and metadata counts disagree." )
+  add_check( "C08", "QC", "BPCells-derived nFeature exactly matches the processed metadata.", nfeature_match, paste0( "matching spots=", sum( metadata$nFeature_Spatial_source == metadata$nFeature_Spatial_BPCells ), "/", nrow(metadata) ), "33,941/33,941 exact matches", TRUE, "use QC metrics if matrix and metadata feature counts disagree." )
   if ( !ncount_match || !nfeature_match ) {
     stop( "BPCells-derived QC metrics differ from the processed metadata." )
   }
   zero_count_spots <- sum( !is.finite( metadata$nCount_Spatial_BPCells ) | metadata$nCount_Spatial_BPCells <= 0 )
   add_check( "C09", "QC", "No processed spot has zero total counts.", zero_count_spots == 0L, paste0( "zero-count spots=", zero_count_spots ), "Zero", TRUE, "Review matrix integrity before any downstream spatial analysis." )
   if (mitochondrial_gene_count == 0L) {
-    add_review( "R_MT", "QC", "No mitochondrial gene was detected from the feature names.", "percent.mt is unavailable.", "Review feature naming before defining mitochondrial QC.", "Do not infer mitochondrial genes from another dataset." )
+    add_review( "R_MT", "QC", "No mitochondrial gene was detected from the feature names.", "percent.mt is unavailable.", "Review feature naming before defining mitochondrial QC.", "infer mitochondrial genes from another dataset." )
   }
-  log_message( "[4/6] Deriving conservative section-aware QC review flags." )
   section_thresholds <- metadata[ , .( low_count_threshold = robust_lower_threshold( nCount_Spatial_BPCells, ABSOLUTE_MIN_NCOUNT ), low_feature_threshold = robust_lower_threshold( nFeature_Spatial_BPCells, ABSOLUTE_MIN_NFEATURE ), high_mt_threshold = if ( all( is.na(percent.mt) ) ) {
           NA_real_
         } else {
@@ -581,7 +559,6 @@ main <- function() {
   section_qc <- metadata[ , .( capture_area_id = collapse_unique( capture_area_id ), slide_id = collapse_unique( slide ), timepoint = collapse_unique( timepoint ), replicate_index = collapse_unique( replicate_index ), biological_replicate_id = collapse_unique( biological_replicate_id ), injury_condition = collapse_unique( injury_condition ), section_order = collapse_unique( section_order ), z_coordinate = collapse_unique( z ), n_spots = .N, n_zero_count = sum( zero_count_flag ), n_qc_review = sum( qc_review_flag ), qc_review_fraction = mean( qc_review_flag ), n_provisional_pass = sum( qc_provisional_pass ), provisional_pass_fraction = mean( qc_provisional_pass ), nCount_min = min( nCount_Spatial_BPCells ), nCount_q01 = safe_quantile( nCount_Spatial_BPCells, 0.01 ), nCount_median = safe_median( nCount_Spatial_BPCells ), nCount_q99 = safe_quantile( nCount_Spatial_BPCells, 0.99 ), nCount_max = max( nCount_Spatial_BPCells ), nFeature_min = min( nFeature_Spatial_BPCells ), nFeature_q01 = safe_quantile( nFeature_Spatial_BPCells, 0.01 ), nFeature_median = safe_median( nFeature_Spatial_BPCells ), nFeature_q99 = safe_quantile( nFeature_Spatial_BPCells, 0.99 ), nFeature_max = max( nFeature_Spatial_BPCells ), percent_mt_median = safe_median( percent.mt ), percent_mt_q99 = safe_quantile( percent.mt, 0.99 ), low_count_threshold = unique( low_count_threshold ), low_feature_threshold = unique( low_feature_threshold ), high_mt_threshold = unique( high_mt_threshold ) ), by = section_id ]
   section_qc[ , section_stop_flag := n_spots < ABSOLUTE_MIN_SECTION_SPOTS_STOP ]
   section_qc[ , high_review_fraction_flag := qc_review_fraction > SECTION_REVIEW_FLAG_FRACTION ]
-  log_message( "[5/6] Validating capture-area assets and drawing compact QC pages." )
   capture_audit_list <- vector( mode = "list", length = length( EXPECTED_CAPTURE_AREAS ) )
   grDevices::pdf( QC_PDF_OUTPUT, width = 12, height = 8.5, onefile = TRUE, useDingbats = FALSE )
   pdf_open <- TRUE
@@ -594,7 +571,6 @@ main <- function() {
   )
   for ( capture_index in seq_along( EXPECTED_CAPTURE_AREAS ) ) {
     capture_area <- EXPECTED_CAPTURE_AREAS[ capture_index ]
-    log_message( "[", capture_index, "/12] Reviewing ", capture_area, "." )
     current_manifest <- asset_manifest[ capture_area_id == capture_area ]
     if (nrow(current_manifest) != 1L) {
       stop( "Expected one asset-manifest row for ", capture_area, "; observed ", nrow(current_manifest) )
@@ -670,19 +646,18 @@ main <- function() {
   grDevices::dev.off()
   pdf_open <- FALSE
   capture_audit <- rbindlist( capture_audit_list, fill = TRUE )
-  log_message( "[6/6] Writing tables, handoff, checks, and final report." )
   capture_linkage_ok <- nrow(capture_audit) == 12L && all( capture_audit$processed_spots == capture_audit$expected_spots_from_manifest ) && all( capture_audit$section_count == 3L ) && all( capture_audit$processed_position_overlap_fraction == 1 ) && all( capture_audit$processed_in_tissue_overlap_fraction == 1 ) && all( capture_audit$coordinate_bounds_ok ) && all( capture_audit$asset_linkage_status == "PASS" )
-  add_check( "C10", "spatial_asset", "All 12 capture areas have exact image-position-processed-spot linkage.", capture_linkage_ok, paste0( "complete=", sum( capture_audit$asset_linkage_status == "PASS" ), "/", nrow(capture_audit) ), "12/12 complete capture areas", TRUE, "Do not construct final spatial objects until all capture areas link exactly." )
+  add_check( "C10", "spatial_asset", "All 12 capture areas have exact image-position-processed-spot linkage.", capture_linkage_ok, paste0( "complete=", sum( capture_audit$asset_linkage_status == "PASS" ), "/", nrow(capture_audit) ), "12/12 complete capture areas", TRUE, "construct final spatial objects until all capture areas link exactly." )
   all_spots_preserved <- nrow(metadata) == length(barcodes) && !anyDuplicated(metadata$barcode) && sum( capture_audit$processed_spots ) == length(barcodes)
   add_check( "C11", "spot", "All processed spatial barcodes are preserved exactly once.", all_spots_preserved, paste0( "spot rows=", nrow(metadata), "; capture-area sum=", sum( capture_audit$processed_spots ), "; expected=", length(barcodes), "; duplicate index=", anyDuplicated( metadata$barcode ) ), "33,941 unique spots", TRUE, "Resolve missing or duplicated spots before any downstream analysis." )
   section_structure_ok <- nrow(section_qc) == 36L && uniqueN( section_qc$section_id ) == 36L && !any( section_qc$section_stop_flag )
-  add_check( "C12", "section", "All 36 condition-specific sections are retained with sufficient spots.", section_structure_ok, paste0( "sections=", uniqueN( section_qc$section_id ), "; below ", ABSOLUTE_MIN_SECTION_SPOTS_STOP, " spots=", sum( section_qc$section_stop_flag ) ), paste0( "36 sections; each >= ", ABSOLUTE_MIN_SECTION_SPOTS_STOP, " spots" ), TRUE, "Do not perform section-level inference for a missing or extremely small section." )
+  add_check( "C12", "section", "All 36 condition-specific sections are retained with sufficient spots.", section_structure_ok, paste0( "sections=", uniqueN( section_qc$section_id ), "; below ", ABSOLUTE_MIN_SECTION_SPOTS_STOP, " spots=", sum( section_qc$section_stop_flag ) ), paste0( "36 sections; each >= ", ABSOLUTE_MIN_SECTION_SPOTS_STOP, " spots" ), TRUE, "perform section-level inference for a missing or extremely small section." )
   high_review_sections <- section_qc[ high_review_fraction_flag == TRUE ]
   if (nrow(high_review_sections) > 0L) {
-    add_review( "R_QC_SECTION", "QC", "One or more sections exceed the conservative QC-review fraction.", paste0( "sections=", paste( high_review_sections$section_id, collapse = " | " ), "; threshold=", SECTION_REVIEW_FLAG_FRACTION ), "Review the maps and section-level distributions before final filtering.", "Do not automatically delete all review-flagged spots." )
+    add_review( "R_QC_SECTION", "QC", "One or more sections exceed the conservative QC-review fraction.", paste0( "sections=", paste( high_review_sections$section_id, collapse = " | " ), "; threshold=", SECTION_REVIEW_FLAG_FRACTION ), "Review the maps and section-level distributions before final filtering.", "automatically delete all review-flagged spots." )
   }
-  add_review( "R_AGE", "metadata", "Age is not a dedicated processed spatial 2D metadata field.", "Age was not added or inferred.", "Confirm adult cohort status from authoritative source metadata.", "Do not infer age from filenames or from the snRNA cohort." )
-  add_review( "R_SEVERITY_TREATMENT", "metadata", "Severity and treatment are not dedicated processed spatial 2D metadata fields.", "Severity and treatment were not added or inferred.", "Document source-level cohort selection separately.", "Do not manufacture severity or treatment labels." )
+  add_review( "R_AGE", "metadata", "Age is not a dedicated processed spatial 2D metadata field.", "Age was not added or inferred.", "Confirm adult cohort status from authoritative source metadata.", "infer age from filenames or from the snRNA cohort." )
+  add_review( "R_SEVERITY_TREATMENT", "metadata", "Severity and treatment are not dedicated processed spatial 2D metadata fields.", "Severity and treatment were not added or inferred.", "Document source-level cohort selection separately.", "manufacture severity or treatment labels." )
   package_versions <- data.table( item_type = "package", item = c( "R", "BPCells", "data.table", "jsonlite", "png" ), value = c( R.version.string, as.character( utils::packageVersion( "BPCells" ) ), as.character( utils::packageVersion( "data.table" ) ), as.character( utils::packageVersion( "jsonlite" ) ), as.character( utils::packageVersion( "png" ) ) ), note = "Version used in Step 12B-fast" )
   input_file_audit <- data.table( item_type = "input_file", item = names(required_files), value = unname(required_files), note = paste0( "exists=", file.exists( unname(required_files) ) ) )
   bpcells_audit <- data.table( item_type = "BPCells", item = c( "matrix_directory", "cache_mode", "dimensions", "storage_order", "matrix_type", "import_or_open_minutes", "QC_metric_minutes", "directory_size_bytes", "directory_size_readable", "sort_bytes", "load_bytes", "mitochondrial_gene_count" ), value = c( FULL_BPCELLS_MATRIX_DIR, if ( cache_reused ) {
@@ -728,90 +703,15 @@ main <- function() {
   }
   data.table::fwrite( audit_checks, AUDIT_CHECKS_OUTPUT, bom = TRUE )
   total_elapsed_minutes <- elapsed_minutes( workflow_start )
-  report_lines <- c( "============================================================", "GSE234774 Step 12B-FAST BPCells spatial section QC", "============================================================", paste0( "Generated: ", format( Sys.time(), "%Y-%m-%d %H:%M:%S" ) ), paste0( "Project root: ", PROJECT_ROOT ), paste0( "Output directory: ", OUTPUT_DIR ), "", paste0( "FINAL_STATUS: ", final_status ), "", "SCOPE", "- The spatial 2D count matrix was imported/reused as a persistent BPCells disk matrix.", "- Technical QC was calculated without dense conversion.", "- Image, coordinate, scalefactor, capture-area, and section linkage was reviewed.", "- One compact six-panel QC page was generated per capture area.", "- No spot was removed.", "- No 12-object raw Seurat RDS set was created.", "- No normalization, PCA, clustering, RCTD, target scoring, or spatial statistics were run.", "", "BPCells MATRIX", paste0( "- Cache mode: ", if ( cache_reused ) {
-        "reused_existing_cache"
-      } else {
-        "new_cache_created"
-      }
-    ), paste0(
-      "- Matrix dimensions: ", nrow(full_counts), " features x ", ncol(full_counts), " spots"
-    ), paste0(
-      "- Import/open time: ", bpcells_import_minutes, " minutes"
-    ), paste0(
-      "- QC metric time: ", qc_metric_minutes, " minutes"
-    ), paste0(
-      "- Cache size: ", format_bytes( directory_size_bytes( FULL_BPCELLS_MATRIX_DIR ) )
-    ), paste0(
-      "- Cache path: ", FULL_BPCELLS_MATRIX_DIR
-    ), "", "QC CONSISTENCY", paste0(
-      "- nCount exact match with processed metadata: ", sum( metadata$nCount_Spatial_source == metadata$nCount_Spatial_BPCells ), "/", nrow(metadata)
-    ), paste0(
-      "- nFeature exact match with processed metadata: ", sum( metadata$nFeature_Spatial_source == metadata$nFeature_Spatial_BPCells ), "/", nrow(metadata)
-    ), paste0(
-      "- Mitochondrial genes detected: ", mitochondrial_gene_count
-    ), paste0(
-      "- Zero-count spots: ", zero_count_spots
-    ), "", "SPATIAL STRUCTURE", paste0(
-      "- Capture areas with complete linkage: ", sum( capture_audit$asset_linkage_status == "PASS" ), "/12"
-    ), paste0(
-      "- Processed spots preserved: ", nrow(metadata), "/", length(barcodes)
-    ), paste0(
-      "- Condition-specific sections retained: ", uniqueN( section_qc$section_id ), "/36"
-    ), paste0(
-      "- Sections below ", ABSOLUTE_MIN_SECTION_SPOTS_STOP, " spots: ", sum( section_qc$section_stop_flag )
-    ), "", "CONSERVATIVE QC REVIEW", paste0(
-      "- QC-review spots: ", sum( metadata$qc_review_flag ), "/", nrow(metadata), " (", round( 100 * mean( metadata$qc_review_flag ), 2 ), "%)"
-    ), paste0(
-      "- Sections with QC-review fraction > ", SECTION_REVIEW_FLAG_FRACTION, ": ", nrow( high_review_sections )
-    ), "- Review flags are not final exclusion calls.", "", "CRITICAL CHECKS", paste0(
-      "- PASS: ", nrow( audit_checks[ critical == TRUE & status == "PASS" ] ), "; FAIL: ", nrow( critical_failures )
-    )
-  )
   if ( nrow( critical_failures ) > 0L ) {
-    report_lines <- c( report_lines, "", "STOP REASONS", paste0( "- ", critical_failures$check_id, ": ", critical_failures$description, " Observed: ", critical_failures$observed, " Action: ", critical_failures$action_if_not_pass ) )
   }
   if ( nrow( review_items ) > 0L ) {
-    report_lines <- c( report_lines, "", "REVIEW ITEMS", paste0( "- ", review_items$check_id, ": ", review_items$description, " Observed: ", review_items$observed, " Action: ", review_items$action_if_not_pass ) )
   }
-  report_lines <- c( report_lines, "", "INTERPRETATION", if ( final_status == "STOP" ) {
-      paste( "- Step 12B-fast is not released.", "Do not run RCTD or target-program scoring." )
-    } else {
-      paste( "- Step 12B-fast technical reconstruction is complete.", "The persistent BPCells matrix, 12 capture-area linkages,", "36 section assignments, and QC tables are available for review." )
-    },
-    "- The lightweight handoff RDS contains paths and QC metadata but does not embed the count matrix.", "- Age, severity, and treatment remain source-metadata review items.", "", "NEXT ACTION", if ( final_status == "STOP" ) {
-      "- review the seven key outputs for diagnosis."
-    } else {
-      paste( "- review the seven key outputs.", "After reviewing the section QC summary and spatial QC PDF,", "freeze the final spot-retention rule before constructing", "the filtered spatial query used for RCTD." )
-    },
-    "", "KEY OUTPUTS:", "- tables/01_input_package_BPCells_audit.csv", "- tables/02_capture_area_image_coordinate_audit.csv", "- tables/03_section_QC_summary.csv", "- tables/04_spot_QC_flags.csv.gz", "- figures/01_spatial_section_and_QC_maps_fast.pdf", "- tables/09_STEP12B_FAST_audit_checks.csv", "- 10_STEP12B_FAST_FINAL_REPORT.txt", "", "LARGE INTERMEDIATE FILES", paste0( "- BPCells directory: ", FULL_BPCELLS_MATRIX_DIR ), paste0( "- Lightweight handoff RDS: ", HANDOFF_RDS_OUTPUT ), "", paste0( "TOTAL ELAPSED TIME: ", total_elapsed_minutes, " minutes" ), "============================================================"
-  )
-  writeLines( report_lines, FINAL_REPORT_OUTPUT, useBytes = TRUE )
   writeLines( capture.output( sessionInfo() ), SESSION_INFO_FILE, useBytes = TRUE )
-  log_message( "FINAL_STATUS: ", final_status )
-  log_message( "BPCells cache mode: ", if ( cache_reused ) {
-      "reused"
-    } else {
-      "new"
-    }
-  )
-  log_message( "Capture areas: ", nrow(capture_audit), "/12" )
-  log_message( "Sections: ", uniqueN(section_qc$section_id), "/36" )
-  log_message( "Spots: ", nrow(metadata), "/", length(barcodes) )
-  log_message( "Total elapsed time: ", total_elapsed_minutes, " minutes" )
-  log_message( "Open first: ", FINAL_REPORT_OUTPUT )
   write_run_log()
-  cat("\n")
-  cat( "============================================================\n" )
-  cat( "Step 12B-FAST completed: ", final_status, "\n", sep = "" )
-  cat( "Capture areas: ", nrow(capture_audit), "/12\n", sep = "" )
-  cat( "Sections: ", uniqueN(section_qc$section_id), "/36\n", sep = "" )
-  cat( "Spots: ", nrow(metadata), "/", length(barcodes), "\n", sep = "" )
-  cat( "Open first: ", FINAL_REPORT_OUTPUT, "\n", sep = "" )
-  cat( "============================================================\n" )
   invisible( list( final_status = final_status, audit_checks = audit_checks, capture_audit = capture_audit, section_qc = section_qc, bpcells_path = FULL_BPCELLS_MATRIX_DIR, handoff_rds = HANDOFF_RDS_OUTPUT ) )
 }
 tryCatch( main(), error = function(e) {
     write_fatal_report( conditionMessage(e) )
-    message( "Step 12B-FAST stopped: ", conditionMessage(e) )
   }
 )

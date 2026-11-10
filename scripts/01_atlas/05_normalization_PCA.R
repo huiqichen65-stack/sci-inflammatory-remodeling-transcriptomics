@@ -10,11 +10,6 @@ dir.create(out_dir, recursive = TRUE, showWarnings = FALSE)
 dir.create(fig_dir, recursive = TRUE, showWarnings = FALSE)
 dir.create(tab_dir, recursive = TRUE, showWarnings = FALSE)
 log_file <- file.path(out_dir, "00_run_log.txt")
-log_msg <- function(...) {
-  msg <- paste0(...)
-  cat(msg, "\n")
-  cat( paste0(format(Sys.time(), "%Y-%m-%d %H:%M:%S"), " | ", msg, "\n"), file = log_file, append = TRUE )
-}
 writeLines( paste0("GSE162610 Step 1D started: ", Sys.time()), log_file )
 if (!file.exists(in_rds)) {
   stop("找不到 Step 1C singlet 对象：\n", in_rds)
@@ -30,22 +25,14 @@ suppressPackageStartupMessages({
   library(ggplot2)
   library(patchwork)
 })
-log_msg("============================================================")
-log_msg("Step 1D | Formal LogNormalize + PCA before Harmony")
-log_msg("============================================================")
-log_msg("Reading singlet Seurat object ...")
 pbmc <- readRDS(in_rds)
-log_msg( "Input object: ", nrow(pbmc), " genes x ", ncol(pbmc), " singlets" )
 required_meta <- c( "sample_id", "timepoint", "nFeature_RNA", "nCount_RNA", "percent.mt", "percent.HB" )
 if (!all(required_meta %in% colnames(pbmc@meta.data))) {
   stop( "对象缺少 metadata：", paste( setdiff(required_meta, colnames(pbmc@meta.data)), collapse = ", " ) )
 }
 DefaultAssay(pbmc) <- "RNA"
-log_msg("Running NormalizeData(LogNormalize, scale.factor=10000) ...")
 t0 <- Sys.time()
 pbmc <- NormalizeData( pbmc, normalization.method = "LogNormalize", scale.factor = 10000, verbose = FALSE )
-log_msg("NormalizeData finished.")
-log_msg("Finding 3000 highly variable genes ...")
 pbmc <- FindVariableFeatures( pbmc, selection.method = "vst", nfeatures = 3000, verbose = FALSE )
 hvg <- VariableFeatures(pbmc)
 if (length(hvg) != 3000) {
@@ -56,13 +43,8 @@ vf_info <- HVFInfo(pbmc)
 vf_info$gene <- rownames(vf_info)
 vf_info$is_HVG <- vf_info$gene %in% hvg
 fwrite( vf_info, file.path( tab_dir, "02_variable_feature_statistics.csv" ) )
-log_msg("HVG finished: ", length(hvg), " genes.")
-log_msg("Scaling 3000 HVGs without cell-cycle regression ...")
 pbmc <- ScaleData( pbmc, features = hvg, verbose = FALSE )
-log_msg("ScaleData finished.")
-log_msg("Running PCA with 50 PCs ...")
 pbmc <- RunPCA( pbmc, features = hvg, npcs = 50, verbose = FALSE )
-log_msg("PCA finished.")
 if (!"pca" %in% Reductions(pbmc)) {
   stop("PCA reduction 未Completed生成。")
 }
@@ -76,8 +58,7 @@ if (is.na(pc80)) {
   pc80 <- 30
 }
 candidate_pc <- max(20, min(40, pc80))
-writeLines( c( paste0("PC reaching 80% cumulative variance: ", pc80), paste0("Candidate PCs for Harmony/UMAP: 1:", candidate_pc), "", "IMPORTANT:", "This is only an automatic reference.", "Final PC number should be decided after reviewing ElbowPlot and biological separation." ), file.path( tab_dir, "04_candidate_PC_number.txt" ) )
-log_msg( "Automatic candidate PC number = ", candidate_pc )
+writeLines( c( paste0("PC reaching 80% cumulative variance: ", pc80), paste0("Candidate PCs for Harmony/UMAP: 1:", candidate_pc), "", "Status:", "This is only an automatic reference.", "Final PC number should be decided after reviewing ElbowPlot and biological separation." ), file.path( tab_dir, "04_candidate_PC_number.txt" ) )
 p_elbow <- ElbowPlot( pbmc, ndims = 50 ) + ggtitle( "GSE162610 PCA elbow plot (pre-Harmony)" )
 ggsave( file.path( fig_dir, "01_PCA_ElbowPlot_50PCs.pdf" ), plot = p_elbow, width = 7, height = 5 )
 p_pca_sample <- DimPlot( pbmc, reduction = "pca", group.by = "sample_id", dims = c(1, 2), pt.size = 0.15 ) + ggtitle( "PCA before Harmony - colored by sample" )
@@ -85,7 +66,6 @@ ggsave( file.path( fig_dir, "02_PCA_PC1_PC2_by_sample.pdf" ), plot = p_pca_sampl
 p_pca_time <- DimPlot( pbmc, reduction = "pca", group.by = "timepoint", dims = c(1, 2), pt.size = 0.15 ) + ggtitle( "PCA before Harmony - colored by timepoint" )
 ggsave( file.path( fig_dir, "03_PCA_PC1_PC2_by_timepoint.pdf" ), plot = p_pca_time, width = 9, height = 7 )
 dims_preHarmony <- 1:candidate_pc
-log_msg( "Running diagnostic pre-Harmony UMAP using PCs 1:", candidate_pc, " ..." )
 pbmc <- RunUMAP( pbmc, reduction = "pca", dims = dims_preHarmony, reduction.name = "umap.preharmony", reduction.key = "UMAPPRE_", seed.use = 20260730, verbose = FALSE )
 p_umap_sample <- DimPlot( pbmc, reduction = "umap.preharmony", group.by = "sample_id", pt.size = 0.10 ) + ggtitle( "Pre-Harmony UMAP - sample_id" )
 ggsave( file.path( fig_dir, "04_preHarmony_UMAP_by_sample.pdf" ), plot = p_umap_sample, width = 10, height = 7 )
@@ -115,14 +95,6 @@ pca_ok <- ( "pca" %in% Reductions(pbmc) && ncol(Embeddings(pbmc, "pca")) >= 30 )
 umap_ok <- ( "umap.preharmony" %in% Reductions(pbmc) )
 step_pass <- all( all_samples_preserved, all_timepoints_preserved, length(hvg) >= 2000, pca_ok, umap_ok )
 runtime_min <- as.numeric( difftime( Sys.time(), t0, units = "mins" ) )
-report <- c( "============================================================", "GSE162610 STEP 1D | LOGNORMALIZE + PCA PRE-HARMONY REPORT", "============================================================", paste0("Date: ", Sys.time()), paste0("Runtime (min): ", round(runtime_min, 2)), "", paste0( "Input singlets: ", ncol(pbmc) ), paste0( "Genes: ", nrow(pbmc) ), "", "Normalization:", "  LogNormalize", "  scale.factor = 10000", "", paste0( "Variable features: ", length(hvg) ), "Cell-cycle regression: NO", "S.Score/G2M.Score regression: NO", "Timepoint regression: NO", "sample_id regression: NO", "", paste0( "PCA components calculated: ", ncol( Embeddings( pbmc, "pca" ) ) ), paste0( "PC reaching 80% cumulative variance: ", pc80 ), paste0( "Candidate PCs: 1:", candidate_pc ), "", paste0( "All 10 samples preserved: ", all_samples_preserved ), paste0( "All 4 timepoints preserved: ", all_timepoints_preserved ), paste0( "PCA successful: ", pca_ok ), paste0( "Diagnostic pre-Harmony UMAP successful: ", umap_ok ), "", "Pre-Harmony UMAP: diagnostic", "", paste0( "STEP 1D COMPLETE = ", step_pass ), "", "Downstream module: Harmony clustering", "============================================================" )
-writeLines( report, file.path( out_dir, "08_STEP1D_LogNorm_PCA_report.txt" ) )
-log_msg( "Step 1D complete = ", step_pass )
-cat("\n")
-cat(paste(report, collapse = "\n"))
-cat("\n\n")
 if (step_pass) {
-  cat( "Step 1D 完成。分析完成。\n" )
 } else {
-  cat("Step 1D status: REVIEW REQUIRED\n")
 }

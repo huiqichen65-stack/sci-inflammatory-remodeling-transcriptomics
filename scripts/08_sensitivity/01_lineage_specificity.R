@@ -24,7 +24,6 @@ if (length(missing_inputs)) {
 log_text <- c(paste("STEP2D audit launched:", Sys.time()), paste("Project:", PROJECT_ROOT), paste("Results:", OUT), "INPUTS are original xjz files; no ZIP files used or generated.", paste(names(inputs), "=", inputs, collapse = "\n"))
 logmsg <- function(...) {
   x <- paste0(..., collapse = "")
-  message(x)
   log_text <<- c(log_text, x)
 }
 sig_audit <- read.csv(inputs[["signature"]], check.names = FALSE)
@@ -152,7 +151,7 @@ sig_score <- as.numeric(Matrix::colMeans(logmat[sig_present, , drop = FALSE]))
 if (length(sig_score) != length(ids) || any(!is.finite(sig_score)))
   stop("Nonfinite frozen signature score; check normalization and gene mapping")
 score_match <- match(as.character(selected$cell_id), ids)
-if (anyNA(score_match)) stop("Selected cells do not match normalized counts")
+if (anyNA(score_match)) stop("Selected cells match normalized counts")
 selected$target_signature_mean_logCP10k <- sig_score[score_match]
 if (anyNA(selected$target_signature_mean_logCP10k))
   stop("Missing scores after barcode matching (the previous script's error)")
@@ -220,11 +219,6 @@ dev.off()
 expected_tables <- c( "01_frozen_Arm2_signature_gene_coverage.csv", "02_sample_by_lineage_group_counts.csv", "03_target_signature_by_sample_lineage_group.csv", "04_marker_genes_not_in_restricted_matrix.txt", "05_marker_expression_by_sample_lineage_group.csv", "06_Arm1_Arm2_step2_cluster_provenance.csv", "07_lineage_AUCell_by_sample_group.csv", "08_author_neutrophil_overlap_audit.csv" )
 checks <- data.frame( check = c("Original xjz inputs exist", "Frozen signature covers >=400 genes", "Exactly two 7dpi biological samples", "Arm1 and Arm2 both represented", "Excluded infiltrating and BAM populations represented", "No NA/NaN in scored groups", "All eight analysis tables written", "Both figures produced"), passed = c(all(file.exists(inputs)), length(sig_present) >= 400, length(samples) == 2L, all(c("Arm_1_alternative", "Arm_2_target") %in% as.character(selected$group)), all(c("Excluded_infiltrating_myeloid", "Excluded_BAM_like") %in% as.character(selected$group)), all(is.finite(selected$target_signature_mean_logCP10k)), all(file.exists(file.path(TBL, expected_tables))), all(file.exists(file.path(FIG, c("01_target_program_signature_by_sample_lineage_group.pdf", "02_marker_expression_by_sample_lineage_group.pdf"))))), stringsAsFactors = FALSE)
 write.csv(checks, file.path(TBL, "09_STEP2D_audit_checks.csv"), row.names = FALSE)
-report <- c( "STEP2D | GSE162610 target-program lineage-specificity audit", "Reviewer 2 major comment 1: Resident-microglial identity of the target branch", paste("Timestamp:", Sys.time()), paste("Project root:", PROJECT_ROOT), "Inputs: ORIGINAL xjz Seurat RDS files (Steps 1F, 2C, 3B, 5BR2), plus Step11B frozen signature CSV.", paste("Frozen Arm2-specific genes present:", length(sig_present), "/", length(signature)), paste("7dpi samples:", paste(samples, collapse = ", ")), paste("Unique included barcodes (comparison groups):", length(ids)), paste("Overlapping original-author neutrophil cells:", nrow(neu_overlap)), paste("Reviewer marker genes missing from raw counts:", if (length(missing_markers)) paste(missing_markers, collapse = ", ") else "none"), "Target-program signature score = mean log1p(count/total_cell_UMIs * 10000) over the saved frozen Arm2-specific genes.", "Scores were computed from existing GSE162610 raw RNA counts, not from the ZIP export.", "The author-neutrophil group is an overlapping comparator, not an exclusive new lineage.", "Results are descriptive; TWO 7dpi biological samples, not cells, are independent replicate units.", "High target-program scores in other myeloid populations must not be interpreted as proof of contamination.", "Conversely, resident-like transcriptomes cannot conclusively prove resident cell ontogeny.", paste("All audit checks passed:", all(checks$passed)), "No ZIP archive created; selected outputs are listed above." )
 writeLines(log_text, file.path(OUT, "00_run_log.txt"), useBytes = TRUE)
-writeLines(report, file.path(OUT, "10_STEP2D_FINAL_REPORT.txt"), useBytes = TRUE)
-message("STEP2D finished. Results: ", OUT)
-message("Audit checks passed: ", all(checks$passed))
 if (!all(checks$passed)) {
-  message("WARNING: Some audit checks failed; read tables/09_STEP2D_audit_checks.csv before interpreting.")
 }

@@ -42,9 +42,6 @@ suppressPackageStartupMessages({
   library(patchwork)
   library(stringr)
 })
-msg <- function(...) {
-  cat( sprintf("[%s] ", format(Sys.time(), "%H:%M:%S")), ..., "\n", sep = "" )
-}
 capture_table <- function(x) {
   paste( capture.output( print( tibble::as_tibble(x), n = Inf, width = Inf ) ), collapse = "\n" )
 }
@@ -125,9 +122,6 @@ top_terms <- function( df, n_per_group) {
 null_plot <- function(txt) {
   ggplot2::ggplot( tibble::tibble(x = 1, y = 1), ggplot2::aes(x, y) ) + ggplot2::annotate( "text", x = 1, y = 1, label = txt, size = 5 ) + ggplot2::theme_void()
 }
-msg("====================================================")
-msg("GSE162610 Step 6C | dynamic-module GO / KEGG")
-msg("====================================================")
 if (!file.exists(INPUT_STEP6B)) {
   stop( paste0( "找不到Step6B结果：", INPUT_STEP6B ), call. = FALSE )
 }
@@ -144,12 +138,9 @@ missing_gene_cols <- required_gene_cols[ !required_gene_cols %in% colnames(gene_
 if (length(missing_gene_cols) > 0) {
   stop( paste0( "Step6B gene_modules缺少：", paste( missing_gene_cols, collapse = ", " ) ), call. = FALSE )
 }
-msg("Selected dynamic-module K: ", step6b$selected_k)
-msg( "Genes entering Step6B clustering: ", length(step6b$genes_entering_clustering) )
 background_symbols <- unique( as.character( step6b$genes_entering_clustering ) )
 background_map <- convert_symbols( background_symbols )
 background_entrez <- background_map$mapped_entrez
-msg( "Background mouse symbol mapping: ", length(background_map$mapped_symbols), "/", length(background_symbols), " (", round( 100 * background_map$mapping_rate, 1 ), "%)" )
 if (length(background_entrez) < 100) {
   stop( "Mapped enrichment background contains fewer than 100 Entrez IDs.", call. = FALSE )
 }
@@ -182,7 +173,6 @@ if (length(exploratory_arm2_modules) > 0) {
   program_gene_lists$Arm2_exploratory <- unique( gene_modules$gene_id[ gene_modules$module_name %in% exploratory_arm2_modules ] )
 }
 program_definition <- tibble::tibble( program_name = c( "Arm2_core_terminal", "Arm1_retained_shared", "Arm2_exploratory" ), source_modules = c( paste( robust_arm2_modules, collapse = "; " ), paste( arm1_retained_modules, collapse = "; " ), paste( exploratory_arm2_modules, collapse = "; " ) ) ) |> dplyr::filter( nzchar(source_modules) )
-msg("Program-level definitions:")
 print(program_definition)
 program_mapping_audit <- dplyr::bind_rows( lapply( names(program_gene_lists), function(prg) {
       mp <- convert_symbols( program_gene_lists[[prg]] )
@@ -191,7 +181,6 @@ program_mapping_audit <- dplyr::bind_rows( lapply( names(program_gene_lists), fu
   )
 )
 mapping_audit <- dplyr::bind_rows( module_mapping_audit, program_mapping_audit )
-msg("Running per-module GO BP/CC/MF and KEGG...")
 module_go_results <- list()
 module_kegg_results <- list()
 for (mod in names(module_gene_lists)) {
@@ -204,7 +193,6 @@ for (mod in names(module_gene_lists)) {
 }
 module_go <- dplyr::bind_rows( module_go_results )
 module_kegg <- dplyr::bind_rows( module_kegg_results )
-msg("Running neutral program-level GO BP and KEGG...")
 program_go_results <- list()
 program_kegg_results <- list()
 for (prg in names(program_gene_lists)) {
@@ -297,23 +285,4 @@ top_module_go_report <- top_module_go_bp |> dplyr::select( group_name, ID, Descr
 top_module_kegg_report <- top_module_kegg |> dplyr::select( group_name, ID, Description, GeneRatio, Count, p.adjust, geneID )
 top_program_go_report <- top_program_go |> dplyr::select( group_name, ID, Description, GeneRatio, Count, p.adjust, geneID )
 top_program_kegg_report <- top_program_kegg |> dplyr::select( group_name, ID, Description, GeneRatio, Count, p.adjust, geneID )
-report_lines <- c( "======================================================================", "GSE162610 | STEP 6C REPORT", "Dynamic-module GO / KEGG enrichment", "======================================================================", "", "FORMAL POSITION:", "Step6C performs functional enrichment after Step6B dynamic-module discovery.", "Repair/scar labels were NOT used to define gene sets or enrichment input.", "GSEA remains Step6D.", "", "SPECIES / DATABASE:", "Species: Mus musculus", "GO OrgDb: org.Mm.eg.db", "KEGG organism: mmu", "", "TESTED-GENE BACKGROUND:", paste0( "Step6B genes entering clustering: ", length(background_symbols) ), paste0( "Mapped background symbols: ", length(background_map$mapped_symbols), " (", round( 100 * background_map$mapping_rate, 2 ), "%)" ), "The enrichment universe was restricted to Step6B-tested genes rather than", "the whole genome.", "", "PROGRAM DEFINITIONS:", capture_table(program_definition), "", "MAPPING AUDIT:", capture_table(mapping_audit), "", "SIGNIFICANT TERM COUNTS:", capture_table(term_counts), "", "TOP MODULE GO BP TERMS:", capture_table(top_module_go_report), "", "TOP MODULE KEGG TERMS:", capture_table(top_module_kegg_report), "", "TOP PROGRAM-LEVEL GO BP TERMS:", capture_table(top_program_go_report), "", "TOP PROGRAM-LEVEL KEGG TERMS:", capture_table(top_program_kegg_report), "", "INTERPRETATION RULE:", "Primary interpretation should prioritize:", "  1. coherent GO/KEGG themes repeated across robust Arm2 modules;", "  2. distinct functions of the Arm1-retained shared/prebranch program;", "  3. terms supported by multiple genes rather than isolated single pathways;", "  4. biological consistency with Step5C-R and Step6A without circular", "     selection from repair/scar candidate lists.", "", "M4/M5 are exploratory because Step6B replicate effect size was weaker.", "Their pathways should not outweigh the robust M1/M2/M3 evidence.", "", "STEP6C PASS CRITERIA:", "  1. adequate mouse SYMBOL-to-Entrez mapping;", "  2. significant, interpretable terms for at least the robust M1/M2/M3 or", "     their corresponding neutral program-level gene sets;", "  3. functional distinction between Arm2 core terminal and Arm1-retained", "     shared programs;", "  4. no conclusion based only on one isolated term.", "", "STATUS:", "After Step6C interpretation, proceed to Step6D ranked-list GSEA.", "", "OUTPUTS:", OUT_FIG1, OUT_FIG2, OUT_FIG3, OUT_FIG4, OUT_XLSX, OUT_RDS, OUT_REP, OUT_SESS )
-writeLines( report_lines, OUT_REP, useBytes = TRUE )
 writeLines( capture.output(sessionInfo()), OUT_SESS, useBytes = TRUE )
-msg("====================================================")
-msg("STEP 6C COMPLETE")
-msg("====================================================")
-msg( "Background mapping rate: ", round( 100 * background_map$mapping_rate, 1 ), "%" )
-msg( "Module GO significant terms: ", nrow(module_go) )
-msg( "Module KEGG significant terms: ", nrow(module_kegg) )
-msg( "Program GO significant terms: ", nrow(program_go) )
-msg( "Program KEGG significant terms: ", nrow(program_kegg) )
-msg("")
-msg("Key outputs:")
-msg("1) figures/Fig6C_01_module_GO_BP_dotplot.pdf")
-msg("2) figures/Fig6C_02_module_KEGG_dotplot.pdf")
-msg("3) figures/Fig6C_03_enrichment_quality_and_term_counts.pdf")
-msg("4) figures/Fig6C_04_program_level_functional_summary.pdf")
-msg("5) Step6C_report.txt")
-msg("")
-msg("如需精确通路基因，再补充 Table6C_dynamic_module_GO_KEGG.xlsx。")

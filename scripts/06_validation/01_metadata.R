@@ -7,17 +7,9 @@ run_log <- file.path(output_dir, "00_run_log.txt")
 if (file.exists(run_log)) {
   file.remove(run_log)
 }
-log_message <- function(...) {
-  msg <- paste0(...)
-  stamp <- format(Sys.time(), "%Y-%m-%d %H:%M:%S")
-  line <- paste0("[", stamp, "] ", msg)
-  cat(line, "\n")
-  cat(line, "\n", file = run_log, append = TRUE)
-}
 write_csv_safe <- function(x, filename) {
   out <- file.path(output_dir, filename)
   utils::write.csv(x, out, row.names = FALSE, na = "")
-  log_message("Wrote: ", out)
   invisible(out)
 }
 trim_na <- function(x) {
@@ -116,18 +108,12 @@ barcode_path <- file.path(input_dir, "GSE234774_rnaseq_barcodes.txt.gz")
 required_paths <- c(meta_path, barcode_path)
 if (!all(file.exists(required_paths))) {
   missing_paths <- required_paths[!file.exists(required_paths)]
-  report <- c( "GSE234774 STEP 9A2 TARGETED METADATA RESOLUTION", "FINAL DECISION: STOP", "", "Missing required file(s):", missing_paths )
-  writeLines( report, file.path(output_dir, "08_STEP9A2_FINAL_REPORT.txt") )
-  stop(paste(report, collapse = "\n"), call. = FALSE)
+  stop("Input validation failed.", call. = FALSE)
 }
-log_message("Reading complete GSE234774 snRNA-seq metadata.")
 meta <- read_delimited_gz(meta_path)
-log_message("Reading expression barcode list.")
 expression_barcodes <- read_lines_gz(barcode_path)
 expression_barcodes <- trimws(expression_barcodes)
 expression_barcodes <- expression_barcodes[expression_barcodes != ""]
-log_message( "Metadata dimensions: ", nrow(meta), " rows x ", ncol(meta), " columns." )
-log_message("Expression barcode count: ", length(expression_barcodes))
 metadata_columns <- data.frame( column_index = seq_along(meta), column_name = names(meta), normalised_name = normalise_name(names(meta)), class = vapply(meta, function(x) paste(class(x), collapse = "/"), character(1)), n_nonmissing = vapply( meta, function(x) sum(!is.na(trim_na(x))), integer(1) ), n_unique_nonmissing = vapply( meta, function(x) length(unique(trim_na(x)[!is.na(trim_na(x))])), integer(1) ), example_values = vapply( meta, function(x) collapse_unique(head(trim_na(x)[!is.na(trim_na(x))], 12L)), character(1) ), stringsAsFactors = FALSE )
 write_csv_safe(metadata_columns, "01_metadata_columns.csv")
 key_columns <- data.frame( role = c( "barcode", "base_cell_barcode", "experimental_block", "replicate", "experiment", "condition_label", "library", "cluster", "annotation" ), detected_column = c( find_column(meta, c("barcode", "cell_barcode")), find_column(meta, c("bc", "base_barcode", "cell_bc")), find_column(meta, c("orig.ident", "orig_ident")), find_column(meta, c("replicate", "rep", "replicate_id")), find_column(meta, c("experiment", "experiment_clean")), find_column(meta, c("label_clean", "label", "condition_clean")), find_column(meta, c("library_clean", "library", "sample_id", "sample")), find_column(meta, c("seurat_clusters", "cluster")), find_column( meta, c( "celltype", "cell_type", "annotation", "celltype_clean", "cell_type_clean", "cellclass", "cell_class" ) ) ), stringsAsFactors = FALSE )
@@ -142,9 +128,7 @@ library_col <- first_nonempty( key_columns$detected_column[key_columns$role == "
 cluster_col <- first_nonempty( key_columns$detected_column[key_columns$role == "cluster"] )
 annotation_col <- first_nonempty( key_columns$detected_column[key_columns$role == "annotation"] )
 if (is.na(barcode_col)) {
-  report <- c( "GSE234774 STEP 9A2 TARGETED METADATA RESOLUTION", "FINAL DECISION: STOP", "", "A metadata barcode column could not be identified." )
-  writeLines( report, file.path(output_dir, "08_STEP9A2_FINAL_REPORT.txt") )
-  stop(paste(report, collapse = "\n"), call. = FALSE)
+  stop("Input validation failed.", call. = FALSE)
 }
 barcode_meta <- get_column_or_na(meta, barcode_col)
 library_from_barcode <- sub( "-[ACGTN]+(?:-[0-9]+)?$", "", barcode_meta, perl = TRUE, ignore.case = TRUE )
@@ -263,31 +247,11 @@ timepoint_report_lines <- if (nrow(candidate_timepoint_summary) > 0L) {
 } else {
   "No candidate time-course libraries were resolved."
 }
-report_lines <- c( "GSE234774 STEP 9A2 TARGETED METADATA RESOLUTION", "============================================================", paste0("Run time: ", format(Sys.time(), "%Y-%m-%d %H:%M:%S")), paste0("Input directory: ", input_dir), paste0("Output directory: ", output_dir), "", paste0("FINAL DECISION: ", final_decision), "", "WHY THE FIRST GENERIC AUDIT STOPPED", "orig.ident contains experimental blocks such as age, drug, mechanism, severity, sex, timecourse, and uninjured.", "It is not the biological-sample identifier.", "The barcode itself contains the library prefix, so a generic value-pattern detector falsely treated barcode as an age field.", "", "RESOLVED DATA STRUCTURE", paste0("Metadata rows: ", nrow(meta)), paste0("Expression barcodes: ", length(expression_barcodes)), paste0("Resolved biological libraries: ", n_libraries), paste0( "Biological-library source: ", biological_library_source ), paste0( "Candidate main uninjured/time-course libraries: ", n_candidate_libraries ), paste0( "Candidate main nuclei: ", sum(candidate_library_manifest$n_nuclei) ), "", "CANDIDATE LONG-TERM TIMEPOINT STRUCTURE", timepoint_report_lines, "", "COHORT RULE USED IN THIS AUDIT", "Included provisionally: uninjured, 1 dpi, 4 dpi, 7 dpi, 14 dpi, 1 month, and 2 months.", "Excluded from the main cohort: drug, mechanism, severity, sex, and age experimental blocks.", "timecourse_OLD is retained separately and not interpreted automatically.", "", "REMAINING MANUAL REVIEW", "The age of the candidate time-course cohort must be confirmed from the study methods.", "The final adult standard-SCI cohort must be frozen only after reviewing the resolved library manifest.", "This script does not authorize pooling nuclei as biological replicates.", "", "ANALYSIS BOUNDARY", "No expression matrix, Seurat object, QC, normalization, integration, annotation, signature scoring, pseudotime, or spatial analysis was run." )
 if (final_decision == "STOP") {
-  report_lines <- c( report_lines, "", "STOP REASONS" )
   for (i in seq_len(nrow(failed_required))) {
-    report_lines <- c( report_lines, paste0( i, ". ", failed_required$check[[i]], " -- ", failed_required$detail[[i]] ) )
   }
-  report_lines <- c( report_lines, "", "Do not start Step 9B." )
 } else {
-  report_lines <- c( report_lines, "", "SCHEMA DECISION", "The metadata schema is sufficient for a library-aware Step 9B design.", "Before Step 9B is generated, review the candidate library manifest and confirm the age/method context." )
 }
-writeLines( report_lines, file.path(output_dir, "08_STEP9A2_FINAL_REPORT.txt"), useBytes = TRUE )
-log_message("Final decision: ", final_decision)
-log_message( "Final report: ", file.path(output_dir, "08_STEP9A2_FINAL_REPORT.txt") )
-cat("\n")
-cat("============================================================\n")
-cat("GSE234774 STEP 9A2 COMPLETED\n")
-cat("FINAL DECISION:", final_decision, "\n")
-cat("Output:", output_dir, "\n")
-cat("Key outputs:\n")
-cat(" 1) 03_barcode_and_metadata_consistency.csv\n")
-cat(" 2) 05_library_manifest_resolved.csv\n")
-cat(" 3) 06_candidate_timecourse_cohort_manifest.csv\n")
-cat(" 4) 07_STEP9A2_audit_checks.csv\n")
-cat(" 5) 08_STEP9A2_FINAL_REPORT.txt\n")
-cat("============================================================\n")
 if (final_decision == "STOP") {
   stop( "GSE234774 Step 9A2 decision is STOP. Review the final report.", call. = FALSE )
 }

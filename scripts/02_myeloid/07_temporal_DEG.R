@@ -38,11 +38,6 @@ dir.create(pb_dir, recursive = TRUE, showWarnings = FALSE)
 if (!file.exists(input_rds)) {
   stop( "找不到 Step 3C 输入对象：\n", input_rds )
 }
-message("====================================================")
-message("GSE162610 Step 3D | time DEG + pathway confirmation")
-message("====================================================")
-message("Reading:")
-message(input_rds)
 obj <- readRDS(input_rds)
 if (!inherits(obj, "Seurat")) {
   stop("输入 RDS 不是 Seurat object。")
@@ -59,10 +54,7 @@ obj$timepoint_step3D <- factor( as.character(obj$timepoint), levels = time_level
 if (any(is.na(obj$timepoint_step3D))) {
   stop("timepoint 中存在无法映射到 Uninjured / 1 dpi / 3 dpi / 7 dpi 的值。")
 }
-message("Input cells: ", ncol(obj))
-message("Timepoint counts:")
 print(table(obj$timepoint_step3D))
-message("Sample counts:")
 print(table(obj$sample_id))
 comparisons <- list( C1_1dpi_vs_Uninjured = c( case = "1 dpi", ref = "Uninjured" ), C2_3dpi_vs_1dpi = c( case = "3 dpi", ref = "1 dpi" ), C3_7dpi_vs_3dpi = c( case = "7 dpi", ref = "3 dpi" ), S1_3dpi_vs_Uninjured = c( case = "3 dpi", ref = "Uninjured" ), S2_7dpi_vs_Uninjured = c( case = "7 dpi", ref = "Uninjured" ) )
 primary_comparisons <- c( "C1_1dpi_vs_Uninjured", "C2_3dpi_vs_1dpi", "C3_7dpi_vs_3dpi" )
@@ -89,12 +81,10 @@ add_deg_class <- function( df, padj_cutoff = 0.05, lfc_cutoff = 0.25 ) {
   df$DEG_class[ !is.na(df$p_val_adj) & df$p_val_adj < padj_cutoff & df$log2FC <= -lfc_cutoff ] <- "DOWN"
   df
 }
-message("Running main cell-level time DEGs...")
 deg_list <- list()
 for (nm in names(comparisons)) {
   case <- unname( comparisons[[nm]]["case"] )
   ref <- unname( comparisons[[nm]]["ref"] )
-  message( "DEG: ", nm, " | ", case, " vs ", ref )
   df <- safe_findmarkers( obj, case = case, ref = ref )
   df <- add_deg_class(df)
   df$comparison <- nm
@@ -112,7 +102,6 @@ core_cells <- colnames(obj)[ !obj$step3A_cluster_r04 %in% core_exclude ]
 obj_core <- subset( obj, cells = core_cells )
 obj_core$timepoint_step3D <- factor( as.character(obj_core$timepoint), levels = time_levels )
 core_deg_list <- list()
-message( "Running core-state sensitivity DEGs; excluded Step3 clusters 6/8/9..." )
 for (nm in primary_comparisons) {
   case <- unname( comparisons[[nm]]["case"] )
   ref <- unname( comparisons[[nm]]["ref"] )
@@ -199,7 +188,6 @@ stage_gene_lists <- list( Early_activation_1dpi = early_sig$gene, Transition_3dp
 ora_go_all <- list()
 ora_kegg_all <- list()
 for (stage_nm in names(stage_gene_lists)) {
-  message( "GO/KEGG ORA: ", stage_nm )
   genes_symbol <- stage_gene_lists[[stage_nm]]
   id_map <- symbol_to_entrez( genes_symbol )
   if (nrow(id_map) < 10) {
@@ -208,7 +196,6 @@ for (stage_nm in names(stage_gene_lists)) {
   }
   entrez <- unique( id_map$ENTREZID )
   ego <- tryCatch( enrichGO( gene = entrez, OrgDb = org.Mm.eg.db, keyType = "ENTREZID", ont = "BP", pAdjustMethod = "BH", pvalueCutoff = 0.05, qvalueCutoff = 0.20, readable = TRUE ), error = function(e) {
-      message( "GO failed for ", stage_nm, ": ", e$message )
       NULL
     }
   )
@@ -224,7 +211,6 @@ for (stage_nm in names(stage_gene_lists)) {
     }
   }
   ekegg <- tryCatch( enrichKEGG( gene = entrez, organism = "mmu", pvalueCutoff = 0.05, pAdjustMethod = "BH", qvalueCutoff = 0.20 ), error = function(e) {
-      message( "KEGG failed for ", stage_nm, ": ", e$message )
       NULL
     }
   )
@@ -279,7 +265,6 @@ make_ranked_entrez <- function( deg_df ) {
 }
 gsea_go_all <- list()
 gsea_kegg_all <- list()
-message("Running GSEA GO-BP / KEGG for primary time comparisons...")
 for (nm in primary_comparisons) {
   rank_list <- make_ranked_entrez( deg_list[[nm]] )
   if (length(rank_list) < 100) {
@@ -287,7 +272,6 @@ for (nm in primary_comparisons) {
     next
   }
   ggo <- tryCatch( gseGO( geneList = rank_list, OrgDb = org.Mm.eg.db, keyType = "ENTREZID", ont = "BP", minGSSize = 10, maxGSSize = 500, pvalueCutoff = 0.05, pAdjustMethod = "BH", verbose = FALSE ), error = function(e) {
-      message( "gseGO failed for ", nm, ": ", e$message )
       NULL
     }
   )
@@ -300,7 +284,6 @@ for (nm in primary_comparisons) {
     }
   }
   gkegg <- tryCatch( gseKEGG( geneList = rank_list, organism = "mmu", minGSSize = 10, maxGSSize = 500, pvalueCutoff = 0.05, pAdjustMethod = "BH", verbose = FALSE ), error = function(e) {
-      message( "gseKEGG failed for ", nm, ": ", e$message )
       NULL
     }
   )
@@ -342,7 +325,6 @@ make_gsea_overview( gsea_go_combined, "GSEA GO-BP | real-time microglial remodel
 pseudobulk_run <- FALSE
 pb_deg_list <- list()
 if ( requireNamespace( "edgeR", quietly = TRUE ) ) {
-  message( "edgeR detected: running sample-level pseudobulk validation..." )
   get_counts <- function( sobj ) {
     x <- tryCatch( GetAssayData( sobj, assay = "RNA", layer = "counts" ), error = function(e) NULL )
     if (is.null(x)) {
@@ -394,7 +376,6 @@ if ( requireNamespace( "edgeR", quietly = TRUE ) ) {
     case <- unname( comparisons[[nm]]["case"] )
     ref <- unname( comparisons[[nm]]["ref"] )
     pb <- tryCatch( run_pb_edgeR( case = case, ref = ref, comparison_name = nm ), error = function(e) {
-        message( "Pseudobulk edgeR failed for ", nm, ": ", e$message )
         NULL
       }
     )
@@ -407,7 +388,6 @@ if ( requireNamespace( "edgeR", quietly = TRUE ) ) {
     pseudobulk_run <- TRUE
   }
 } else {
-  message( "edgeR not installed: pseudobulk validation skipped safely." )
 }
 pb_concordance <- data.frame()
 if ( length( pb_deg_list ) > 0 ) {
@@ -442,99 +422,19 @@ output_rds <- file.path( out_dir, "GSE162610_step3D_time_DEG_pathway_confirmed.r
 saveRDS( obj, output_rds )
 report_file <- file.path( out_dir, "16_STEP3D_time_DEG_pathway_report.txt" )
 sink(report_file)
-cat("GSE162610 Step 3D | real-time DEG + pathway confirmation\n")
-cat("========================================================\n\n")
-cat("Input RDS:\n")
-cat(input_rds, "\n\n")
-cat("Input cells: ", ncol(obj), "\n", sep = "")
-cat("Core-state sensitivity cells: ", ncol(obj_core), "\n", sep = "")
-cat("Core-state sensitivity excludes Step3 clusters 6/8/9.\n")
-cat("Average-expression heatmap uses safe labels Uninjured/dpi1/dpi3/dpi7 to avoid Seurat numeric-level sanitization.\n")
-cat("\nTimepoint counts:\n")
 print( table( obj$timepoint_step3D ) )
-cat("\nBiological sample counts:\n")
 print( table( obj$sample_id ) )
-cat("\nPrimary comparisons:\n")
-cat("C1 = 1 dpi vs Uninjured\n")
-cat("C2 = 3 dpi vs 1 dpi\n")
-cat("C3 = 7 dpi vs 3 dpi\n")
-cat("\nDEG significance definition:\n")
-cat("adjusted P < 0.05 and |log2FC| >= 0.25\n")
-cat("\nDEG counts:\n")
 print( deg_summary )
-cat("\nData-driven stage signatures:\n")
 print( stage_signature_summary )
-cat("\nStage interpretation rules:\n")
-cat("Early_activation_1dpi = genes significantly UP at 1 dpi vs Uninjured.\n")
-cat("Transition_3dpi = genes significantly UP at 3 dpi vs 1 dpi and not further strongly increased at 7 dpi.\n")
-cat("Late_remodeling_7dpi = genes significantly UP at 7 dpi vs 3 dpi.\n")
-cat("\nGO-BP enriched rows: ", nrow(go_combined), "\n", sep = "")
-cat("KEGG enriched rows: ", nrow(kegg_combined), "\n", sep = "")
-cat("GSEA GO-BP rows: ", nrow(gsea_go_combined), "\n", sep = "")
-cat("GSEA KEGG rows: ", nrow(gsea_kegg_combined), "\n", sep = "")
-cat("\nPseudobulk edgeR available/run: ", pseudobulk_run, "\n", sep = "")
 if ( nrow( pb_concordance ) > 0 ) {
   pb_summary <- pb_concordance %>% dplyr::group_by( comparison ) %>% dplyr::summarise( n_genes = n(), direction_concordance = mean( direction_concordant, na.rm = TRUE ), .groups = "drop" )
-  cat("\nCell vs pseudobulk direction concordance:\n")
   print( pb_summary )
 }
 if ( nrow( signature_pb_support ) > 0 ) {
   sig_support_summary <- signature_pb_support %>% dplyr::group_by( stage ) %>% dplyr::summarise( n_genes = n(), same_direction_fraction = mean( pseudobulk_same_direction, na.rm = TRUE ), pb_FDR_lt_0.10_fraction = mean( pb_FDR < 0.10, na.rm = TRUE ), .groups = "drop" )
-  cat("\nStage signature pseudobulk support:\n")
   print( sig_support_summary )
 }
-cat("\nIMPORTANT INTERPRETATION RULES\n")
-cat("----------------------------------------\n")
-cat("1. Step 3D is still state-transition confirmation, not fate bifurcation.\n")
-cat("2. Do NOT assign repair/scar labels from Step 3D alone.\n")
-cat("3. Real-time DEG direction should agree with pathway biology.\n")
-cat("4. A 3 dpi transition signature is strongest if it rises from 1->3 dpi but does not simply continue increasing from 3->7 dpi.\n")
-cat("5. A 7 dpi late-remodeling signature must be defined by 7 dpi vs 3 dpi, not by preselected DAM genes alone.\n")
-cat("6. Core-state sensitivity excluding cycling/IFN populations is provided to detect composition-driven artifacts.\n")
-cat("7. Sample-level pseudobulk is supportive evidence and should be prioritized over cell-count-driven P values when directions conflict.\n")
-cat("8. GO/KEGG/GSEA are functional confirmation; individual pathway names must be reviewed before biological naming.\n")
-cat("9. Step 4 can begin only after Step 3D biological review.\n")
-cat("\nSaved Step 3D object:\n")
-cat(output_rds, "\n")
-cat("\nSTEP 3D TECHNICAL COMPLETE = TRUE\n")
 sink()
 handoff_file <- file.path( out_dir, "17_STEP4_handoff.txt" )
 sink(handoff_file)
-cat("GSE162610 | Step 4 handoff\n")
-cat("===========================\n\n")
-cat("Formal input after Step 3D review:\n")
-cat(output_rds, "\n\n")
-cat("Step 3 should be considered biologically complete ONLY if review supports:\n")
-cat("- Uninjured homeostatic reference\n")
-cat("- 1 dpi acute activation program\n")
-cat("- 3 dpi transition/remodeling program\n")
-cat("- 7 dpi late/established remodeling program\n")
-cat("- pathway direction compatible with these temporal stages\n\n")
-cat("Step 4 goal AFTER review:\n")
-cat("Build repair-biased vs scar-biased candidate programs without yet calling terminal fates.\n")
-cat("No Monocle until the branch-biased candidate programs are defined.\n")
 sink()
-message("====================================================")
-message("STEP 3D COMPLETE")
-message("Results:")
-message(out_dir)
-message("")
-message("Early activation genes: ", nrow(early_sig))
-message("3 dpi transition genes: ", nrow(transition_sig))
-message("3 dpi strict transition genes: ", nrow(transition_strict))
-message("7 dpi late-remodeling genes: ", nrow(late_sig))
-message("")
-message("Pseudobulk edgeR run: ", pseudobulk_run)
-message("")
-message("Key outputs:")
-message("1) figures/01_time_DEG_multiVolcano.pdf")
-message("2) figures/02_stage_signature_time_heatmap.pdf")
-message("3) figures/03_GO_BP_stage_overview.pdf （若生成）")
-message("4) figures/05_GSEA_KEGG_stage_overview.pdf （若生成）")
-message("5) tables/09_stage_signature_summary.csv")
-message("6) figures/07_cell_vs_pseudobulk_concordance.pdf （若 edgeR 已安装）")
-message("7) 16_STEP3D_time_DEG_pathway_report.txt")
-message("")
-message("If a plot is unavailable, use the corresponding combined CSV.")
-message("Step 3D 不定义 repair/scar，也不做 Monocle。")
-message("====================================================")

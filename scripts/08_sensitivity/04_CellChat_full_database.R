@@ -74,7 +74,6 @@ run <- function() {
   count_table <- as.data.frame(table(sample=m$sample_id,group=m$cellchat_group),stringsAsFactors=FALSE)
   names(count_table)[3] <- "n_cells"
   write_tsv(count_table,"00_7dpi_cell_counts_by_sample_group.tsv")
-  message("Step8F: input audit passed; loading full 7dpi RNA data")
   atlas <- readRDS(ATLAS)
   if(!inherits(atlas,"Seurat")) fail("Frozen atlas is not a Seurat object")
   Seurat::DefaultAssay(atlas) <- "RNA"
@@ -94,7 +93,6 @@ run <- function() {
     cp <- tryCatch(readRDS(CHECKPOINT),error=function(e)NULL)
     if(!is.null(cp) && inherits(cp$cellchat,"CellChat") && identical(cp$cells,as.character(m$cell)) && identical(cp$db_interactions,expected_interactions) && identical(cp$parameters,parms)) {
       cc <- cp$cellchat
-      message("Reusing validated full-database Step8F checkpoint")
     } else fail("Step8F checkpoint exists but parameters/cells/DB differ; manually inspect it before retrying")
   }
   if(is.null(cc)) {
@@ -107,13 +105,11 @@ run <- function() {
     cc <- CellChat::identifyOverExpressedInteractions(cc)
     n_lr <- nrow(cc@LR$LRsig)
     if(!length(n_lr) || is.na(n_lr) || n_lr<1L) fail("Expression-only LR screening selected zero interactions")
-    message("Unrestricted expression-based CellChat LR count: ",n_lr, "; computing on 14,505 cells, nboot=100")
     cc <- call_supported(CellChat::computeCommunProb, c(list(object=cc),parms))
     cc <- call_supported(CellChat::filterCommunication,list(object=cc,min.cells=MIN_GROUP_CELLS))
     cc <- call_supported(CellChat::computeCommunProbPathway,list(object=cc,thresh=CELLCHAT_P_THRESHOLD))
     cc <- call_supported(CellChat::aggregateNet,list(object=cc,thresh=CELLCHAT_P_THRESHOLD,return.object=TRUE))
     saveRDS(list(cellchat=cc,cells=as.character(m$cell), db_interactions=expected_interactions,parameters=parms), CHECKPOINT,compress=FALSE)
-    message("Full-database CellChat checkpoint saved")
   }
   raw <- call_supported(CellChat::subsetCommunication, list(object=cc,slot.name="net",thresh=1))
   raw <- as.data.frame(raw,stringsAsFactors=FALSE)
@@ -191,9 +187,6 @@ run <- function() {
   write_tsv(C,"02_all_Arm2_to_recipients_unfiltered_ranked.tsv")
   tnf <- tolower(C$ligand)=="tnf" & grepl("tnfrsf1a",C$receptor,ignore.case=TRUE)
   write_tsv(C[tnf,,drop=FALSE],"03_Tnf_Tnfrsf1a_7dpi_unfiltered_details.tsv")
-  report <- c( "GSE162610 | Step8F | Complete 7dpi full-cell all-database LR re-screen", paste("CellChat version:",as.character(utils::packageVersion("CellChat"))), paste("Eligible 7dpi cells:",nrow(m),"(all; no downsampling)"), paste("Biological samples:",paste(samples,collapse=", ")), paste("CellChatDB interactions:",length(expected_interactions)), paste("CellChat tested expression-qualified LR:",nrow(cc@LR$LRsig)), paste("Computational bootstrap count:",NBOOT), paste("Arm2->recipient rows (all CellChat LR):",nrow(C)), paste("Arm2->recipient CellChat nominal support:",sum(C$cellchat_nominal_support)), paste("2-sample ligand+receptor detection with CellChat support:",sum(C$unfiltered_candidate)), paste("Tnf-Tnfrsf1a rows:",sum(tnf)), if(any(tnf)) paste("Best Tnf-Tnfrsf1a candidate rank:", if(any(C$unfiltered_candidate[tnf])) min(C$rank_among_two_sample_candidates[tnf],na.rm=TRUE) else "none qualifies") else "Tnf-Tnfrsf1a not detected", "", "The analysis did NOT use Step7G TF/regulon/target-program evidence or the original 18/20-axis list for selection.", "It does use an expression-based CellChat standard filter and two 7dpi samples to evaluate detection consistency.", "Preassigned PRIMARY/CONTEXT labels and manually curated recipient response programs are NOT in the rank.", "Comparisons of CellChat communication probability are exploratory; they do not establish biologically independent signaling.", "CellChat P values are computational bootstrap statistics, not animal-level P values.", "No downstream response-program validation for the full discovery set was performed.", "Failure to meet expression detection may reflect transcript dropout, and receptor complex decomposition is conservative.", "Candidate distribution retained for all ligand-receptor pairs.", paste("Output:",OUT))
-  writeLines(report,RUN_REPORT,useBytes=TRUE)
-  cat(paste(report,collapse="\n"),"\n")
   capture.output(sessionInfo(),file=file.path(REP,"Step8F_sessionInfo.txt"))
   invisible(C)
 }

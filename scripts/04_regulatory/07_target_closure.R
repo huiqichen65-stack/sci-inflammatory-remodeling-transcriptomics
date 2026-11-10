@@ -1,7 +1,6 @@
 rm(list = ls())
 gc()
 options( stringsAsFactors = FALSE, width = 240, warn = 1, timeout = 86400 )
-cat("R parser check PASS: the complete Step 7G file was parsed by source().\n")
 set.seed(20260802)
 PROJECT_ROOT <- Sys.getenv("GLIA_PROJECT_ROOT", unset = normalizePath(".", winslash = "/", mustWork = FALSE))
 EXPECTED_UNIVERSE_GENES <- 7897L
@@ -86,10 +85,6 @@ if (!requireNamespace("data.table", quietly = TRUE)) {
 }
 timestamp <- function() {
   format( Sys.time(), "%Y-%m-%d %H:%M:%S" )
-}
-msg <- function(...) {
-  cat( sprintf( "[%s] %s\n", timestamp(), paste0(..., collapse = "") ) )
-  flush.console()
 }
 safe_path <- function(path) {
   normalizePath( path, winslash = "/", mustWork = FALSE )
@@ -230,11 +225,6 @@ sanitize_signature_name <- function(x) {
   gsub( "[^A-Za-z0-9_.-]", "_", x )
 }
 overall_start <- Sys.time()
-msg("==============================================================")
-msg("GSE162610 Step 7G | regulon target-program closure")
-msg("==============================================================")
-msg("Background universe: frozen Step7A 7,897 expressed genes.")
-msg("Primary candidates: Step7F timing candidates and key regulons.")
 required_files <- c( STEP7A_GENE_FILE, STEP7C_TARGET_FILE, STEP7C_DECISION_FILE, STEP5CR_RDS_FILE, STEP6A_HIGHCONF_FILE, STEP6A_ARM1_FILE, STEP6A_ARM2_FILE, STEP6A_STRICT_FILE, STEP6B_GENE_ASSIGNMENT_FILE, STEP7F_RDS_FILE, STEP7F_DECISION_FILE )
 missing_files <- required_files[ !file.exists( required_files ) ]
 if (length(missing_files) > 0L) {
@@ -252,12 +242,10 @@ if (!step7c_pass) {
 if (!step7f_pass) {
   abort_step( "Step 7F does not contain an Overall PASS decision." )
 }
-msg("Loading the frozen Step7A gene universe...")
 universe_genes <- read_gene_universe( STEP7A_GENE_FILE )
 if ( length(universe_genes) != EXPECTED_UNIVERSE_GENES || anyDuplicated( universe_genes ) > 0L ) {
   abort_step( paste0( "Unexpected Step7A gene universe: ", length(universe_genes), " unique genes; expected ", EXPECTED_UNIVERSE_GENES, "." ) )
 }
-msg("Loading Step7C motif-supported regulon targets...")
 regulon_targets <- data.table::fread( STEP7C_TARGET_FILE, data.table = FALSE, showProgress = FALSE )
 require_columns( regulon_targets, c( "regulon", "TF", "sign", "target", "weight" ), "Step7C regulon-target table" )
 regulon_targets$regulon <- as.character( regulon_targets$regulon )
@@ -277,7 +265,6 @@ regulon_targets$weight_percentile_within_regulon <- ave( regulon_targets$weight,
     }
   )
 target_split <- split( regulon_targets, regulon_targets$regulon )
-msg("Loading Step5C-R progressive-gene evidence...")
 step5cr <- readRDS( STEP5CR_RDS_FILE )
 if ( !"master_table" %in% names(step5cr) ) {
   abort_step( "Step5C-R RDS does not contain master_table." )
@@ -312,7 +299,6 @@ strong_arm2 <- unique( step5_master$gene_id[ strong_flag %in% TRUE & step5_maste
 if ( length(progressive_genes) != EXPECTED_PROGRESSIVE_GENES || length(strong_progressive_genes) != EXPECTED_STRONG_PROGRESSIVE_GENES ) {
   abort_step( paste0( "Unexpected Step5C-R counts. Progressive=", length(progressive_genes), "; strong=", length(strong_progressive_genes), "." ) )
 }
-msg("Loading Step6A branch-marker evidence...")
 step6a_highconf <- data.table::fread( STEP6A_HIGHCONF_FILE, data.table = FALSE, showProgress = FALSE )
 step6a_arm1 <- data.table::fread( STEP6A_ARM1_FILE, data.table = FALSE, showProgress = FALSE )
 step6a_arm2 <- data.table::fread( STEP6A_ARM2_FILE, data.table = FALSE, showProgress = FALSE )
@@ -350,7 +336,6 @@ strict_arm2 <- unique( strict_arm2[ !is.na(strict_arm2) ] )
 if ( length(highconf_genes) != EXPECTED_HIGHCONF_MARKERS || length(strict_genes) != EXPECTED_STRICT_PB_MARKERS ) {
   abort_step( paste0( "Unexpected Step6A marker counts. High-confidence=", length(highconf_genes), "; strict=", length(strict_genes), "." ) )
 }
-msg("Loading Step6B dynamic module assignments...")
 step6b_assignments <- data.table::fread( STEP6B_GENE_ASSIGNMENT_FILE, data.table = FALSE, showProgress = FALSE )
 require_columns( step6b_assignments, c( "gene_id", "module_name" ), "Step6B gene assignments" )
 step6b_assignments$gene_id <- as.character( step6b_assignments$gene_id )
@@ -377,7 +362,6 @@ gene_set_audit <- do.call( rbind, gene_set_audit_parts )
 gene_set_audit <- merge( evidence_metadata, gene_set_audit, by = "evidence_set", all.x = TRUE, sort = FALSE )
 gene_set_audit <- gene_set_audit[ match( evidence_metadata$evidence_set, gene_set_audit$evidence_set ), , drop = FALSE ]
 write_tsv( gene_set_audit, GENE_SET_AUDIT_FILE )
-msg("Loading Step7F timing results...")
 step7f <- readRDS( STEP7F_RDS_FILE )
 required_step7f_fields <- c( "regulon_timing_master", "key_candidate_timing", "final_decision" )
 missing_step7f_fields <- setdiff( required_step7f_fields, names(step7f) )
@@ -395,10 +379,9 @@ timing_master$late_direction <- as.character( timing_master$late_direction )
 timing_master$timing_classification <- as.character( timing_master$timing_classification )
 timing_master$seven_dpi_direction_consistent <- as_logical_safe( timing_master$seven_dpi_direction_consistent )
 if ( nrow(timing_master) != EXPECTED_PRIMARY_REGULONS || any( !timing_master$regulon %in% names( target_split ) ) ) {
-  abort_step( "Step7F primary regulons do not match Step7C target sets." )
+  abort_step( "Step7F primary regulons match Step7C target sets." )
 }
 enrichment_start <- Sys.time()
-msg( "Testing ", nrow(timing_master), " primary regulons against ", length(evidence_sets), " evidence gene sets..." )
 enrichment_parts <- vector( "list", nrow(timing_master) * length(evidence_sets) )
 enrichment_counter <- 0L
 for ( regulon_index in seq_len( nrow(timing_master) ) ) {
@@ -426,7 +409,6 @@ for ( regulon_index in seq_len( nrow(timing_master) ) ) {
       )
   }
   if ( regulon_index %% 25L == 0L ) {
-    msg( "  completed ", regulon_index, "/", nrow(timing_master), " regulons" )
   }
 }
 all_enrichment <- do.call( rbind, enrichment_parts )
@@ -439,7 +421,6 @@ all_enrichment$direction_match <- all_enrichment$expected_direction == "Any" | a
 all_enrichment <- all_enrichment[ order( all_enrichment$regulon, all_enrichment$q_within_evidence_set, -all_enrichment$fold_enrichment ), , drop = FALSE ]
 write_tsv( all_enrichment, ALL_ENRICHMENT_FILE )
 enrichment_elapsed <- as.numeric( difftime( Sys.time(), enrichment_start, units = "secs" ) )
-msg( "Overlap enrichment complete in ", format_duration( enrichment_elapsed ), "." )
 candidate_pool_index <- timing_master$timing_classification %in%
     c( EARLY_ARM2_CLASSES, LATE_ARM2_CLASS, LATE_ARM1_CLASS, DIRECTION_DISCORDANT_CLASS, SAMPLE_SENSITIVE_CLASS ) | timing_master$TF %in%
     KEY_TFS
@@ -541,7 +522,6 @@ for (evidence_name in selected_summary_sets) {
 }
 all_closure <- all_closure[ match( timing_master$regulon, all_closure$regulon ), , drop = FALSE ]
 write_tsv( all_closure, ALL_CLOSURE_FILE )
-msg("Annotating candidate target genes with Step5/Step6 evidence...")
 step5_direction_lookup <- setNames( step5_master$terminal_direction, step5_master$gene_id )
 step6a_direction_lookup <- rep( NA_character_, length( universe_genes ) )
 names(step6a_direction_lookup) <- universe_genes
@@ -609,7 +589,6 @@ if (length(network_edge_parts) > 0L) {
   priority_network_edges <- candidate_overlap_genes[ 0, , drop = FALSE ]
 }
 write_tsv( priority_network_edges, NETWORK_EDGES_FILE )
-msg("Exporting candidate target signatures...")
 signature_rows <- list()
 gmt_lines <- character(0)
 signature_candidates <- candidate_closure[ !candidate_closure$mechanistic_priority %in% c( "Do_not_prioritize_direction_discordant", "Do_not_prioritize_sample_sensitive" ), , drop = FALSE ]
@@ -633,7 +612,6 @@ for ( candidate_index in seq_len( nrow(signature_candidates) ) ) {
 signature_summary <- do.call( rbind, signature_rows )
 write_tsv( signature_summary, SIGNATURE_TABLE_FILE )
 writeLines( gmt_lines, con = SIGNATURE_GMT_FILE, useBytes = TRUE )
-msg("Checking optional local GO BP packages...")
 go_status <- data.frame( packages_available = FALSE, candidate_gene_sets_tested = 0L, significant_rows = 0L, status = "SKIPPED", note = "", stringsAsFactors = FALSE )
 go_results <- data.frame( note = character(0), stringsAsFactors = FALSE )
 go_packages_available <- requireNamespace( "clusterProfiler", quietly = TRUE ) && requireNamespace( "org.Mm.eg.db", quietly = TRUE )
@@ -701,7 +679,6 @@ for ( row_index in seq_len( nrow(heatmap_candidates) ) ) {
 }
 evidence_matrix_table <- data.frame( candidate = rownames( evidence_matrix ), evidence_matrix, check.names = FALSE, stringsAsFactors = FALSE )
 write_tsv( evidence_matrix_table, EVIDENCE_MATRIX_FILE )
-msg("Generating Step7G figures...")
 heatmap_limit <- max( abs( evidence_matrix ), na.rm = TRUE )
 if ( !is.finite( heatmap_limit ) || heatmap_limit <= 0 ) {
   heatmap_limit <- 1
@@ -782,49 +759,5 @@ tier2_early_candidates <- candidate_closure[ candidate_closure$mechanistic_prior
 downstream_amplifiers <- candidate_closure[ candidate_closure$mechanistic_priority == "Tier_2_downstream_Arm2_regulatory_amplifier", , drop = FALSE ]
 internal_fate_driver_candidates <- candidate_closure[ candidate_closure$internal_fate_driver_criteria_met, , drop = FALSE ]
 report_candidate_columns <- c( "TF", "regulon", "timing_classification", "late_direction", "onset_progress_qualified", "terminal_effect_z", "earlier_than_terminal_program", "progressive_overlap_n", "progressive_fold_enrichment", "progressive_q", "strong_progressive_overlap_n", "strong_progressive_fold_enrichment", "strong_progressive_q", "highconf_marker_overlap_n", "highconf_marker_fold_enrichment", "highconf_marker_q", "formal_module_overlap_n", "formal_module_fold_enrichment", "formal_module_q", "strict_marker_overlap_n", "target_closure_domains", "target_closure_strength", "seven_dpi_direction_consistent", "CSI_module", "mechanistic_priority" )
-report_lines <- c( "======================================================================", "GSE162610 | STEP 7G REPORT", "Regulon target-program closure", "======================================================================", "", paste0( "Generated: ", timestamp() ), paste0( "Project root: ", PROJECT_ROOT ), paste0( "Overall Step 7G status: ", FINAL_STATUS ), "", "FORMAL SCOPE:", paste0( "Step7G tested motif-supported regulon targets against Step5C-R ", "progressive genes, Step6A branch markers and Step6B dynamic modules." ), paste0( "Hypergeometric tests used the frozen Step7A 7,897-gene universe. ", "BH correction was calculated globally and within each evidence-set family." ), "", "FROZEN INPUT:", paste0( "Gene universe: ", length( universe_genes ) ), paste0( "Regulons: ", length( unique( regulon_targets$regulon ) ), "; target edges: ", nrow( regulon_targets ) ), paste0( "Primary regulons tested: ", nrow( timing_master ) ), paste0( "Progressive genes: ", length( progressive_genes ), "; strong progressive genes: ", length( strong_progressive_genes ) ), paste0( "Step6A high-confidence markers: ", length( highconf_genes ), "; strict pseudobulk markers: ", length( strict_genes ) ), paste0( "Step6B dynamic genes: ", length( all_dynamic_module_genes ), " across ", length( step6b_module_sets ), " modules." ), "", "CANDIDATE CLOSURE DEFINITIONS:", paste0( "A supported domain required within-evidence-set BH q<=", PRIMARY_Q_MAX, ", fold enrichment>=", MIN_FOLD_ENRICHMENT, " and the predefined minimum overlap count." ), paste0( "Strong closure required at least three of four domains and evidence ", "from both a dynamic-gene domain and a terminal marker/module domain." ), paste0( "The four domains were direction-consistent progressive genes, strong ", "progressive genes, Step6A high-confidence markers and the corresponding ", "Step6B module reference." ), "", "TARGET-CLOSURE STRENGTH COUNTS:", paste( capture.output( print( closure_counts, row.names = FALSE ) ), collapse = "\n" ), "", "MECHANISTIC PRIORITY COUNTS:", paste( capture.output( print( priority_counts, row.names = FALSE ) ), collapse = "\n" ), "", "TIER 1 | BRANCHPOINT-COINCIDENT TARGET CLOSURE:", if ( nrow( tier1_candidates ) > 0L ) {
-    paste( capture.output( print( tier1_candidates[ , report_candidate_columns, drop = FALSE ], row.names = FALSE ) ), collapse = "\n" )
-  } else {
-    "None met the predefined Tier-1 target-closure criteria."
-  },
-  "", "TIER 2 | BRANCHPOINT-COINCIDENT PARTIAL CLOSURE:", if ( nrow( tier2_early_candidates ) > 0L ) {
-    paste( capture.output( print( tier2_early_candidates[ , report_candidate_columns, drop = FALSE ], row.names = FALSE ) ), collapse = "\n" )
-  } else {
-    "None met the predefined Tier-2 early partial-closure criteria."
-  },
-  "", "TIER 2 | DOWNSTREAM ARM_2 REGULATORY AMPLIFIERS:", if ( nrow( downstream_amplifiers ) > 0L ) {
-    paste( capture.output( print( downstream_amplifiers[ , report_candidate_columns, drop = FALSE ], row.names = FALSE ) ), collapse = "\n" )
-  } else {
-    "None met the downstream-amplifier closure criteria."
-  },
-  "", "INTERNAL FATE-DRIVER CRITERIA:", paste0( "Candidates earlier than the formal terminal-program reference and with ", "strong target closure: ", nrow( internal_fate_driver_candidates ) ), if ( nrow( internal_fate_driver_candidates ) == 0L ) {
-    paste0( "No regulon currently satisfies the internal pre-terminal fate-driver ", "criterion. Candidates with onset=0 remain branchpoint-coincident." )
-  } else {
-    paste( capture.output( print( internal_fate_driver_candidates[ , report_candidate_columns, drop = FALSE ], row.names = FALSE ) ), collapse = "\n" )
-  },
-  "", "OPTIONAL GO BP:", paste( capture.output( print( go_status, row.names = FALSE ) ), collapse = "\n" ), "", "FINAL DECISION:", paste( capture.output( print( final_decision, row.names = FALSE ) ), collapse = "\n" ), "", "INTERPRETATION BOUNDARY:", paste0( "Target-program closure supports a regulatory relationship, not causal ", "lineage control. Because the earliest formal terminal programs and the ", "earliest regulon candidates were both detected at Y_29=0, no candidate ", "should be described as demonstrably preceding terminal-program activation." ), paste0( "Tier-1 candidates may be called branchpoint-coincident regulatory ", "candidates with direction-consistent target closure. A fate-driver claim ", "still requires external temporal/spatial replication and functional testing." ), "", "NEXT ACTION:", if ( FINAL_STATUS == "PASS" ) {
-    paste0( "Proceed to Step8 CellChat using the frozen neutral branch labels. ", "Candidate TF-target signatures exported here may be connected to ", "branch-specific ligands, but CellChat does not prove transcriptional causality." )
-  } else {
-    paste0( "Do not proceed to Step8 until the failed Step7G audit domain is resolved." )
-  },
-  "", "PRIMARY OUTPUTS:", paste0( "All enrichment tests: ", safe_path( ALL_ENRICHMENT_FILE ) ), paste0( "Timing-candidate closure: ", safe_path( CANDIDATE_CLOSURE_FILE ) ), paste0( "Candidate overlap genes: ", safe_path( OVERLAP_GENES_FILE ) ), paste0( "Candidate target signatures: ", safe_path( SIGNATURE_GMT_FILE ) ), paste0( "Complete Step7G RDS: ", safe_path( RESULT_RDS_FILE ) ), "", "KEY OUTPUTS:", "1) reports/Step7G_report.txt", "2) tables/03_timing_candidate_target_closure.tsv", "3) tables/04_candidate_overlap_genes_long.tsv", "4) figures/Fig7G_01_candidate_enrichment_heatmap.pdf", "5) tables/08_final_decision.csv"
-)
-writeLines( report_lines, con = REPORT_FILE, useBytes = TRUE )
 writeLines( capture.output( sessionInfo() ), con = SESSION_FILE, useBytes = TRUE )
 gc()
-msg("==============================================================")
-msg("STEP 7G COMPLETE")
-msg("==============================================================")
-msg("Step 7G status: ", FINAL_STATUS)
-msg( "All enrichment tests: ", nrow( all_enrichment ) )
-msg( "Tier-1 branchpoint-coincident closure candidates: ", nrow( tier1_candidates ) )
-msg( "Internal pre-terminal fate-driver criteria met: ", nrow( internal_fate_driver_candidates ) )
-msg( "Total time: ", format_duration( overall_elapsed ) )
-msg( "Report: ", safe_path( REPORT_FILE ) )
-msg("")
-msg("Key outputs:")
-msg("1) reports/Step7G_report.txt")
-msg("2) tables/03_timing_candidate_target_closure.tsv")
-msg("3) tables/04_candidate_overlap_genes_long.tsv")
-msg("4) figures/Fig7G_01_candidate_enrichment_heatmap.pdf")
-msg("5) tables/08_final_decision.csv")

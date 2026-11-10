@@ -17,7 +17,6 @@ MARSH_XLSX <- file.path(ROOT,"01_raw_data","reference_gene_sets","Marsh2022_Supp
 REPORT <- file.path(OUT,"31N_STEP6FRH_SOURCE_MATCHED_MARSH_PAIRED_FINAL_REPORT.txt")
 LOG <- file.path(OUT,"31N_worker_log.txt")
 for (d in c(OUT,TDIR,FDIR,RDIR)) dir.create(d,recursive=TRUE,showWarnings=FALSE)
-msg <- function(...) cat(format(Sys.time(),"%Y-%m-%d %H:%M:%S")," | ",paste0(...,collapse=""),"\n",sep="")
 fail <- function(...) stop(paste0(...,collapse=""),call.=FALSE)
 write_table <- function(x,n) utils::write.csv(x,file.path(TDIR,n),row.names=FALSE)
 needed <- c(IN2C,IN3A,IN5BR,IN5BRSEU,IN5BR2,IN5BR2SEU,MARSH_XLSX)
@@ -101,7 +100,6 @@ if("--31N-worker" %in% commandArgs(trailingOnly=TRUE)) {
     fail("Marsh Table 4 unexpected gene numbers")
   marsh <- sort(unique(c(cns,myeloid)))
   if(length(marsh)!=34L) fail("Marsh activation union must contain 34 unique genes")
-  msg("Read-only loading Step3A benchmark, Step5BR/BR2 and Step2C inputs...")
   ref3 <- readRDS(IN3A)
   src_cds <- readRDS(IN5BR)
   ref_cds <- readRDS(IN5BR2)
@@ -144,14 +142,13 @@ if("--31N-worker" %in% commandArgs(trailingOnly=TRUE)) {
   ref_graph <- monocle3::principal_graph(ref_cds)[["UMAP"]]
   if(is.null(ref_graph)) fail("Frozen reference Monocle graph absent")
   compute_step3A <- function(condition,excluded) {
-    msg(condition,": reading 20,747-cell Step2C and running ORIGINAL Step3A order")
     x <- readRDS(IN2C)
     if(!inherits(x,"Seurat")||!identical(colnames(x),full_cells)|| !identical(rownames(x),full_features))
       fail(condition,": Step2C cell/feature ORDER differs from historical Step3A")
     SeuratObject::DefaultAssay(x)<-"RNA"
     if(exists("JoinLayers",envir=asNamespace("SeuratObject"),mode="function",inherits=FALSE))
       x <- tryCatch(SeuratObject::JoinLayers(x,assay="RNA"),error=function(e){
-        msg(condition,": JoinLayers safely skipped: ",conditionMessage(e));x})
+        x})
     ct <- get_counts(x)
     if(!identical(colnames(ct),full_cells)||!identical(rownames(ct),full_features))
       fail(condition,": RNA count order mismatch")
@@ -207,7 +204,6 @@ if("--31N-worker" %in% commandArgs(trailingOnly=TRUE)) {
     rm(x);invisible(gc());um
   }
   infer_graph <- function(condition,um,excluded) {
-    msg(condition,": constructing matched Monocle CDS and graph...")
     count_mat <- src_count
     if(length(excluded)) count_mat<-count_mat[!rownames(count_mat)%in%excluded,,drop=FALSE]
     if(!identical(colnames(count_mat),rc)||any(rownames(count_mat)%in%excluded))
@@ -300,7 +296,6 @@ if("--31N-worker" %in% commandArgs(trailingOnly=TRUE)) {
     saveRDS(cds,file.path(RDIR,paste0("31N_",condition,"_relearned_Monocle_CDS.rds")))
     list(stats=stats,evaluation=eval,cells=cell_tbl,branchpoint=bp,passed=(!is.na(bp)&& all(eval$recall[eval$sample_id!="ALL_7dpi"]>=0.95,na.rm=FALSE)), umap=u)
   }
-  msg("CONTROL: computing full genes via original source-order Step3A...")
   um_control <- compute_step3A("all_genes_control",character())
   control <- infer_graph("all_genes_control",um_control,character())
   gate <- data.frame(condition="all_genes_control",candidate_present=!is.na(control$branchpoint), recovered_all_four_sample_arms=isTRUE(control$passed), minimum_sample_arm_recall=min(control$evaluation$recall[control$evaluation$sample_id!="ALL_7dpi"]), passes_control_gate=isTRUE(control$passed))
@@ -309,8 +304,6 @@ if("--31N-worker" %in% commandArgs(trailingOnly=TRUE)) {
     writeLines(c("31N PAIRED ANALYSIS: CONTROL VALIDITY GATE FAILED", "No Marsh exclusion was executed or interpreted.", "The full-gene control did not recover both original biological arms in BOTH 7-dpi samples.", utils::capture.output(print(gate,row.names=FALSE)), "Inspect 05/06/07 full-gene stage metrics and 09/10/12 control graph tables."), REPORT,useBytes=TRUE)
     fail("Full-gene control did not reproduce frozen arms. STOP; see ",REPORT)
   }
-  msg("PASS: full-gene original branch control is recovered in BOTH 7 dpi samples")
-  msg("MASKED: excluding the 26 detectable Marsh activation genes BEFORE Step3A normalization")
   um_mask <- compute_step3A("Marsh_activation_masked",present)
   masked <- infer_graph("Marsh_activation_masked",um_mask,present)
   joint <- rbind(control$evaluation,masked$evaluation)
@@ -337,25 +330,18 @@ if("--31N-worker" %in% commandArgs(trailingOnly=TRUE)) {
   plot_three(masked$umap,masked$cells$aligned_biological_arm,"Marsh activation masked")
   par(op);grDevices::dev.off()
   full_ok <- isTRUE(control$passed) && isTRUE(masked$passed)
-  text <- c( "GLIA Reviewer 2 Major Comment 2 | Source-matched paired Marsh trajectory sensitivity", paste("Completed:",as.character(Sys.time())), "Input objects READ ONLY. Harmony 1.2.4 installed only in existing private library.", "Historical Harmony version UNKNOWN; candidate 1.2.4 reproduces 31M original Harmony under original source order.", paste("Original Step3A MD5:",unname(tools::md5sum(IN3A))), paste("Cells Step3A:",length(full_cells),"; frozen trajectory:",length(rc),"; roots:",length(roots)), paste("Marsh activation union:",length(marsh),"; detected/excluded:",length(present)), "Marsh identity signature genes are not additionally removed.", "Both arms are chosen from objective branch rules; original arm labels are used ONLY for post hoc barcode evaluation.", paste("Control full-gene validity gate:",if(control$passed)"PASS" else "FAIL"), paste("Masked source-matched two-sample topology:",if(masked$passed)"PASS" else "NOT SUPPORTED"), paste("Paired UMAP Procrustes similarity:",signif(paired_umap_similarity,8)), "Predeclared technical gate: each 7dpi sample must recover >=95% of BOTH frozen Arm_1 and Arm_2 barcode sets.", paste("Paired mapped label agreement (all 14,005 cells; descriptive only):",signif(paired_agree,8)), paste("Paired mapped label agreement (originally labeled 7 dpi cells):",signif(paired_agree_labeled,8)), "This is an internal sensitivity analysis, not independent validation; no causal lineage transition is inferred.", "PASS applies to a predefined operational cell-barcode correspondence test, not proof of biological causality.", "If masking is not supported, report loss of support; do not claim that the original branch is artefactual.", "-- Per-condition summary --",utils::capture.output(print(summary,row.names=FALSE)), "-- Per-sample and pooled 7 dpi recall --",utils::capture.output(print(joint,row.names=FALSE)), paste("Outputs:",OUT), paste("Figure:",file.path(FDIR,"31N_original_fullgene_masked_7dpi_arms.pdf")) )
+  text <- c( "GLIA Reviewer 2 Major Comment 2 | Source-matched paired Marsh trajectory sensitivity", paste("Completed:",as.character(Sys.time())), "Input objects READ ONLY. Harmony 1.2.4 installed only in existing private library.", "Historical Harmony version UNKNOWN; candidate 1.2.4 reproduces 31M original Harmony under original source order.", paste("Original Step3A MD5:",unname(tools::md5sum(IN3A))), paste("Cells Step3A:",length(full_cells),"; frozen trajectory:",length(rc),"; roots:",length(roots)), paste("Marsh activation union:",length(marsh),"; detected/excluded:",length(present)), "Marsh identity signature genes are not additionally removed.", "Both arms are chosen from objective branch rules; original arm labels are used ONLY for post hoc barcode evaluation.", paste("Control full-gene validity gate:",if(control$passed)"PASS" else "FAIL"), paste("Masked source-matched two-sample topology:",if(masked$passed)"PASS" else "NOT SUPPORTED"), paste("Paired UMAP Procrustes similarity:",signif(paired_umap_similarity,8)), "Predeclared technical gate: each 7dpi sample must recover >=95% of BOTH frozen Arm_1 and Arm_2 barcode sets.", paste("Paired mapped label agreement (all 14,005 cells; descriptive only):",signif(paired_agree,8)), paste("Paired mapped label agreement (originally labeled 7 dpi cells):",signif(paired_agree_labeled,8)), "This is an internal sensitivity analysis, not independent validation; no causal lineage transition is inferred.", "PASS applies to a predefined operational cell-barcode correspondence test, not proof of biological causality.", "If masking is not supported, report loss of support; claim that the original branch is artefactual.", "-- Per-condition summary --",utils::capture.output(print(summary,row.names=FALSE)), "-- Per-sample and pooled 7 dpi recall --",utils::capture.output(print(joint,row.names=FALSE)), paste("Outputs:",OUT), paste("Figure:",file.path(FDIR,"31N_original_fullgene_masked_7dpi_arms.pdf")) )
   writeLines(text,REPORT,useBytes=TRUE)
-  msg("DONE: source-matched paired results, report: ",REPORT)
   quit(save="no",status=0L,runLast=FALSE)
 }
 if(!identical(private_version(),"1.2.4"))
-  fail("Private Harmony 1.2.4 from 31K is missing: ",LIB124, "\nDo not alter globally installed Harmony 2.0.5.")
+  fail("Private Harmony 1.2.4 from 31K is missing: ",LIB124, "\nalter globally installed Harmony 2.0.5.")
 for(p in needed) if(!file.exists(p)) fail("Required source input missing: ",p)
 self<-self_path()
 commands<-unique(c(Sys.which("Rscript"),file.path(R.home("bin"),"Rscript.exe"), file.path(R.home(),"bin","Rscript.exe")))
 commands<-commands[nzchar(commands)&file.exists(commands)]
 if(!length(commands)) fail("Rscript executable not found")
 if(file.exists(REPORT)) unlink(REPORT)
-msg("Launching source-matched full-gene vs Marsh masked analysis in private Harmony 1.2.4 R process.")
-msg("Independent results folder: ",OUT)
-msg("Existing original Step3A, Step5BR, Step5BR2 and Step6F are READ ONLY.")
 status<-tryCatch(system2(commands[1],args=c("--vanilla",shQuote(self),"--31N-worker"), stdout=LOG,stderr=LOG,wait=TRUE), error=function(e){writeLines(conditionMessage(e),LOG);127L})
 if(!identical(as.integer(status),0L)||!file.exists(REPORT))
   fail("31N stopped or failed. Read ",LOG, " and any report in ",OUT, ". In particular, baseline control gate MUST pass before masked interpretation.")
-msg("31N complete: ",REPORT)
-msg("Output: 31N_STEP6FRH_SOURCE_MATCHED_MARSH_PAIRED_FINAL_REPORT.txt")
-msg(" plus tables/14_paired_sample_level_recovery_comparison.csv and 16_paired_final_topology_summary.csv")

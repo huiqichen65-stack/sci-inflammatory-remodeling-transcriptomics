@@ -43,9 +43,6 @@ TIME_COLORS <- c( "Uninjured" = "#66C2A5", "1 dpi"     = "#FC8D62", "3 dpi"     
 CLUSTER_COLORS <- c( "0"  = "#4E79A7", "1"  = "#E15759", "2"  = "#59A14F", "3"  = "#F28E2B", "4"  = "#B07AA1", "5"  = "#76B7B2", "10" = "#2F4B7C" )
 ROOT_STATUS_COLORS <- c( "Not_selected" = "#D9D9D9", "Balanced_root" = "#D73027" )
 ROOT_SCORE_COLORS <- c( "#313695", "#74ADD1", "#FFFFBF", "#FDAE61", "#A50026" )
-msg <- function(...) {
-  cat( sprintf("[%s] ", format(Sys.time(), "%H:%M:%S")), ..., "\n", sep = "" )
-}
 capture_table <- function(x) {
   x <- tibble::as_tibble(x)
   paste( capture.output( print( x, n = Inf, width = Inf ) ), collapse = "\n" )
@@ -70,26 +67,21 @@ calc_gene_z_program <- function(mat, genes) {
   score <- colMeans( zmat, na.rm = TRUE )
   list( score = as.numeric(score), genes = genes )
 }
-msg("====================================================")
-msg("GSE162610 Step 5A | balanced root + trajectory input")
-msg("====================================================")
 if (!file.exists(INPUT_RDS)) {
-  stop( paste0( "找不到Step 4A scored RDS：\n", INPUT_RDS, "\n\nCheck required" ), call. = FALSE )
+  stop( paste0( "找不到Step 4A scored RDS：\n", INPUT_RDS, "\n\nCheck" ), call. = FALSE )
 }
-msg("Reading: ", INPUT_RDS)
 obj <- readRDS(INPUT_RDS)
 if (!inherits(obj, "Seurat")) {
   stop("Input RDS is not a Seurat object.", call. = FALSE)
 }
 DefaultAssay(obj) <- "RNA"
-msg( "Loaded object: ", ncol(obj), " cells; ", nrow(obj), " features." )
 required_meta <- c( TIME_COL, SAMPLE_COL, CLUSTER_COL, "transition_status", "shared_transition_3dpi_highconf" )
 missing_meta <- required_meta[ !required_meta %in% colnames(obj[[]]) ]
 if (length(missing_meta) > 0) {
   stop( paste0( "缺少正式metadata：", paste(missing_meta, collapse = ", ") ), call. = FALSE )
 }
 if (!UMAP_REDUCTION %in% Seurat::Reductions(obj)) {
-  stop( paste0( "缺少正式Step3A UMAP：", UMAP_REDUCTION, "\n本脚本不会重新计算或替换UMAP。" ), call. = FALSE )
+  stop( paste0( "缺少正式Step3A UMAP：", UMAP_REDUCTION, "\n重新计算或替换UMAP。" ), call. = FALSE )
 }
 obj$step3A_cluster_r04 <- as.character( obj$step3A_cluster_r04 )
 time_vec <- as.character( obj[[TIME_COL, drop = TRUE]] )
@@ -100,7 +92,6 @@ trajectory_cells <- colnames(obj)[ trajectory_keep ]
 if (length(trajectory_cells) < 1000) {
   stop( "Trajectory input contains <1000 cells; check Step3 cluster metadata.", call. = FALSE )
 }
-msg( "Trajectory input cells (clusters 0/1/2/3/4/5/10): ", length(trajectory_cells) )
 trajectory_time_summary <- tibble::tibble( cell = trajectory_cells, timepoint = time_vec[ match(trajectory_cells, colnames(obj)) ], sample = sample_vec[ match(trajectory_cells, colnames(obj)) ], cluster = cluster_vec[ match(trajectory_cells, colnames(obj)) ] ) |> dplyr::count( timepoint, sample, cluster, name = "n_cells" )
 root_candidate_keep <- ( time_vec == "Uninjured" & cluster_vec %in% ROOT_CANDIDATE_CLUSTERS & trajectory_keep )
 root_candidate_cells <- colnames(obj)[ root_candidate_keep ]
@@ -108,13 +99,10 @@ if (length(root_candidate_cells) == 0) {
   stop( "No Uninjured cluster 0/3 root candidates detected.", call. = FALSE )
 }
 root_candidate_samples <- sort( unique( sample_vec[ match( root_candidate_cells, colnames(obj) ) ] ) )
-msg( "Uninjured root candidate samples: ", paste(root_candidate_samples, collapse = ", ") )
 if (length(root_candidate_samples) < 3) {
   warning( paste0( "Detected only ", length(root_candidate_samples), " uninjured samples. Expected 3." ) )
 }
 root_candidate_count <- tibble::tibble( cell = root_candidate_cells, sample = sample_vec[ match(root_candidate_cells, colnames(obj)) ], cluster = cluster_vec[ match(root_candidate_cells, colnames(obj)) ] ) |> dplyr::count( sample, cluster, name = "n_cells" )
-msg("Root candidate cells: ", length(root_candidate_cells))
-msg("Calculating biological root score...")
 expr <- get_data_matrix(obj)
 if (!identical( colnames(expr), colnames(obj) )) {
   expr <- expr[ , colnames(obj), drop = FALSE ]
@@ -122,8 +110,6 @@ if (!identical( colnames(expr), colnames(obj) )) {
 expr_root <- expr[ , root_candidate_cells, drop = FALSE ]
 homeo_avail <- intersect( HOMEOSTATIC_GENES, rownames(expr_root) )
 dam_avail <- intersect( ACTIVATED_DAM_GENES, rownames(expr_root) )
-msg( "Homeostatic genes available: ", length(homeo_avail), "/", length(HOMEOSTATIC_GENES) )
-msg( "Activated/DAM genes available: ", length(dam_avail), "/", length(ACTIVATED_DAM_GENES) )
 if (length(homeo_avail) < 6) {
   stop( paste0( "可用homeostatic genes <6：", paste(homeo_avail, collapse = ", ") ), call. = FALSE )
 }
@@ -139,7 +125,6 @@ if (nrow(highconf_counts) != length(root_candidate_samples)) {
   stop( "At least one uninjured sample has no high-confidence root candidates.", call. = FALSE )
 }
 root_n_per_sample <- min( ROOT_TARGET_PER_SAMPLE, min(highconf_counts$n_highconf) )
-msg( "Balanced root cells selected per uninjured sample: ", root_n_per_sample )
 if (root_n_per_sample < ROOT_MIN_PER_SAMPLE) {
   stop(paste0("Balanced root has ", root_n_per_sample, " cells/sample (<", ROOT_MIN_PER_SAMPLE, ")."), call. = FALSE)
 }
@@ -150,7 +135,6 @@ sample_balance_check <- selected_root_tbl |> dplyr::count( sample, name = "n_roo
 if (length(unique(sample_balance_check$n_root)) != 1) {
   stop( "Internal error: selected root is not exactly sample-balanced.", call. = FALSE )
 }
-msg( "Final balanced root cells: ", length(selected_root_cells) )
 obj$step5A_use_for_trajectory <- trajectory_keep
 obj$step5A_root_candidate <- FALSE
 obj$step5A_root_candidate[ match(root_candidate_cells, colnames(obj)) ] <- TRUE
@@ -192,7 +176,6 @@ names(sample_palette) <- all_samples
 uninj_samples <- sort( unique( root_umap_df$sample ) )
 uninj_palette <- grDevices::hcl.colors( length(uninj_samples), palette = "Dark 3" )
 names(uninj_palette) <- uninj_samples
-msg("Creating Fig5A_01_uninjured_root_candidate_audit.pdf...")
 theme5 <- ggplot2::theme_classic(base_size = 11) + ggplot2::theme( axis.text = ggplot2::element_text( color = "#222222" ), axis.title = ggplot2::element_text( color = "#222222" ), plot.title = ggplot2::element_text( face = "bold", color = "#111111" ), plot.subtitle = ggplot2::element_text( color = "#333333" ) )
 p1a <- ggplot2::ggplot( root_umap_df, ggplot2::aes( UMAP_1, UMAP_2, color = factor(cluster) ) ) + ggplot2::geom_point( size = 0.55, alpha = 0.75 ) + ggplot2::scale_color_manual( values = CLUSTER_COLORS, name = "Step3A cluster" ) + ggplot2::labs( title = "Uninjured homeostatic candidate pool", subtitle = "Only formal clusters 0 and 3" ) + theme5
 p1b <- ggplot2::ggplot( root_umap_df, ggplot2::aes( UMAP_1, UMAP_2, color = root_score ) ) + ggplot2::geom_point( size = 0.55, alpha = 0.80 ) + ggplot2::scale_color_gradientn( colors = ROOT_SCORE_COLORS, name = "Root score" ) + ggplot2::labs( title = "Biological root score", subtitle = "Homeostatic program minus activated/DAM penalty" ) + theme5
@@ -202,7 +185,6 @@ p1d <- ggplot2::ggplot( score_violin_df, ggplot2::aes( x = factor(sample), y = r
 grDevices::pdf( OUT_FIG1, width = 13, height = 10, useDingbats = FALSE )
 print( (p1a | p1b) / (p1c | p1d) + patchwork::plot_annotation( title = "Step 5A | Homeostatic-root candidate audit" ) )
 grDevices::dev.off()
-msg("Creating Fig5A_02_balanced_root_selection.pdf...")
 root_overlay_df <- traj_umap_df |> dplyr::mutate( root_status = ifelse( balanced_root, "Balanced_root", "Not_selected" ) )
 p2a <- ggplot2::ggplot( root_overlay_df, ggplot2::aes( UMAP_1, UMAP_2 ) ) + ggplot2::geom_point( data = root_overlay_df |> dplyr::filter( root_status == "Not_selected" ), color = ROOT_STATUS_COLORS[["Not_selected"]], size = 0.35, alpha = 0.30 ) + ggplot2::geom_point( data = root_overlay_df |> dplyr::filter( root_status == "Balanced_root" ), color = ROOT_STATUS_COLORS[["Balanced_root"]], size = 0.80, alpha = 0.90 ) + ggplot2::labs( title = "Balanced homeostatic root on formal Step3A UMAP", subtitle = "Red cells will orient pseudotime in Step 5B", x = "UMAP_1", y = "UMAP_2" ) + theme5
 selected_root_plot_df <- root_umap_df |> dplyr::filter( cell %in% selected_root_cells )
@@ -214,7 +196,6 @@ p2d <- ggplot2::ggplot( root_composition_plot, ggplot2::aes( x = factor(sample),
 grDevices::pdf( OUT_FIG2, width = 14, height = 10, useDingbats = FALSE )
 print( (p2a | p2b) / (p2c | p2d) + patchwork::plot_annotation( title = "Step 5A | Sample-balanced homeostatic-root selection" ) )
 grDevices::dev.off()
-msg("Creating Fig5A_03_trajectory_input_overview.pdf...")
 p3a <- ggplot2::ggplot( traj_umap_df, ggplot2::aes( UMAP_1, UMAP_2, color = factor(timepoint) ) ) + ggplot2::geom_point( size = 0.40, alpha = 0.60 ) + ggplot2::scale_color_manual( values = TIME_COLORS, name = "Timepoint" ) + ggplot2::labs( title = "Formal trajectory input by true time" ) + theme5
 p3b <- ggplot2::ggplot( traj_umap_df, ggplot2::aes( UMAP_1, UMAP_2, color = factor(cluster) ) ) + ggplot2::geom_point( size = 0.40, alpha = 0.60 ) + ggplot2::scale_color_manual( values = CLUSTER_COLORS, name = "Step3A cluster" ) + ggplot2::labs( title = "Formal trajectory input by Step3A state" ) + theme5
 p3c <- ggplot2::ggplot( root_overlay_df, ggplot2::aes( UMAP_1, UMAP_2 ) ) + ggplot2::geom_point( color = "#D9D9D9", size = 0.35, alpha = 0.30 ) + ggplot2::geom_point( data = root_overlay_df |> dplyr::filter( balanced_root ), color = "#D73027", size = 0.85, alpha = 0.95 ) + ggplot2::labs( title = "Root orientation anchor", subtitle = "Root is balanced; graph will be learned independently in Step 5B" ) + theme5
@@ -225,7 +206,6 @@ p3d <- ggplot2::ggplot( composition_df, ggplot2::aes( x = factor(timepoint), y =
 grDevices::pdf( OUT_FIG3, width = 14, height = 10, useDingbats = FALSE )
 print( (p3a | p3b) / (p3c | p3d) + patchwork::plot_annotation( title = "Step 5A | Formal trajectory-input construction" ) )
 grDevices::dev.off()
-msg("Writing Table5A_root_and_trajectory_input.xlsx...")
 program_gene_audit <- tibble::tibble( program = c( rep( "Homeostatic", length(HOMEOSTATIC_GENES) ), rep( "Activated_DAM_penalty", length(ACTIVATED_DAM_GENES) ) ), gene = c( HOMEOSTATIC_GENES, ACTIVATED_DAM_GENES ) ) |> dplyr::mutate( available_in_RNA = gene %in% rownames(expr) )
 root_parameters <- tibble::tibble( parameter = c( "Root candidate timepoint", "Root candidate clusters", "Root top percentile threshold", "Target root cells per sample", "Minimum allowed root cells per sample", "Actual balanced root cells per sample", "Trajectory clusters", "Excluded cycling clusters", "Excluded IFN cluster", "Formal UMAP" ), value = c( "Uninjured", paste(ROOT_CANDIDATE_CLUSTERS, collapse = ";"), as.character(ROOT_TOP_PERCENTILE), as.character(ROOT_TARGET_PER_SAMPLE), as.character(ROOT_MIN_PER_SAMPLE), as.character(root_n_per_sample), paste(TRAJECTORY_CLUSTERS, collapse = ";"), paste(CYCLING_CLUSTERS, collapse = ";"), IFN_CLUSTER, UMAP_REDUCTION ) )
 selected_root_export <- selected_root_tbl |> dplyr::arrange( sample, within_sample_rank )
@@ -249,25 +229,5 @@ add_sheet( "Trajectory_by_cluster", trajectory_summary_cluster )
 add_sheet( "Trajectory_full_audit", trajectory_time_summary )
 openxlsx::saveWorkbook( wb, OUT_XLSX, overwrite = TRUE )
 saveRDS( obj_traj, OUT_RDS, compress = TRUE )
-msg("Writing Step5A_report.txt...")
 old_cluster3_root <- tibble::tibble( sample = sample_vec[ time_vec == "Uninjured" & cluster_vec == "3" ] ) |> dplyr::count( sample, name = "old_cluster3_root_cells" )
-report_lines <- c( "======================================================================", "GSE162610 | STEP 5A REPORT", "Sample-balanced homeostatic root + formal trajectory input", "======================================================================", "", "SCOPE:", "This step does NOT run Monocle.", "This step only constructs a biologically justified balanced root and the", "formal non-cycling trajectory input for Step 5B.", "", "------------------------------- INPUT ---------------------------------", paste0("Input RDS: ", INPUT_RDS), paste0("Formal cluster field: ", CLUSTER_COL), paste0("Formal UMAP: ", UMAP_REDUCTION), paste0("Input cells: ", ncol(obj)), "", "----------------------- OLD ROOT IMBALANCE AUDIT ----------------------", "Uninjured + cluster 3 counts in the current object:", capture_table(old_cluster3_root), "", "The old cluster-3-only definition is NOT used as the final root.", "", "------------------------ NEW ROOT DEFINITION --------------------------", paste0( "Candidate pool: Uninjured clusters ", paste(ROOT_CANDIDATE_CLUSTERS, collapse = "/") ), paste0( "Candidate cells: ", length(root_candidate_cells) ), paste0( "Homeostatic genes available: ", length(homeo_avail), "/", length(HOMEOSTATIC_GENES) ), paste0( "Activated/DAM penalty genes available: ", length(dam_avail), "/", length(ACTIVATED_DAM_GENES) ), paste0( "Within-sample high-confidence percentile threshold: ", ROOT_TOP_PERCENTILE ), paste0( "Balanced selected root cells/sample: ", root_n_per_sample ), paste0( "Total balanced root cells: ", length(selected_root_cells) ), "", "Selected root counts by sample/cluster:", capture_table(selected_root_summary), "", "Selected root biological-score summary:", capture_table(selected_root_score_summary), "", "----------------------- TRAJECTORY INPUT ------------------------------", paste0( "Included Step3A clusters: ", paste(TRAJECTORY_CLUSTERS, collapse = ", ") ), paste0( "Excluded cycling clusters: ", paste(CYCLING_CLUSTERS, collapse = ", ") ), paste0( "Excluded IFN side-state cluster: ", IFN_CLUSTER ), paste0( "Formal trajectory input cells: ", ncol(obj_traj) ), "", "Trajectory cells by true time:", capture_table(trajectory_summary_time), "", "---------------------- ANTI-CIRCULARITY RULE --------------------------", "Repair/scar scores from Step 4 are NOT used to:", "  - select root cells;", "  - select trajectory cells;", "  - construct a graph;", "  - assign any future branch.", "", "They are carried forward only so that AFTER an independent Step 5B graph", "is learned, the Step 4 functional programs can be projected onto branches.", "", "-------------------------- STEP 5A DECISION ---------------------------", "PASS criteria:", "  1. all expected uninjured biological samples contribute root candidates;", "  2. exactly the same number of high-confidence root cells is selected", "     from every uninjured sample;", "  3. selected root cells show high homeostatic and low activated/DAM scores;", "  4. trajectory input spans Uninjured / 1 dpi / 3 dpi / 7 dpi;", "  5. cycling and IFN side states are excluded from the primary trajectory.", "", "Only after Step 5A PASS should Step 5B Monocle3 be run.", "", "Formal outputs:", paste0("  ", OUT_FIG1), paste0("  ", OUT_FIG2), paste0("  ", OUT_FIG3), paste0("  ", OUT_XLSX), paste0("  ", OUT_RDS), paste0("  ", OUT_REP), paste0("  ", OUT_SESS), "" )
-writeLines( report_lines, OUT_REP, useBytes = TRUE )
 writeLines( capture.output( sessionInfo() ), OUT_SESS, useBytes = TRUE )
-msg("====================================================")
-msg("STEP 5A COMPLETE")
-msg("====================================================")
-msg("Output directory: ", OUTDIR)
-msg("")
-msg("Balanced root cells/sample: ", root_n_per_sample)
-msg("Total balanced root cells: ", length(selected_root_cells))
-msg("Trajectory input cells: ", ncol(obj_traj))
-msg("")
-msg("Key outputs:")
-msg("  1) Fig5A_01_uninjured_root_candidate_audit.pdf")
-msg("  2) Fig5A_02_balanced_root_selection.pdf")
-msg("  3) Fig5A_03_trajectory_input_overview.pdf")
-msg("  4) Table5A_root_and_trajectory_input.xlsx")
-msg("  5) Step5A_report.txt")
-msg("")
-msg("Trajectory input status: complete")

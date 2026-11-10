@@ -48,23 +48,13 @@ if (file.exists( run_log )) {
 myeloid_counts_dir <- file.path( bpcells_dir, "GSE234774_step10E_myeloid_counts" )
 myeloid_data_dir <- file.path( bpcells_dir, "GSE234774_step10E_myeloid_LogNormalize_data" )
 output_object_path <- file.path( rds_dir, "GSE234774_step10E_myeloid_PCA_Harmony_resolution_comparison_BPCells.rds" )
-log_message <- function(...) {
-  message_text <- paste0(...)
-  timestamp <- format( Sys.time(), "%Y-%m-%d %H:%M:%S" )
-  line <- paste0( "[", timestamp, "] ", message_text )
-  cat( line, "\n" )
-  cat( line, "\n", file = run_log, append = TRUE )
-}
 write_csv_safe <- function( x, filename ) {
   path <- file.path( tables_dir, filename )
   utils::write.csv( x, path, row.names = FALSE, na = "" )
-  log_message( "Wrote: ", path )
   invisible( path )
 }
 stop_with_report <- function(reason) {
   report_path <- file.path( output_dir, "10_STEP10E_FINAL_REPORT.txt" )
-  report <- c( "GSE234774 STEP 10E MYELOID RECLUSTERING / HARMONY / RESOLUTION", "============================================================", paste0( "Run time: ", format( Sys.time(), "%Y-%m-%d %H:%M:%S" ) ), paste0( "Output directory: ", output_dir ), "", "FINAL DECISION: STOP", "", paste0( "Reason: ", reason ), "", "Do not freeze a myeloid resolution or resident-microglia object." )
-  writeLines( report, report_path, useBytes = TRUE )
   stop( reason, call. = FALSE )
 }
 safe_package_version <- function( package_name ) {
@@ -159,7 +149,6 @@ calculate_within_timepoint_mixing <- function( embeddings, metadata, reduction_n
       neighbor_cache[[timepoint_name]] <- NULL
       next
     }
-    log_message( "Finding within-timepoint neighbors: ", reduction_name, " / ", timepoint_name, "." )
     neighbor_object <- Seurat::FindNeighbors( object = sub_embeddings, k.param = min( k + 1L, nrow( sub_embeddings ) - 1L ), return.neighbor = TRUE, compute.SNN = FALSE, nn.method = "annoy", n.trees = N_TREES, annoy.metric = "euclidean", verbose = FALSE )
     raw_indices <- SeuratObject::Indices( neighbor_object )
     clean_indices <- clean_neighbor_indices( raw_indices, k = k )
@@ -219,7 +208,6 @@ calculate_neighbor_overlap <- function( reference_cache, comparison_cache ) {
 }
 run_harmony_matrix_compat <- function( pca_embeddings, metadata ) {
   harmony_version <- utils::packageVersion( "harmony" )
-  log_message( "Running conservative myeloid Harmony with theta=", HARMONY_THETA, ", lambda=", HARMONY_LAMBDA, ", harmony version ", harmony_version, "." )
   set.seed( SEED )
   if ( harmony_version >= "2.0.0" ) {
     output <- harmony::RunHarmony( data_mat = pca_embeddings, meta_data = metadata, vars_use = "biological_library", theta = HARMONY_THETA, lambda = HARMONY_LAMBDA, sigma = 0.1, nclust = NULL, max_iter = HARMONY_MAX_ITER, early_stop = TRUE, ncores = HARMONY_NCORES, plot_convergence = FALSE, return_object = FALSE, verbose = TRUE )
@@ -276,11 +264,9 @@ summarize_clustering <- function( metadata, cluster_column, branch, resolution )
   detail_output <- data.frame( record_type = "cluster_detail", branch = detail$branch, resolution = detail$resolution, cluster_column = detail$cluster_column, cluster = detail$cluster, n_cells = detail$n_cells, n_clusters = NA_integer_, minimum_cluster_size = NA_integer_, median_cluster_size = NA_real_, maximum_cluster_size = NA_integer_, n_clusters_lt_100 = NA_integer_, n_clusters_lt_500 = NA_integer_, n_library_dominant_clusters = NA_integer_, n_timepoint_dominant_clusters = NA_integer_, n_parent_dominant_clusters = NA_integer_, n_cycling_phase_dominant_clusters = NA_integer_, adjacent_resolution_ARI = NA_real_, dominant_library = detail$dominant_library, maximum_library_fraction = detail$maximum_library_fraction, dominant_timepoint = detail$dominant_timepoint, maximum_timepoint_fraction = detail$maximum_timepoint_fraction, dominant_parent_cluster = detail$dominant_parent_cluster, maximum_parent_cluster_fraction = detail$maximum_parent_cluster_fraction, dominant_phase = detail$dominant_phase, maximum_phase_fraction = detail$maximum_phase_fraction, stringsAsFactors = FALSE )
   list( summary = summary, detail = detail_output )
 }
-log_message( "Starting package preflight." )
 required_packages <- c( "Matrix", "data.table", "ggplot2", "patchwork", "scales", "Seurat", "SeuratObject", "BPCells", "harmony" )
 missing_packages <- required_packages[ !vapply( required_packages, requireNamespace, quietly = TRUE, FUN.VALUE = logical(1) ) ]
 if ( "harmony" %in% missing_packages ) {
-  log_message( "Installing harmony from CRAN." )
   try( utils::install.packages( "harmony", repos = "https://cloud.r-project.org", dependencies = TRUE ), silent = TRUE )
 }
 missing_after_install <- required_packages[ !vapply( required_packages, requireNamespace, quietly = TRUE, FUN.VALUE = logical(1) ) ]
@@ -303,7 +289,6 @@ write_csv_safe( package_versions, "00_package_versions.csv" )
 if (!file.exists( input_object_path )) {
   stop_with_report( paste0( "Input Step 10D object not found: ", input_object_path ) )
 }
-log_message( "Loading Step 10D evidence object." )
 atlas_obj <- readRDS( input_object_path )
 if (!inherits( atlas_obj, "Seurat" )) {
   stop_with_report( "Input RDS is not a Seurat object." )
@@ -340,17 +325,14 @@ if (anyNA( myeloid_cell_indices )) {
   stop_with_report( "At least one extracted myeloid barcode is absent from the RNA counts layer." )
 }
 if ( isTRUE( FORCE_REWRITE_MYLOID_COUNTS ) && dir.exists( myeloid_counts_dir ) ) {
-  log_message( "Deleting existing myeloid counts BPCells directory." )
   unlink( myeloid_counts_dir, recursive = TRUE, force = TRUE )
 }
 if (!dir.exists( myeloid_counts_dir )) {
-  log_message( "Writing the stable myeloid-only BPCells counts matrix." )
   myeloid_counts_view <- atlas_counts[ , myeloid_cell_indices, drop = FALSE ]
   BPCells::write_matrix_dir( mat = myeloid_counts_view, dir = myeloid_counts_dir, compress = TRUE, overwrite = FALSE )
   rm( myeloid_counts_view )
   invisible( gc() )
 } else {
-  log_message( "Reusing existing myeloid counts BPCells directory: ", myeloid_counts_dir )
 }
 myeloid_counts <- open_bpcells_safe( myeloid_counts_dir )
 if (inherits( myeloid_counts, "error" )) {
@@ -371,7 +353,6 @@ if ( "nFeature_RNA" %in% names( myeloid_metadata ) ) {
   myeloid_metadata$atlas_nFeature_RNA <- myeloid_metadata$nFeature_RNA
   myeloid_metadata$nFeature_RNA <- NULL
 }
-log_message( "Creating the fresh myeloid-only Seurat object." )
 myeloid_obj <- Seurat::CreateSeuratObject( counts = myeloid_counts, assay = "RNA", project = "GSE234774_myeloid_reclustering", meta.data = myeloid_metadata, min.cells = 0, min.features = 0 )
 DefaultAssay( myeloid_obj ) <- "RNA"
 if ( nrow( myeloid_obj ) != 26918L || ncol( myeloid_obj ) != EXPECTED_MYLOID_NUCLEI ) {
@@ -379,7 +360,6 @@ if ( nrow( myeloid_obj ) != 26918L || ncol( myeloid_obj ) != EXPECTED_MYLOID_NUC
 }
 rm( atlas_obj, atlas_counts )
 invisible( gc() )
-log_message( "Running myeloid-only LogNormalize." )
 myeloid_obj <- Seurat::NormalizeData( object = myeloid_obj, assay = "RNA", normalization.method = "LogNormalize", scale.factor = NORMALIZATION_SCALE_FACTOR, block.size = NORMALIZATION_BLOCK_SIZE, verbose = TRUE )
 myeloid_data_layers <- SeuratObject::Layers( object = myeloid_obj, assay = "RNA", search = "^data" )
 if ( length( myeloid_data_layers ) != 1L ) {
@@ -388,7 +368,6 @@ if ( length( myeloid_data_layers ) != 1L ) {
 myeloid_data_layer_name <- myeloid_data_layers[[1L]]
 myeloid_data_view <- SeuratObject::LayerData( object = myeloid_obj, assay = "RNA", layer = myeloid_data_layer_name, fast = FALSE )
 if ( isTRUE( FORCE_REWRITE_MYLOID_DATA ) && dir.exists( myeloid_data_dir ) ) {
-  log_message( "Deleting existing myeloid normalized-data BPCells directory." )
   unlink( myeloid_data_dir, recursive = TRUE, force = TRUE )
 }
 rownames(myeloid_data_view) <- rownames( myeloid_obj )
@@ -409,13 +388,11 @@ write_myeloid_data_matrix <- function() {
   if (dir.exists( myeloid_data_dir )) {
     unlink( myeloid_data_dir, recursive = TRUE, force = TRUE )
   }
-  log_message( "Writing the stable myeloid LogNormalize data BPCells matrix." )
   BPCells::write_matrix_dir( mat = myeloid_data_view, dir = myeloid_data_dir, compress = TRUE, overwrite = FALSE )
 }
 if ( !dir.exists( myeloid_data_dir ) || isTRUE( FORCE_REWRITE_MYLOID_DATA ) ) {
   write_myeloid_data_matrix()
 } else {
-  log_message( "Checking the existing myeloid normalized-data BPCells directory before reuse: ", myeloid_data_dir )
 }
 myeloid_data_disk <- open_bpcells_safe( myeloid_data_dir )
 needs_rebuild <- inherits( myeloid_data_disk, "error" )
@@ -423,10 +400,8 @@ if (!needs_rebuild) {
   initial_validation <- validate_myeloid_data_matrix( matrix_object = myeloid_data_disk, seurat_object = myeloid_obj )
   needs_rebuild <- !isTRUE( initial_validation$pass )
   if (needs_rebuild) {
-    log_message( "Existing normalized BPCells directory failed validation and will be rebuilt. ", "same_dimensions=", initial_validation$same_dimensions, "; same_features=", initial_validation$same_features, "; same_cells=", initial_validation$same_cells, "; observed_dim=", paste( initial_validation$observed_dim, collapse = "x" ), "; expected_dim=", paste( initial_validation$expected_dim, collapse = "x" ), "." )
   }
 } else {
-  log_message( "Existing normalized BPCells directory could not be opened and will be rebuilt: ", conditionMessage( myeloid_data_disk ) )
 }
 if (needs_rebuild) {
   rm( myeloid_data_disk )
@@ -441,11 +416,9 @@ final_data_validation <- validate_myeloid_data_matrix( matrix_object = myeloid_d
 if (!isTRUE( final_data_validation$pass )) {
   stop_with_report( paste0( "Myeloid normalized BPCells matrix still fails validation after automatic rebuild. ", "same_dimensions=", final_data_validation$same_dimensions, "; same_features=", final_data_validation$same_features, "; same_cells=", final_data_validation$same_cells, "; observed_dim=", paste( final_data_validation$observed_dim, collapse = "x" ), "; expected_dim=", paste( final_data_validation$expected_dim, collapse = "x" ), "." ) )
 }
-log_message( "Myeloid normalized BPCells matrix validation PASS: ", paste( final_data_validation$observed_dim, collapse = " x " ), "." )
 myeloid_obj[["RNA"]]$data <- myeloid_data_disk
 rm( myeloid_data_view )
 invisible( gc() )
-log_message( "Scoring cell cycle without regression." )
 utils::data( "cc.genes.updated.2019", package = "Seurat" )
 s_features <- Seurat::CaseMatch( search = cc.genes.updated.2019$s.genes, match = rownames( myeloid_obj ) )
 g2m_features <- Seurat::CaseMatch( search = cc.genes.updated.2019$g2m.genes, match = rownames( myeloid_obj ) )
@@ -457,7 +430,6 @@ if ( length( s_features ) < 20L || length( g2m_features ) < 20L ) {
 myeloid_obj <- Seurat::CellCycleScoring( object = myeloid_obj, s.features = s_features, g2m.features = g2m_features, set.ident = FALSE )
 phase_summary <- data.table::as.data.table( myeloid_obj@meta.data )[ , .( n_cells = .N ), by = .( parent_atlas_cluster, timepoint, Phase ) ]
 write_csv_safe( as.data.frame( phase_summary ), "02_parent_cluster_timepoint_phase_summary.csv" )
-log_message( "Selecting myeloid-only variable features." )
 myeloid_obj <- Seurat::FindVariableFeatures( object = myeloid_obj, assay = "RNA", selection.method = "vst", nfeatures = N_VARIABLE_FEATURES, verbose = TRUE )
 variable_features <- Seurat::VariableFeatures( object = myeloid_obj, assay = "RNA" )
 if ( length( variable_features ) != N_VARIABLE_FEATURES ) {
@@ -471,9 +443,7 @@ if ( length( identity_pca_features ) < 1800L ) {
 }
 variable_feature_audit <- data.frame( feature = variable_features, excluded_from_identity_PCA = variable_features %in% technical_identity_exclusions, exclusion_reason = ifelse( grepl( "^mt-", variable_features, ignore.case = TRUE ), "mitochondrial", ifelse( grepl( "^(Rpl|Rps)", variable_features, ignore.case = TRUE ), "ribosomal", ifelse( grepl( "^Hb[ab]", variable_features, ignore.case = TRUE ), "hemoglobin", ifelse( variable_features %in% cell_cycle_features, "cell_cycle", "" ) ) ) ), stringsAsFactors = FALSE )
 write_csv_safe( variable_feature_audit, "03_myeloid_variable_feature_audit.csv" )
-log_message( "Scaling identity-focused PCA features without regression." )
 myeloid_obj <- Seurat::ScaleData( object = myeloid_obj, assay = "RNA", features = identity_pca_features, vars.to.regress = NULL, do.center = TRUE, do.scale = TRUE, block.size = 1000L, verbose = TRUE )
-log_message( "Running identity-focused myeloid PCA." )
 set.seed( SEED )
 myeloid_obj <- Seurat::RunPCA( object = myeloid_obj, assay = "RNA", features = identity_pca_features, npcs = N_PCS_COMPUTE, reduction.name = "pca_myeloid_identity", reduction.key = "MYPC_", approx = TRUE, seed.use = SEED, verbose = TRUE )
 pca_embeddings <- Seurat::Embeddings( object = myeloid_obj, reduction = "pca_myeloid_identity" )
@@ -497,18 +467,15 @@ for ( branch_index in seq_len( nrow( branch_specs ) ) ) {
   cluster_prefix <- branch_specs$cluster_prefix[ branch_index ]
   umap_name <- branch_specs$umap[ branch_index ]
   graph_names <- c( paste0( graph_prefix, "_nn" ), paste0( graph_prefix, "_snn" ) )
-  log_message( "Building myeloid graph for ", branch, "." )
   myeloid_obj <- Seurat::FindNeighbors( object = myeloid_obj, reduction = reduction_name, dims = PCS_USE, k.param = K_GRAPH, compute.SNN = TRUE, prune.SNN = SNN_PRUNE, nn.method = "annoy", n.trees = N_TREES, annoy.metric = "euclidean", graph.name = graph_names, verbose = TRUE )
   for ( resolution_index in seq_along( RESOLUTIONS ) ) {
     resolution <- RESOLUTIONS[ resolution_index ]
     cluster_column <- cluster_column_name( cluster_prefix, resolution )
-    log_message( "Clustering ", branch, " at resolution ", resolution, "." )
     myeloid_obj <- Seurat::FindClusters( object = myeloid_obj, graph.name = graph_names[[2L]], cluster.name = cluster_column, resolution = resolution, algorithm = 1, n.start = 10L, n.iter = 10L, random.seed = SEED + branch_index * 100L + resolution_index, group.singletons = TRUE, verbose = TRUE )
     clustering_result <- summarize_clustering( metadata = myeloid_obj@meta.data, cluster_column = cluster_column, branch = branch, resolution = resolution )
     summary_rows[[length(summary_rows) + 1L]] <- clustering_result$summary
     detail_rows[[length(detail_rows) + 1L]] <- clustering_result$detail
   }
-  log_message( "Running UMAP for ", branch, "." )
   myeloid_obj <- Seurat::RunUMAP( object = myeloid_obj, reduction = reduction_name, dims = PCS_USE, reduction.name = umap_name, reduction.key = if ( branch == "myeloid_pca_identity" ) {
       "MYPCUMAP_"
     } else {
@@ -535,9 +502,7 @@ for ( branch_index in seq_len( nrow( branch_specs ) ) ) {
 resolution_output <- rbind( resolution_summary, resolution_detail )
 resolution_output <- resolution_output[ order( match( resolution_output$branch, branch_specs$branch ), resolution_output$resolution, resolution_output$record_type, suppressWarnings( as.numeric( resolution_output$cluster ) ) ), , drop = FALSE ]
 write_csv_safe( resolution_output, "04_myeloid_resolution_cluster_summary_and_detail.csv" )
-log_message( "Calculating within-timepoint library mixing for myeloid PCA." )
 mixing_pca <- calculate_within_timepoint_mixing( embeddings = pca_embeddings_use, metadata = myeloid_obj@meta.data, reduction_name = "myeloid_pca_identity", k = K_MIXING )
-log_message( "Calculating within-timepoint library mixing for myeloid Harmony." )
 mixing_harmony <- calculate_within_timepoint_mixing( embeddings = harmony_embeddings, metadata = myeloid_obj@meta.data, reduction_name = "myeloid_harmony_conservative", k = K_MIXING )
 mixing_summary <- rbind( mixing_pca$summaries, mixing_harmony$summaries )
 mixing_summary$timepoint <- factor( mixing_summary$timepoint, levels = expected_timepoints, ordered = TRUE )
@@ -576,7 +541,6 @@ if ( any( marker_panel_availability$present_n < 2L ) ) {
   stop_with_report( paste0( "Fewer than two genes were resolved for marker panel(s): ", paste( failed_panels, collapse = ", " ), "." ) )
 }
 marker_plot_panels <- deduplicate_plot_panels( marker_panels_present )
-log_message( "Creating myeloid PCA/Harmony/resolution review figures." )
 comparison_plots <- list()
 for ( branch_index in seq_len( nrow( branch_specs ) ) ) {
   branch <- branch_specs$branch[ branch_index ]
@@ -601,10 +565,8 @@ for (resolution in RESOLUTIONS) {
   print( Seurat::DotPlot( object = myeloid_obj, features = marker_plot_panels, assay = "RNA", group.by = cluster_column, cluster.idents = FALSE, dot.scale = 6 ) + Seurat::RotatedAxis() + ggplot2::labs( title = paste0( "Myeloid identity/state marker evidence | Harmony resolution ", resolution ), x = NULL, y = "Myeloid Harmony cluster" ) + ggplot2::theme( axis.text.x = ggplot2::element_text( size = 7 ) ) )
 }
 grDevices::dev.off()
-log_message( "Wrote: ", marker_dotplot_path )
 myeloid_obj[["RNA"]]$scale.data <- NULL
 myeloid_obj@misc$GSE234774_step10E <- list( input_object = normalizePath( input_object_path, winslash = "/", mustWork = TRUE ), parent_cluster_column = PARENT_CLUSTER_COLUMN, parent_clusters_kept = PARENT_CLUSTERS_KEEP, expected_myeloid_nuclei = EXPECTED_MYLOID_NUCLEI, normalization = "LogNormalize", variable_features = N_VARIABLE_FEATURES, identity_PCA_features = length( identity_pca_features ), excluded_cell_cycle_features = length( intersect( variable_features, cell_cycle_features ) ), cell_cycle_scored = TRUE, cell_cycle_regressed = FALSE, PCA_reduction = "pca_myeloid_identity", Harmony_reduction = "harmony_myeloid_conservative", Harmony_group = "biological_library", Harmony_theta = HARMONY_THETA, Harmony_lambda = HARMONY_LAMBDA, UMAP_PCA = "umap_myeloid_pca", UMAP_Harmony = "umap_myeloid_harmony", resolutions = RESOLUTIONS, final_resolution_frozen = FALSE, final_myeloid_labels_frozen = FALSE, resident_microglia_object_frozen = FALSE, Arm_1_Arm_2_scoring_run = FALSE, completed_at = as.character( Sys.time() ) )
-log_message( "Saving the Step 10E myeloid comparison object." )
 saveRDS( myeloid_obj, output_object_path, compress = FALSE )
 reload_obj <- tryCatch( readRDS( output_object_path ), error = function(error_object) {
     error_object
@@ -646,34 +608,12 @@ mixing_lines <- apply( mixing_summary, 1L, function(row) {
     paste0( row[["timepoint"]], " | ", row[["reduction"]], ": other-library fraction=", ifelse( is.na( as.numeric( row[["mean_other_library_fraction"]] ) ), "NA", round( as.numeric( row[["mean_other_library_fraction"]] ), 3 ) ), "; entropy=", ifelse( is.na( as.numeric( row[["mean_normalized_library_entropy"]] ) ), "NA", round( as.numeric( row[["mean_normalized_library_entropy"]] ), 3 ) ), "; KNN overlap with PCA=", ifelse( is.na( as.numeric( row[["mean_KNN_overlap"]] ) ), "NA", round( as.numeric( row[["mean_KNN_overlap"]] ), 3 ) ) )
   }
 )
-report_lines <- c( "GSE234774 STEP 10E MYELOID RECLUSTERING / HARMONY / RESOLUTION", "============================================================", paste0( "Run time: ", format( Sys.time(), "%Y-%m-%d %H:%M:%S" ) ), paste0( "Input object: ", input_object_path ), paste0( "Output directory: ", output_dir ), "", paste0( "FINAL DECISION: ", final_decision ), "", "FROZEN EXTRACTION", paste0( "Parent cluster column: ", PARENT_CLUSTER_COLUMN ), paste0( "Parent clusters retained: ", paste( PARENT_CLUSTERS_KEEP, collapse = ", " ) ), paste0( "Myeloid nuclei: ", ncol( myeloid_obj ) ), "", "PREPROCESSING", "Normalization: myeloid-only LogNormalize", paste0( "Variable features: ", length( variable_features ) ), paste0( "Identity-focused PCA features: ", length( identity_pca_features ) ), "Canonical S/G2M genes were scored but excluded from identity-focused PCA features.", "Cell-cycle scores were not regressed.", "Mitochondrial, ribosomal, and hemoglobin genes were excluded from identity-focused PCA features.", "", "DIMENSIONAL REDUCTION", paste0( "PCA dimensions computed: ", N_PCS_COMPUTE ), paste0( "Dimensions used: ", min( PCS_USE ), "-", max( PCS_USE ) ), paste0( "Harmony: theta=", HARMONY_THETA, ", lambda=", HARMONY_LAMBDA, ", group=biological_library" ), paste0( "Mean Harmony-versus-PCA within-timepoint KNN overlap: ", round( mean_harmony_KNN_overlap, 3 ) ), paste0( "Review threshold: mean overlap below ", MIN_ACCEPTABLE_MEAN_KNN_OVERLAP, " indicates strong structural alteration." ), "", "RESOLUTION SUMMARY", resolution_lines, "", "WITHIN-TIMEPOINT MIXING", mixing_lines, "", "INTERPRETATION BOUNDARIES", "1. Parent clusters 1 and 21 are a myeloid candidate compartment, not a clean resident-microglia object.", "2. Excluding canonical cell-cycle genes from PCA prevents proliferation from defining the primary identity axis; Phase remains available for interpretation.", "3. Harmony is used only for embeddings, neighbors, clustering, and visualization.", "4. Better library mixing alone is not sufficient to select the final myeloid reduction or resolution.", "5. Resolution selection must consider marker separation, cluster size, adjacent-resolution stability, library/timepoint dominance, and cycling composition.", "6. Activated resident microglia can lose P2ry12/Tmem119 and gain Apoe/Cst7/Lgals3; such cells must not be automatically called infiltrating macrophages.", "7. No final myeloid subtype, clean resident-microglia set, or Arm_1/Arm_2 result was frozen.", "", "PRIMARY COMPARISON OBJECT", output_object_path, "", "NEXT DECISION AFTER SEVEN-FILE REVIEW", "Select the myeloid reduction and working resolution.", "Then run marker-first myeloid subtype annotation to separate resident, activated/DAM-like, cycling, monocyte/macrophage-like, BAM-like, and ambiguous myeloid states." )
 if ( final_decision == "STOP" ) {
   failed <- audit_checks[ audit_checks$required_for_pass & audit_checks$status != "PASS", , drop = FALSE ]
-  report_lines <- c( report_lines, "", "STOP REASONS" )
   for ( index in seq_len( nrow( failed ) ) ) {
-    report_lines <- c( report_lines, paste0( index, ". ", failed$check[ index ], " -- ", failed$detail[ index ] ) )
   }
 }
 report_path <- file.path( output_dir, "10_STEP10E_FINAL_REPORT.txt" )
-writeLines( report_lines, report_path, useBytes = TRUE )
-log_message( "Final decision: ", final_decision )
-log_message( "Final report: ", report_path )
-cat("\n")
-cat("============================================================\n")
-cat("GSE234774 STEP 10E COMPLETED\n")
-cat( "FINAL DECISION:", final_decision, "\n" )
-cat( "Output:", output_dir, "\n" )
-cat("Primary comparison object:\n")
-cat( " ", output_object_path, "\n", sep = "" )
-cat("Key outputs:\n")
-cat(" 1) figures/01_myeloid_PCA_Harmony_UMAP_comparison.pdf\n")
-cat(" 2) figures/02_myeloid_Harmony_resolution_0.2_to_1.0_UMAP.pdf\n")
-cat(" 3) figures/03_myeloid_marker_DotPlots_by_resolution.pdf\n")
-cat(" 4) tables/04_myeloid_resolution_cluster_summary_and_detail.csv\n")
-cat(" 5) tables/05_myeloid_within_timepoint_library_mixing.csv\n")
-cat(" 6) tables/09_STEP10E_audit_checks.csv\n")
-cat(" 7) 10_STEP10E_FINAL_REPORT.txt\n")
-cat("============================================================\n")
 if ( final_decision == "STOP" ) {
   stop( "GSE234774 Step 10E decision is STOP. Review the final report.", call. = FALSE )
 }

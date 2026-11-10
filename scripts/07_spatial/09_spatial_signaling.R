@@ -85,11 +85,6 @@ suppressPackageStartupMessages({
   library(CellChat)
 })
 run_log <- character()
-log_message <- function(...) {
-  line <- paste0("[", format(Sys.time(), "%Y-%m-%d %H:%M:%S"), "] ", paste0(...))
-  cat(line, "\n")
-  run_log <<- c(run_log, line)
-}
 write_run_log <- function() writeLines(run_log, RUN_LOG, useBytes = TRUE)
 elapsed_minutes <- function(start_time) {
   round(as.numeric(difftime(Sys.time(), start_time, units = "mins")), 3)
@@ -272,7 +267,7 @@ build_reference_support <- function(counts, meta, genes, cell_types) {
     stop("Reference metadata lacks nucleus row names.", call. = FALSE)
   }
   if (!setequal(colnames(counts), rownames(meta))) {
-    stop("Reference count/metadata nucleus names do not match.", call. = FALSE)
+    stop("Reference count/metadata nucleus names match.", call. = FALSE)
   }
   meta <- meta[colnames(counts), , drop = FALSE]
   gene_index <- match(genes, rownames(counts))
@@ -432,7 +427,7 @@ build_adjacency <- function(x, y) {
   adjacency <- Matrix::sparseMatrix( i = ii, j = jj, x = weight_values, dims = c( n_spots, n_spots ), giveCsparse = TRUE )
   maximum_row_sum_deviation <- max( abs( as.numeric( Matrix::rowSums( adjacency ) ) - 1 ) )
   if ( !is.finite( maximum_row_sum_deviation ) || maximum_row_sum_deviation > 1e-8 ) {
-    stop( "Spatial adjacency rows do not sum to 1.", call. = FALSE )
+    stop( "Spatial adjacency rows sum to 1.", call. = FALSE )
   }
   list( adjacency = adjacency, nn_spacing = nn_spacing, neighbor_n = neighbor_n, graph_engine = graph_engine )
 }
@@ -833,18 +828,13 @@ add_review <- function(check_id, category, description, observed, required, acti
   checks <<- rbind( checks, data.table( check_id = check_id, category = category, description = description, status = "REVIEW", observed = as.character(observed), required = as.character(required), critical = FALSE, action_if_not_pass = action_if_not_pass ), fill = TRUE )
 }
 write_fatal_report <- function(reason) {
-  writeLines(c( "============================================================", "GSE234774 Step 12G recipient-neighborhood / LR spatial closure", "============================================================", paste0("Generated: ", format(Sys.time(), "%Y-%m-%d %H:%M:%S")), "", "FINAL_STATUS: STOP", "", paste0("FATAL ERROR: ", reason), "", "- Existing successful section checkpoints were preserved.", "- No spot-level inferential P values were used.", "- The program was not renamed scar-associated.", "============================================================" ), OUT_FINAL_REPORT, useBytes = TRUE)
-  log_message("FATAL ERROR: ", reason)
   write_run_log()
 }
 main <- function() {
   started <- Sys.time()
-  log_message("============================================================")
-  log_message("GSE234774 Step 12G started.")
-  log_message("============================================================")
   required_inputs <- c( STEP12F_REPORT, STEP12F_SPOT_RDS, STEP12E_REPORT, STEP12E_HANDOFF_RDS, STEP12D_REPORT, STEP12D_WEIGHTS_RDS, STEP12C_REPORT, STEP12C_REFERENCE_RDS, STEP12C_REFERENCE_META_RDS, STEP12B_REPORT )
   input_ok <- all(file.exists(required_inputs)) && dir.exists(SPATIAL_BPCELLS_DIR)
-  add_check( "C01", "input", "All frozen upstream inputs and the spatial BPCells directory exist.", input_ok, paste0("files=", sum(file.exists(required_inputs)), "/", length(required_inputs), "; spatial_BPCells=", dir.exists(SPATIAL_BPCELLS_DIR)), "All files and BPCells directory present", TRUE, "Restore upstream outputs; do not reconstruct them." )
+  add_check( "C01", "input", "All frozen upstream inputs and the spatial BPCells directory exist.", input_ok, paste0("files=", sum(file.exists(required_inputs)), "/", length(required_inputs), "; spatial_BPCells=", dir.exists(SPATIAL_BPCELLS_DIR)), "All files and BPCells directory present", TRUE, "Restore upstream outputs; reconstruct them." )
   if (!input_ok) stop("Required Step 12G input is missing.", call. = FALSE)
   get_status <- function(path) {
     lines <- readLines(path, warn = FALSE, encoding = "UTF-8")
@@ -852,9 +842,8 @@ main <- function() {
   }
   status <- c( Step12B = get_status(STEP12B_REPORT), Step12C = get_status(STEP12C_REPORT), Step12D = get_status(STEP12D_REPORT), Step12E = get_status(STEP12E_REPORT), Step12F = get_status(STEP12F_REPORT) )
   upstream_ok <- length(status) == 5L && all(grepl("^FINAL_STATUS: (PASS|PASS_WITH_REVIEW)$", status))
-  add_check( "C02", "upstream", "Step 12B through Step 12F release Step 12G.", upstream_ok, paste(names(status), status, sep = "=", collapse = "; "), "All PASS/PASS_WITH_REVIEW", TRUE, "Do not continue before upstream release." )
+  add_check( "C02", "upstream", "Step 12B through Step 12F release Step 12G.", upstream_ok, paste(names(status), status, sep = "=", collapse = "; "), "All PASS/PASS_WITH_REVIEW", TRUE, "continue before upstream release." )
   if (!upstream_ok) stop("Upstream stage does not release Step 12G.", call. = FALSE)
-  log_message("[1/8] Loading zones, scores, RCTD weights, reference and genes.")
   spot_zones <- as.data.table(readRDS(STEP12F_SPOT_RDS))
   weights <- as.matrix(readRDS(STEP12D_WEIGHTS_RDS))
   spatial_counts <- BPCells::open_matrix_dir(SPATIAL_BPCELLS_DIR)
@@ -869,7 +858,7 @@ main <- function() {
   target_genes <- clean_genes(handoff$target_genes_spatial)
   shared_genes <- clean_genes(handoff$shared_genes_spatial)
   alignment_ok <- nrow(spot_zones) == EXPECTED_SPOTS && nrow(weights) == EXPECTED_SPOTS && ncol(spatial_counts) == EXPECTED_SPOTS && !anyDuplicated(spot_zones$barcode) && setequal(spot_zones$barcode, rownames(weights)) && setequal(spot_zones$barcode, colnames(spatial_counts)) && all(c("Microglia", RECIPIENT_TYPES) %in% colnames(weights)) && length(intersect(toupper(target_genes), toupper(shared_genes))) == 0L
-  add_check( "C03", "alignment", "Spots, weights and frozen target/shared programs are aligned.", alignment_ok, paste0("spots=", nrow(spot_zones), "; weight rows=", nrow(weights), "; target genes=", length(target_genes), "; shared genes=", length(shared_genes)), "33,941 aligned spots and disjoint frozen programs", TRUE, "Do not use misaligned spatial or program inputs." )
+  add_check( "C03", "alignment", "Spots, weights and frozen target/shared programs are aligned.", alignment_ok, paste0("spots=", nrow(spot_zones), "; weight rows=", nrow(weights), "; target genes=", length(target_genes), "; shared genes=", length(shared_genes)), "33,941 aligned spots and disjoint frozen programs", TRUE, "use misaligned spatial or program inputs." )
   if (!alignment_ok) stop("Frozen input alignment failed.", call. = FALSE)
   spot_zones <- spot_zones[match(rownames(weights), barcode)]
   if (!identical(spot_zones$barcode, rownames(weights))) {
@@ -883,7 +872,6 @@ main <- function() {
   design_ok <- uniqueN(spot_zones$section_id) == EXPECTED_SECTIONS && uniqueN(spot_zones[ timepoint %in% INJURED_TIMEPOINTS, section_id ]) == EXPECTED_INJURED_SECTIONS && all(animals_by_timepoint == EXPECTED_ANIMALS_PER_TIMEPOINT)
   add_check( "C04", "design", "The design contains 36 sections, 24 injured sections and 3 animals/timepoint.", design_ok, paste0("sections=", uniqueN(spot_zones$section_id), "; injured sections=", uniqueN(spot_zones[ timepoint %in% INJURED_TIMEPOINTS, section_id ]), "; animals=", paste( names(animals_by_timepoint), animals_by_timepoint, sep = ":", collapse = " | " )), "36 sections, 24 injured, 3 animals/timepoint", TRUE, "Animal is the inferential unit." )
   if (!design_ok) stop("Section/animal design audit failed.", call. = FALSE)
-  log_message("[2/8] Building CellChatDB candidates and snRNA support.")
   db <- load_mouse_db()
   interactions <- standardize_db( db, target_genes, shared_genes, rownames(spatial_counts), rownames(reference_counts) )
   mapped <- interactions[mapping_pass == TRUE]
@@ -908,15 +896,12 @@ main <- function() {
   fwrite(input_audit, OUT_INPUT_AUDIT, bom = TRUE)
   missing_shared <- setdiff( RECIPIENT_TYPES, candidate_counts[program == "Shared_prebranch", recipient_type] )
   if (length(missing_shared) > 0L) {
-    add_review( "R01", "parallel_control", "Shared_prebranch lacks a supported candidate for some recipients.", paste(missing_shared, collapse = " | "), "Use target-vs-shared only where both programs are available.", "Do not add unrelated control ligands." )
+    add_review( "R01", "parallel_control", "Shared_prebranch lacks a supported candidate for some recipients.", paste(missing_shared, collapse = " | "), "Use target-vs-shared only where both programs are available.", "add unrelated control ligands." )
   }
-  log_message("[3/8] Running or reusing 36 section checkpoints.")
   section_ids <- unique( as.character( spot_zones$section_id ) )
   for (index in seq_along( section_ids )) {
     current_section_id <- section_ids[ index ]
-    log_message( "[", index, "/", length( section_ids ), "] ", current_section_id )
     if ( RESUME_COMPLETED && !current_section_id %in% FORCE_RERUN_SECTIONS && section_complete( current_section_id, signature ) ) {
-      log_message( current_section_id, ": matching checkpoint found; skipping." )
       next
     }
     current <- spot_zones[ section_id == current_section_id ]
@@ -930,7 +915,6 @@ main <- function() {
       },
       error = function(e) {
         write_section_failure( current_section_id, conditionMessage( e ) )
-        log_message( current_section_id, " failed: ", conditionMessage( e ) )
         FALSE
       }
     )
@@ -947,7 +931,6 @@ main <- function() {
     fwrite(checks, OUT_CHECKS, bom = TRUE)
     stop("Incomplete sections: ", paste(incomplete, collapse = " | "), call. = FALSE)
   }
-  log_message("[4/8] Combining section outputs.")
   section_results <- lapply( section_ids, function(section_id) readRDS(section_files(section_id)$result) )
   spot_neighborhood <- rbindlist( lapply(section_results, `[[`, "neighborhood"), fill = TRUE )
   spot_neighborhood <- spot_neighborhood[ match(spot_zones$barcode, barcode) ]
@@ -956,63 +939,54 @@ main <- function() {
   section_audit <- rbindlist( lapply(section_results, `[[`, "audit"), fill = TRUE )
   score_columns <- grep( "^(neighbor_|target_neighbor_|shared_neighbor_)", names(spot_neighborhood), value = TRUE )
   spot_ok <- nrow(spot_neighborhood) == EXPECTED_SPOTS && !anyNA(spot_neighborhood$barcode) && !anyDuplicated(spot_neighborhood$barcode) && identical(spot_neighborhood$barcode, spot_zones$barcode) && all(is.finite(as.matrix(spot_neighborhood[, ..score_columns])))
-  add_check( "C07", "neighborhood_output", "Recipient-neighborhood scores cover all spots exactly once and are finite.", spot_ok, paste0("rows=", nrow(spot_neighborhood), "; duplicated=", anyDuplicated(spot_neighborhood$barcode), "; sections=", uniqueN(spot_neighborhood$section_id)), "33,941 unique finite spot rows", TRUE, "Do not aggregate incomplete neighborhood outputs." )
+  add_check( "C07", "neighborhood_output", "Recipient-neighborhood scores cover all spots exactly once and are finite.", spot_ok, paste0("rows=", nrow(spot_neighborhood), "; duplicated=", anyDuplicated(spot_neighborhood$barcode), "; sections=", uniqueN(spot_neighborhood$section_id)), "33,941 unique finite spot rows", TRUE, "aggregate incomplete neighborhood outputs." )
   if (!spot_ok) stop("Combined spot-neighborhood output failed.", call. = FALSE)
   fwrite( spot_neighborhood, OUT_SPOT_NEIGHBORHOOD, bom = TRUE, compress = "gzip" )
   saveRDS(spot_neighborhood, OUT_SPOT_RDS, compress = FALSE)
-  log_message("[5/8] Building recipient-neighborhood animal summaries.")
   neighborhood_section <- build_neighborhood_section_contrasts( spot_neighborhood )
   neighborhood_animals <- aggregate_to_animals( neighborhood_section, c("recipient_type", "metric", "contrast", "zone", "reference_zone"), "zone_minus_remote" )
   neighborhood_inference <- animal_inference( neighborhood_animals, c("recipient_type", "metric", "contrast", "zone", "reference_zone") )
   neighborhood_counts <- neighborhood_animals[, uniqueN( biological_replicate_id ), by = .(timepoint, recipient_type, metric, contrast)]
   neighborhood_unit_ok <- all( neighborhood_counts$V1 == EXPECTED_ANIMALS_PER_TIMEPOINT )
-  add_check( "C08", "recipient_neighborhood", "Every recipient-neighborhood contrast has three animals/timepoint.", neighborhood_unit_ok, paste0("minimum animals=", min(neighborhood_counts$V1), "; maximum animals=", max(neighborhood_counts$V1)), "Exactly 3 animals/group", TRUE, "Do not use spots as independent replicates." )
+  add_check( "C08", "recipient_neighborhood", "Every recipient-neighborhood contrast has three animals/timepoint.", neighborhood_unit_ok, paste0("minimum animals=", min(neighborhood_counts$V1), "; maximum animals=", max(neighborhood_counts$V1)), "Exactly 3 animals/group", TRUE, "use spots as independent replicates." )
   if (!neighborhood_unit_ok) {
     stop("Recipient-neighborhood animal-unit audit failed.", call. = FALSE)
   }
   fwrite(neighborhood_section, OUT_SECTION_NEIGHBORHOOD, bom = TRUE)
   fwrite(neighborhood_animals, OUT_ANIMAL_NEIGHBORHOOD, bom = TRUE)
   fwrite(neighborhood_inference, OUT_NEIGHBORHOOD_INFERENCE, bom = TRUE)
-  log_message("[6/8] Building LR and target-vs-shared animal summaries.")
   required_columns( pair_section, c( "section_id", "timepoint", "biological_replicate_id", "candidate_receiver_id", "candidate_id", "program", "annotation", "pathway_name", "interaction_name", "ligand_entity", "receptor_entity", "recipient_type", "contrast", "lesion_zone", "closure_zone_minus_remote" ), "Pair-level section contrasts" )
   pair_ok <- nrow(pair_section) > 0L && all(is.finite(pair_section$closure_zone_minus_remote)) && uniqueN(pair_section$section_id) == EXPECTED_INJURED_SECTIONS
-  add_check( "C09", "LR_section_output", "Pair-level closure contrasts are finite for all injured sections.", pair_ok, paste0("rows=", nrow(pair_section), "; candidates=", uniqueN(pair_section$candidate_receiver_id), "; sections=", uniqueN(pair_section$section_id)), "Finite rows and 24 injured sections", TRUE, "Do not prioritize incomplete LR outputs." )
+  add_check( "C09", "LR_section_output", "Pair-level closure contrasts are finite for all injured sections.", pair_ok, paste0("rows=", nrow(pair_section), "; candidates=", uniqueN(pair_section$candidate_receiver_id), "; sections=", uniqueN(pair_section$section_id)), "Finite rows and 24 injured sections", TRUE, "prioritize incomplete LR outputs." )
   if (!pair_ok) stop("Pair-level section closure failed.", call. = FALSE)
-  log_message("[6A/8] Materializing LR contrast grouping columns.")
   pair_section[ , reference_zone := "remote" ]
   pair_group_columns <- c( "timepoint", "biological_replicate_id", "candidate_receiver_id", "candidate_id", "program", "annotation", "pathway_name", "interaction_name", "ligand_entity", "receptor_entity", "recipient_type", "contrast", "lesion_zone", "reference_zone" )
   validate_grouping_columns( pair_section, pair_group_columns, "Pair-level section contrasts" )
-  log_message("[6B/8] Aggregating LR section contrasts to animals.")
   pair_animals <- pair_section[ , .( n_sections = uniqueN( section_id ), animal_mean_contrast = safe_mean( closure_zone_minus_remote ), animal_median_contrast = safe_median( closure_zone_minus_remote ), positive_sections = sum( closure_zone_minus_remote > 0 ), negative_sections = sum( closure_zone_minus_remote < 0 ), minimum_section_contrast = min( closure_zone_minus_remote ), maximum_section_contrast = max( closure_zone_minus_remote ) ), by = pair_group_columns ]
   pair_inference_group_columns <- c( "timepoint", "candidate_receiver_id", "candidate_id", "program", "annotation", "pathway_name", "interaction_name", "ligand_entity", "receptor_entity", "recipient_type", "contrast", "lesion_zone", "reference_zone" )
   validate_grouping_columns( pair_animals, pair_inference_group_columns, "Pair-level animal contrasts" )
-  log_message("[6C/8] Building LR animal-level inference.")
   pair_inference <- pair_animals[ , .( n_animals = .N, mean_animal_contrast = safe_mean( animal_mean_contrast ), median_animal_contrast = safe_median( animal_mean_contrast ), sd_animal_contrast = safe_sd( animal_mean_contrast ), minimum_animal_contrast = min( animal_mean_contrast ), maximum_animal_contrast = max( animal_mean_contrast ), positive_animals = sum( animal_mean_contrast > 0 ), negative_animals = sum( animal_mean_contrast < 0 ), exact_sign_test_p = exact_sign_p( animal_mean_contrast ), wilcoxon_signed_rank_p = safe_wilcox_signed_p( animal_mean_contrast ), inference_unit = "biological_animal", spot_level_p_values_used = FALSE ), by = pair_inference_group_columns ]
   pair_count_group_columns <- c( "timepoint", "candidate_receiver_id", "contrast" )
   validate_grouping_columns( pair_animals, pair_count_group_columns, "Pair-level animal-unit audit" )
   pair_counts <- pair_animals[ , .( n_animals = uniqueN( biological_replicate_id ) ), by = pair_count_group_columns ]
   pair_unit_ok <- all( pair_counts$n_animals == EXPECTED_ANIMALS_PER_TIMEPOINT )
-  add_check( "C10", "LR_animal_unit", "Every LR contrast has three animals/timepoint.", pair_unit_ok, paste0( "minimum animals=", min( pair_counts$n_animals ), "; maximum animals=", max( pair_counts$n_animals ) ), "Exactly 3 animals/group", TRUE, "Do not infer LR closure from spot-level replication." )
+  add_check( "C10", "LR_animal_unit", "Every LR contrast has three animals/timepoint.", pair_unit_ok, paste0( "minimum animals=", min( pair_counts$n_animals ), "; maximum animals=", max( pair_counts$n_animals ) ), "Exactly 3 animals/group", TRUE, "infer LR closure from spot-level replication." )
   if (!pair_unit_ok) {
     stop( "LR animal-unit audit failed.", call. = FALSE )
   }
   fwrite( pair_section, OUT_SECTION_LR, bom = TRUE, compress = "gzip" )
   fwrite( pair_animals, OUT_ANIMAL_LR, bom = TRUE, compress = "gzip" )
   fwrite( pair_inference, OUT_LR_INFERENCE, bom = TRUE, compress = "gzip" )
-  log_message("[6D/8] Ranking target-linked LR candidates.")
   priority <- build_target_priority( pair_animals, candidates_all )
   if ( nrow( priority ) == 0L ) {
     stop( "Target LR priority table is empty.", call. = FALSE )
   }
-  log_message( "[6D/8] Target priority completed. Rows: ", nrow( priority ), "; finite scores: ", sum( is.finite( priority$priority_score ) ) )
   fwrite( priority, OUT_TARGET_PRIORITY, bom = TRUE )
   saveRDS( priority, OUT_PRIORITY_RDS, compress = FALSE )
-  log_message("[6E/8] Building target-versus-Shared program summaries.")
   program_section[ , reference_zone := "remote" ]
   program_group_columns <- c( "timepoint", "biological_replicate_id", "program", "recipient_type", "annotation_group", "contrast", "lesion_zone", "reference_zone" )
   validate_grouping_columns( program_section, program_group_columns, "Program-level section contrasts" )
   program_animals <- program_section[ , .( n_sections = uniqueN( section_id ), animal_mean_contrast = safe_mean( program_closure_zone_minus_remote ), animal_median_contrast = safe_median( program_closure_zone_minus_remote ), positive_sections = sum( program_closure_zone_minus_remote > 0 ), negative_sections = sum( program_closure_zone_minus_remote < 0 ) ), by = program_group_columns ]
-  log_message("[6F/8] Merging paired target and Shared program columns.")
   program_pair_keys <- c( "timepoint", "biological_replicate_id", "recipient_type", "annotation_group", "contrast", "lesion_zone", "reference_zone" )
   program_all_protein <- program_animals[ annotation_group == "ALL_PROTEIN" ]
   validate_grouping_columns( program_all_protein, c( program_pair_keys, "program" ), "ALL_PROTEIN program animal rows" )
@@ -1036,23 +1010,20 @@ main <- function() {
   program_wide_paired <- program_wide[ is.finite( target_minus_shared_closure ) ]
   program_ok <- isTRUE( program_columns_present ) && nrow( program_wide_paired ) >
       0L
-  add_check( "C11", "target_vs_shared", "Target and Shared_prebranch closure have finite paired animal rows.", program_ok, paste0( "all rows=", nrow( program_wide ), "; paired rows=", nrow( program_wide_paired ), "; incomplete rows=", nrow( incomplete_program_rows ), "; target column=", "target_program" %in% names( program_wide ), "; shared column=", "Shared_prebranch" %in% names( program_wide ) ), "At least one finite paired animal comparison", TRUE, "Do not claim target specificity without the frozen shared control." )
+  add_check( "C11", "target_vs_shared", "Target and Shared_prebranch closure have finite paired animal rows.", program_ok, paste0( "all rows=", nrow( program_wide ), "; paired rows=", nrow( program_wide_paired ), "; incomplete rows=", nrow( incomplete_program_rows ), "; target column=", "target_program" %in% names( program_wide ), "; shared column=", "Shared_prebranch" %in% names( program_wide ) ), "At least one finite paired animal comparison", TRUE, "claim target specificity without the frozen shared control." )
   if (!isTRUE( program_ok )) {
     stop( "Target-vs-Sharedprebranch comparison failed.", call. = FALSE )
   }
   if ( nrow( incomplete_program_rows ) > 0L ) {
-    add_review( "R05", "target_vs_shared_coverage", "Some recipient/timepoint/contrast rows lack one frozen program.", paste0( "incomplete rows=", nrow( incomplete_program_rows ) ), "Restrict target-minus-shared interpretation to finite paired rows.", "Do not impute missing Shared_prebranch or target closure." )
+    add_review( "R05", "target_vs_shared_coverage", "Some recipient/timepoint/contrast rows lack one frozen program.", paste0( "incomplete rows=", nrow( incomplete_program_rows ) ), "Restrict target-minus-shared interpretation to finite paired rows.", "impute missing Shared_prebranch or target closure." )
   }
   program_inference_group_columns <- c( "timepoint", "recipient_type", "annotation_group", "contrast", "lesion_zone", "reference_zone" )
   validate_grouping_columns( program_wide_paired, program_inference_group_columns, "Target-minus-shared paired animal rows" )
-  log_message( "[6F/8] Paired program rows: ", nrow( program_wide ), "; finite pairs: ", sum( is.finite( program_wide$target_minus_shared_closure ) ) )
-  log_message("[6G/8] Building target-minus-Shared animal inference.")
   program_inference <- program_wide_paired[ , .( n_animals = .N, mean_target_minus_shared = safe_mean( target_minus_shared_closure ), median_target_minus_shared = safe_median( target_minus_shared_closure ), sd_target_minus_shared = safe_sd( target_minus_shared_closure ), positive_animals = sum( target_minus_shared_closure > 0 ), negative_animals = sum( target_minus_shared_closure < 0 ), exact_sign_test_p = exact_sign_p( target_minus_shared_closure ), wilcoxon_signed_rank_p = safe_wilcox_signed_p( target_minus_shared_closure ), inference_unit = "biological_animal", spot_level_p_values_used = FALSE ), by = program_inference_group_columns ]
   fwrite( program_section, OUT_PROGRAM_SECTION, bom = TRUE )
   fwrite( program_animals, OUT_PROGRAM_ANIMAL, bom = TRUE )
   fwrite( program_wide, OUT_PROGRAM_DIFFERENTIAL, bom = TRUE )
   fwrite( program_inference, OUT_PROGRAM_INFERENCE, bom = TRUE )
-  log_message("[7/8] Drawing summary figures.")
   neighborhood_plot <- neighborhood_animals[ metric == "target_neighbor_colocalization" & contrast == "core_minus_remote" ]
   neighborhood_grid <- CJ( timepoint = INJURED_TIMEPOINTS, recipient_type = RECIPIENT_TYPES, sorted = FALSE )
   neighborhood_groups <- lapply(seq_len(nrow(neighborhood_grid)), function(i) {
@@ -1075,19 +1046,18 @@ main <- function() {
   figures_ok <- all(file.exists(figure_paths)) && all(file_size_safe(figure_paths) > 0)
   add_check( "C12", "figures", "All three animal-level summary PDFs were written.", figures_ok, paste( basename(figure_paths), file_size_safe(figure_paths), sep = "=", collapse = "; " ), "Three nonempty PDFs", TRUE, "Review animal points and top-candidate heatmap." )
   if (!figures_ok) stop("Figure generation failed.", call. = FALSE)
-  log_message("[8/8] Writing final report.")
   tier_A_count <- nrow(priority[ priority_tier == "Tier_A_persistent_core_border" ])
   if (tier_A_count == 0L) {
-    add_review( "R02", "target_LR_priority", "No target-linked LR candidate met the strict Tier A rule.", "Tier A count=0", "Retain broader lesion-proximal program interpretation.", "Do not promote isolated single-timepoint pairs." )
+    add_review( "R02", "target_LR_priority", "No target-linked LR candidate met the strict Tier A rule.", "Tier A count=0", "Retain broader lesion-proximal program interpretation.", "promote isolated single-timepoint pairs." )
   }
   target_specific_core <- program_inference[ contrast == "core_minus_remote" ]
   positive_fraction <- mean( target_specific_core$mean_target_minus_shared > 0 )
   if (is.finite(positive_fraction) && positive_fraction < 0.60) {
-    add_review( "R03", "target_specificity", "Target-minus-shared core closure is not positive in most summaries.", paste0("positive fraction=", round(positive_fraction, 3)), "Use recipient-specific rather than global target-specific claims.", "Do not omit Shared_prebranch." )
+    add_review( "R03", "target_specificity", "Target-minus-shared core closure is not positive in most summaries.", paste0("positive fraction=", round(positive_fraction, 3)), "Use recipient-specific rather than global target-specific claims.", "omit Shared_prebranch." )
   }
   neighborhood_primary <- neighborhood_inference[ metric == "target_neighbor_colocalization" & contrast == "core_minus_remote" ]
   if (!isTRUE( all( neighborhood_primary$mean_animal_contrast > 0 ) )) {
-    add_review( "R04", "recipient_neighborhood", "Not all recipient types have positive target-neighborhood core contrasts.", paste( paste0( neighborhood_primary$timepoint, ":", neighborhood_primary$recipient_type, "=", round(neighborhood_primary$mean_animal_contrast, 5) ), collapse = " | " ), "Report recipient-specific heterogeneity.", "Do not generalize one recipient niche to all recipients." )
+    add_review( "R04", "recipient_neighborhood", "Not all recipient types have positive target-neighborhood core contrasts.", paste( paste0( neighborhood_primary$timepoint, ":", neighborhood_primary$recipient_type, "=", round(neighborhood_primary$mean_animal_contrast, 5) ), collapse = " | " ), "Report recipient-specific heterogeneity.", "generalize one recipient niche to all recipients." )
   }
   critical_failures <- checks[critical == TRUE & status == "FAIL"]
   reviews <- checks[status == "REVIEW"]
@@ -1108,36 +1078,13 @@ main <- function() {
   } else {
     "- No finite target candidate priority row."
   }
-  report <- c( "============================================================", "GSE234774 Step 12G recipient-neighborhood / LR spatial closure", "============================================================", paste0("Generated: ", format(Sys.time(), "%Y-%m-%d %H:%M:%S")), paste0("Output directory: ", OUTPUT_DIR), "", paste0("FINAL_STATUS: ", final_status), "", "METHOD BOUNDARY", "- CellChatDB.mouse supplied literature-supported LR priors.", "- Full discrete-label CellChat probabilities were not run because Visium spots are mixed-cell observations represented by continuous RCTD weights.", "- Ligand expression was Microglia-weighted and neighboring receptor expression was recipient-weighted.", "- Target and Shared_prebranch remained frozen and separate.", "- Step 12F lesion zones were not changed.", "- Spatial closure supports proximity and compatibility, not direct molecular binding.", "", "CANDIDATE COVERAGE", paste0("- CellChat version: ", packageVersion("CellChat"), "."), paste0("- Passed candidate-recipient rows: ", nrow(candidates), "."), paste0("- Target Tier A persistent candidates: ", tier_A_count, "."), paste0("- Successful section checkpoints: ", length(completed), "/36."), "", "RECIPIENT-NEIGHBORHOOD CORE RESULTS", neighborhood_lines, "", "TARGET MINUS SHAREDPREBRANCH CORE-CLOSURE RESULTS", specificity_lines, "", "TOP TARGET-LINKED LR CANDIDATES", top_lines, "", "OUTPUT COVERAGE", paste0("- Spots: ", nrow(spot_neighborhood), "/33,941."), paste0("- Injured sections: ", uniqueN(pair_section$section_id), "/24."), paste0( "- Independent injured animals: ", uniqueN(pair_animals[, paste( timepoint, biological_replicate_id, sep = "|" )]), "/6." ), "", "CRITICAL CHECKS", paste0( "- PASS: ", nrow(checks[critical == TRUE & status == "PASS"]), "; FAIL: ", nrow(critical_failures), "." ) )
   if (nrow(reviews) > 0L) {
-    report <- c( report, "", "REVIEW ITEMS", paste0( "- ", reviews$check_id, ": ", reviews$description, " Observed: ", reviews$observed, " Action: ", reviews$action_if_not_pass ) )
   }
-  report <- c( report, "", "INTERPRETATION", if (final_status %in% c("PASS", "PASS_WITH_REVIEW")) {
-      "- Step 12G is technically complete. Recipient-neighborhood, CellChatDB-supported LR closure, and Shared_prebranch-control results are available at section and animal levels."
-    } else {
-      "- Step 12G is not released."
-    },
-    "- Strong evidence requires animal-level consistency, recipient specificity, and positive target-minus-Sharedprebranch closure.", "- With three animals/timepoint, exact P values are low-resolution; effect direction and replication are emphasized.", "- The program is not automatically renamed scar-associated.", "", "NEXT ACTION", "- Review the three PDFs, candidate support table, Tier A list, and target-minus-shared table before temporal snRNA validation.", "", "KEY OUTPUTS:", "- tables/01_step12G_input_database_parameter_audit.csv", "- tables/02_CellChatDB_target_shared_LR_candidate_reference_support.csv", "- tables/04_spot_recipient_neighborhood_scores.csv.gz", "- tables/05_section_recipient_neighborhood_zone_contrasts.csv", "- tables/06_animal_recipient_neighborhood_zone_contrasts.csv", "- tables/07_animal_recipient_neighborhood_inference.csv", "- tables/08_section_LR_spatial_closure_zone_contrasts.csv.gz", "- tables/09_animal_LR_spatial_closure_zone_contrasts.csv.gz", "- tables/10_animal_LR_spatial_closure_inference.csv.gz", "- tables/11_target_LR_priority_summary.csv", "- tables/13_animal_target_vs_shared_program_closure_contrasts.csv", "- tables/15_target_minus_shared_closure_inference.csv", "- figures/01_recipient_neighborhood_animal_contrasts.pdf", "- figures/02_target_vs_Shared_prebranch_program_closure.pdf", "- figures/03_top_target_LR_spatial_closure_heatmap.pdf", "- tables/19_STEP12G_audit_checks.csv", "- 20_STEP12G_FINAL_REPORT.txt", "", "LARGE INTERMEDIATE FILES", paste0("- ", OUT_REFERENCE_SUPPORT), paste0("- ", OUT_SPOT_RDS), paste0("- ", OUT_PRIORITY_RDS), paste0("- ", OUT_HANDOFF_RDS), "- section_checkpoints/", "", paste0("TOTAL ELAPSED TIME: ", elapsed_minutes(started), " minutes"), "============================================================"
-  )
-  writeLines(report, OUT_FINAL_REPORT, useBytes = TRUE)
   writeLines(capture.output(sessionInfo()), SESSION_INFO, useBytes = TRUE)
-  log_message("FINAL_STATUS: ", final_status)
-  log_message("Passed candidate-recipient rows: ", nrow(candidates))
-  log_message("Tier A candidates: ", tier_A_count)
-  log_message("Section checkpoints: ", length(completed), "/36")
-  log_message("Open first: ", OUT_FINAL_REPORT)
   write_run_log()
-  cat("\n============================================================\n")
-  cat("Step 12G completed: ", final_status, "\n", sep = "")
-  cat("Candidate-recipient rows: ", nrow(candidates), "\n", sep = "")
-  cat("Tier A target candidates: ", tier_A_count, "\n", sep = "")
-  cat("Section checkpoints: ", length(completed), "/36\n", sep = "")
-  cat("Open first: ", OUT_FINAL_REPORT, "\n", sep = "")
-  cat("============================================================\n")
   invisible(list( final_status = final_status, target_priority = priority, target_vs_shared = program_inference, neighborhood_inference = neighborhood_inference, checks = checks ))
 }
 tryCatch( main(), error = function(e) {
     write_fatal_report(conditionMessage(e))
-    message("Step 12G stopped: ", conditionMessage(e))
   }
 )

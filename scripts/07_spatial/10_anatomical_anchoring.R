@@ -27,11 +27,6 @@ for (d in c(OUT_DIR, TABLE_DIR, FIGURE_DIR)) {
 }
 RUN_LOG <- file.path(OUT_DIR, "00_run_log.txt")
 writeLines( c( "Step 12K: original-study registered-coordinate anatomical anchoring", paste("Started:", format(Sys.time(), "%Y-%m-%d %H:%M:%S")), paste("Project root:", PROJECT_ROOT) ), RUN_LOG )
-log_event <- function(...) {
-  msg <- paste0( format(Sys.time(), "%Y-%m-%d %H:%M:%S"), "  ", paste0(..., collapse = "") )
-  cat(msg, "\n")
-  cat(msg, "\n", file = RUN_LOG, append = TRUE)
-}
 required_packages <- c("data.table", "ggplot2")
 missing_packages <- required_packages[ !vapply(required_packages, requireNamespace, logical(1), quietly = TRUE) ]
 if (length(missing_packages)) {
@@ -50,7 +45,6 @@ forbidden_input_pattern <- "\\.(rds|rda|rdata|mtx|mtx\\.gz|h5|h5ad|loom|zip)$"
 if (any(grepl(forbidden_input_pattern, input_files, ignore.case = TRUE))) {
   stop("Forbidden input type detected. This script must not read RDS/matrix/ZIP files.")
 }
-log_event("Inputs found. No ZIP, RDS, or expression matrix will be read.")
 assert_fields <- function(x, required, label) {
   missing <- setdiff(required, names(x))
   if (length(missing)) {
@@ -69,10 +63,8 @@ sign_test_p <- function(x, direction = c("positive", "negative")) {
   k <- if (direction == "positive") sum(x > 0) else sum(x < 0)
   stats::binom.test(k, n, p = 0.5, alternative = "two.sided")$p.value
 }
-log_event("Reading deposited GSE234774 spatial 2D metadata.")
 meta <- data.table::fread(RAW_META, data.table = TRUE, showProgress = FALSE)
 assert_fields( meta, c("barcode", "id", "spot", "group", "replicate", "x", "y", "z"), "Deposited spatial metadata" )
-log_event("Reading frozen R2MC4-revised Step12F spot table.")
 spot_con <- gzfile(STEP12F_SPOT_FILE, open = "rt")
 spots <- data.table::as.data.table( utils::read.csv( spot_con, check.names = FALSE, stringsAsFactors = FALSE ) )
 close(spot_con)
@@ -94,9 +86,8 @@ coordinate_provenance <- data.table( item = c( "n_deposited_metadata_rows", "n_f
 fwrite( coordinate_provenance, file.path(TABLE_DIR, "02_registered_coordinate_provenance_audit.csv") )
 coord_exact <- all(c( max(abs(spots$delta_x), na.rm = TRUE), max(abs(spots$delta_y), na.rm = TRUE), max(abs(spots$delta_z), na.rm = TRUE) ) <= COORDINATE_TOLERANCE)
 if (!coord_exact) {
-  stop( "Frozen Step12F x/y/z coordinates differ from deposited GSE234774 metadata. ", "Do not continue anatomical anchoring until provenance is resolved.", call. = FALSE )
+  stop( "Frozen Step12F x/y/z coordinates differ from deposited GSE234774 metadata. ", "continue anatomical anchoring until provenance is resolved.", call. = FALSE )
 }
-log_event("Coordinate provenance PASS: frozen Step12F x/y/z reproduce deposited metadata.")
 uninjured <- meta[as.character(group) == "uninjured"]
 if (uniqueN(uninjured$id) != 12L) {
   stop("Expected 12 uninjured 2D sections in deposited metadata.", call. = FALSE)
@@ -160,7 +151,7 @@ add_check( "C06", "design", "Each injured biological animal contributes exactly 
 add_check( "C07", "anatomical_anchor", "RCTD-zone median distance is strictly ordered core < border < perilesional < remote in sections.", all(section_wide$strict_core_border_perilesional_remote), paste0( sum(section_wide$strict_core_border_perilesional_remote), "/", nrow(section_wide), " sections" ), "Descriptive result; no value is forced", "Direct section-level concordance with lesion-centred registered anatomy." )
 add_check( "C08", "anatomical_anchor", "RCTD-zone mean section-median distance is strictly ordered core < border < perilesional < remote in animals.", all(animal_wide$strict_core_border_perilesional_remote), paste0( sum(animal_wide$strict_core_border_perilesional_remote), "/", nrow(animal_wide), " animals" ), "Descriptive result; no value is forced", "Primary biological-replicate-level anatomical anchoring result." )
 add_check( "C09", "independence", "No manual histology annotation, RDS, expression matrix, or ZIP is used.", TRUE, "Only deposited spatial metadata and frozen Step12F CSV.GZ are read.", "No manual ROI; no RDS; no MTX/H5/H5AD; no ZIP", "Avoids subjective new lesion drawing and keeps the anchor independent of target-program scoring." )
-add_check( "C10", "claim_scope", "Distance bands are not mislabeled as original-author barcode-level lesion compartments.", TRUE, "Output labels use registered distance bands and landmark fractions.", "Do not call these exact fibrotic-scar/astrocyte-barrier masks", "Maintains a defensible claim: anatomical anchoring, not independent histopathological ground truth." )
+add_check( "C10", "claim_scope", "Distance bands are not mislabeled as original-author barcode-level lesion compartments.", TRUE, "Output labels use registered distance bands and landmark fractions.", "call these exact fibrotic-scar/astrocyte-barrier masks", "Maintains a defensible claim: anatomical anchoring, not independent histopathological ground truth." )
 fwrite( checks, file.path(TABLE_DIR, "09_STEP12K_audit_checks.csv") )
 ZONE_COLORS <- c( core = "#CC4D4D", border = "#F0A44B", perilesional = "#4C89AC", remote = "#BFC7CD" )
 TIME_LABELS <- c("7days" = "7 dpi", "2months" = "2 months")
@@ -188,20 +179,4 @@ p_remote_peri <- sign_test_p( animal_increments$remote_minus_perilesional_distan
 p_remote_core <- sign_test_p( animal_increments$remote_minus_core_distance_um, "positive" )
 timepoint_distance_summary <- animal_zone[ , .( n_animals = uniqueN(biological_replicate_id), mean_animal_distance_um = mean(mean_of_section_median_distance_um, na.rm = TRUE), min_animal_distance_um = min(mean_of_section_median_distance_um, na.rm = TRUE), max_animal_distance_um = max(mean_of_section_median_distance_um, na.rm = TRUE) ), by = .(timepoint, lesion_zone) ]
 setorder(timepoint_distance_summary, timepoint, lesion_zone)
-report <- c( "STEP12K FINAL REPORT", "====================", "", "Analysis:", "  Original-study registered-coordinate anatomical anchoring of the frozen RCTD lesion zones.", "", "Key safeguards:", "  - No ZIP input.", "  - No RDS input.", "  - No expression matrix.", "  - No manual histology annotation.", "  - No lesion-zone redefinition.", "  - The external anatomical anchor is the deposited GSE234774 registered x/y/z coordinate frame.", "  - Step12F x/y/z were verified barcode-by-barcode against the deposited metadata.", "", paste0( "Deposited common-coordinate centre audit: median uninjured-section X midpoint = ", sprintf("%.3f", deposited_geometry_centre), " (frozen centre x=", REGISTERED_EPICENTRE_X_UM, ")." ), paste0( "Coordinate provenance: max absolute x/y/z deltas = ", signif(max(abs(spots$delta_x), na.rm = TRUE), 4), " / ", signif(max(abs(spots$delta_y), na.rm = TRUE), 4), " / ", signif(max(abs(spots$delta_z), na.rm = TRUE), 4), "." ), "", paste0( "Section-level anatomical ordering core < border < perilesional < remote: ", n_sections_strict, "/", nrow(section_wide), " sections." ), paste0( "Animal-level anatomical ordering core < border < perilesional < remote: ", n_animals_strict, "/", nrow(animal_wide), " biological animals." ), "", "Animal-level exact sign tests for increasing registered distance:", paste0("  border - core > 0: P = ", signif(p_border_core, 4)), paste0("  perilesional - border > 0: P = ", signif(p_peri_border, 4)), paste0("  remote - perilesional > 0: P = ", signif(p_remote_peri, 4)), paste0("  remote - core > 0: P = ", signif(p_remote_core, 4)), "", "Timepoint-level mean animal distances from the registered epicentre:", paste( apply( as.data.frame(timepoint_distance_summary), 1, function(r) {
-        paste0( "  ", r[["timepoint"]], " | ", r[["lesion_zone"]], ": mean=", sprintf("%.1f", as.numeric(r[["mean_animal_distance_um"]])), " um; range=", sprintf("%.1f", as.numeric(r[["min_animal_distance_um"]])), "-", sprintf("%.1f", as.numeric(r[["max_animal_distance_um"]])), " um" )
-      }
-    ), collapse = "\n"
-  ), "", "Interpretation:", "  If the ordering is reproduced across animals, the frozen RCTD-defined lesion zones", "  are anatomically concordant with the lesion-centred coordinate framework deposited", "  by the original GSE234774 study. This supports ANATOMICAL ANCHORING but does not", "  constitute independent histopathological validation and does not establish the", "  cellular source of the target-program signal.", "", "Claim-scope warning:", "  Do NOT describe the <=250/500/1000-um summaries as exact original-author", "  fibrotic-scar / astrocyte-barrier / neural-tissue barcode labels. The exact", "  barcode-level compartment annotations were not publicly available to this analysis.", "", paste("Finished:", format(Sys.time(), "%Y-%m-%d %H:%M:%S"))
-)
-writeLines( report, file.path(OUT_DIR, "10_STEP12K_FINAL_REPORT.txt") )
 capture.output( sessionInfo(), file = file.path(OUT_DIR, "00_sessionInfo.txt") )
-log_event( "Completed Step12K. Animal strict ordering: ", n_animals_strict, "/", nrow(animal_wide), "." )
-log_event("Final report: ", file.path(OUT_DIR, "10_STEP12K_FINAL_REPORT.txt"))
-message("==============================================================")
-message("Step12K complete.")
-message("Output: ", OUT_DIR)
-message("Primary table: ", file.path(TABLE_DIR, "05_animal_zone_registered_distance_summary.csv"))
-message("Audit: ", file.path(TABLE_DIR, "09_STEP12K_audit_checks.csv"))
-message("Report: ", file.path(OUT_DIR, "10_STEP12K_FINAL_REPORT.txt"))
-message("==============================================================")

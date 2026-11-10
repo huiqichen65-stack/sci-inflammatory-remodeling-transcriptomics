@@ -33,9 +33,6 @@ suppressPackageStartupMessages( library(Matrix) )
 timestamp <- function() {
   format( Sys.time(), "%Y-%m-%d %H:%M:%S" )
 }
-msg <- function(...) {
-  cat( paste0( "[", timestamp(), "] ", paste0(..., collapse = "") ), "\n" )
-}
 write_utf8_csv <- function(x, path) {
   utils::write.csv( x, file = path, row.names = FALSE, fileEncoding = "UTF-8", na = "" )
 }
@@ -169,9 +166,6 @@ system2_capture <- function(command, args = character(0)) {
   }
   list( status = as.integer(status), output = clean_python_output(out) )
 }
-msg("====================================================")
-msg("GSE162610 Step 7A | pySCENIC input/environment audit")
-msg("====================================================")
 input_file_audit <- data.frame( input_name = names(INPUT_FILES), path = safe_normalize_path(unname(INPUT_FILES)), exists = file.exists(unname(INPUT_FILES)), size_bytes = ifelse( file.exists(unname(INPUT_FILES)), file.info(unname(INPUT_FILES))$size, NA_real_ ), stringsAsFactors = FALSE )
 input_file_audit$size_human <- vapply( input_file_audit$size_bytes, format_bytes, FUN.VALUE = character(1) )
 write_utf8_csv( input_file_audit, file.path( TABDIR, "01_input_file_audit.csv" ) )
@@ -179,15 +173,11 @@ if (any(!input_file_audit$exists)) {
   missing_paths <- input_file_audit$path[ !input_file_audit$exists ]
   abort_step( paste0( "Formal Step 7 input files are missing:\n", paste(missing_paths, collapse = "\n") ) )
 }
-msg("All formal input files exist.")
-msg("Loading full clean microglia Seurat object...")
 full_obj <- readRDS( INPUT_FILES[["full_clean_microglia"]] )
 if (!inherits(full_obj, "Seurat")) {
   abort_step( "The Step3D full clean microglia RDS is not a Seurat object." )
 }
-msg("Loading Step5C-R result object...")
 step5cr <- readRDS( INPUT_FILES[["step5CR_results"]] )
-msg("Loading Step6B dynamic-module result object...")
 step6b <- readRDS( INPUT_FILES[["step6B_results"]] )
 required_step5cr <- c( "prebranch_cells", "arm1_cells", "arm2_cells", "analysis_metadata", "progressive_shape_genes", "strong_progressive_genes" )
 missing_step5cr <- setdiff( required_step5cr, names(step5cr) )
@@ -215,27 +205,22 @@ state_counts <- table( factor( analysis_meta$state, levels = names(EXPECTED_STAT
 state_count_audit <- data.frame( state = names(EXPECTED_STATE_COUNTS), expected_n = as.integer(EXPECTED_STATE_COUNTS), observed_n = as.integer(state_counts), exact_match = as.integer(state_counts) == as.integer(EXPECTED_STATE_COUNTS), stringsAsFactors = FALSE )
 write_utf8_csv( state_count_audit, file.path( TABDIR, "03_frozen_state_count_audit.csv" ) )
 if ( nrow(analysis_meta) != EXPECTED_TOTAL_CELLS || any(!state_count_audit$exact_match) ) {
-  abort_step( paste0( "Frozen Step5C-R cell counts do not exactly match the formal set.\n", capture_table(state_count_audit) ) )
+  abort_step( paste0( "Frozen Step5C-R cell counts exactly match the formal set.\n", capture_table(state_count_audit) ) )
 }
 frozen_cells <- as.character( analysis_meta$cell )
 if ( !setequal( frozen_cells, c( as.character(step5cr[["prebranch_cells"]]), as.character(step5cr[["arm1_cells"]]), as.character(step5cr[["arm2_cells"]]) ) ) ) {
-  abort_step( paste0( "analysis_metadata cells do not exactly match ", "prebranch_cells + arm1_cells + arm2_cells." ) )
+  abort_step( paste0( "analysis_metadata cells exactly match ", "prebranch_cells + arm1_cells + arm2_cells." ) )
 }
 missing_in_seurat <- setdiff( frozen_cells, colnames(full_obj) )
 if (length(missing_in_seurat) > 0) {
   abort_step( paste0( length(missing_in_seurat), " frozen cells are absent from the Step3D Seurat object." ) )
 }
-msg("Frozen cells verified: ", length(frozen_cells))
-msg("  Shared_prebranch: ", state_counts[["Shared_prebranch"]])
-msg("  Arm_1: ", state_counts[["Arm_1"]])
-msg("  Arm_2: ", state_counts[["Arm_2"]])
-msg("Extracting sparse RNA raw counts...")
 counts_all <- get_rna_layer( full_obj, layer_name = "counts" )
 if (!inherits(counts_all, "sparseMatrix")) {
   counts_all <- methods::as( counts_all, "dgCMatrix" )
 }
 if (anyDuplicated(rownames(counts_all)) > 0) {
-  abort_step( paste0( "RNA count matrix contains duplicated gene names. ", "Do not use make.unique() because it would break motif/TF matching." ) )
+  abort_step( paste0( "RNA count matrix contains duplicated gene names. ", "use make.unique() because it would break motif/TF matching." ) )
 }
 counts_frozen <- counts_all[ , frozen_cells, drop = FALSE ]
 counts_frozen <- methods::as( counts_frozen, "dgCMatrix" )
@@ -285,7 +270,6 @@ norm_frozen <- tryCatch( {
     methods::as( norm_use, "dgCMatrix" )
   },
   error = function(e) {
-    msg( "RNA data layer unavailable; computing sparse LogNormalize from raw counts." )
     sparse_log_normalize( counts_frozen )
   }
 )
@@ -306,7 +290,6 @@ for (module_name_current in module_names) {
 module_score_audit <- do.call( rbind, module_score_audit )
 rownames(module_score_audit) <- NULL
 write_utf8_csv( module_score_audit, file.path( TABDIR, "04_step6B_module_score_audit.csv" ) )
-msg("Searching local mouse pySCENIC resources...")
 resource_files <- find_resource_files( RESOURCE_DIR_CANDIDATES )
 resource_basename <- basename(resource_files)
 mouse_feather_candidates <- resource_files[ grepl( "\\.feather$", resource_basename, ignore.case = TRUE ) & grepl( "mm10|mm9|mus_musculus", resource_basename, ignore.case = TRUE ) ]
@@ -348,12 +331,8 @@ TF_FILE_SELECTED <- if ( length(valid_tf_candidates) > 0 ) {
 }
 mouse_tfs <- read_tf_file( TF_FILE_SELECTED )
 if (length(mouse_tfs) > 0) {
-  msg( "Mouse TF list selected: ", safe_normalize_path(TF_FILE_SELECTED) )
-  msg("Mouse TF entries: ", length(mouse_tfs))
 } else {
-  msg( "No valid local mouse TF list found. ", "The count matrix can still be exported, but Step 7A cannot PASS." )
 }
-msg("Calculating gene-level count statistics...")
 detected_cells <- Matrix::rowSums( counts_frozen > 0 )
 total_counts <- Matrix::rowSums( counts_frozen )
 n_frozen <- ncol(counts_frozen)
@@ -376,11 +355,10 @@ write_utf8_csv( gene_filter_audit, file.path( TABDIR, "06_gene_filter_and_TF_aud
 gene_filter_summary <- data.frame( metric = c( "Frozen cells", "Genes before filter", "Standard minimum detected cells", "Standard minimum total counts", "TF rescue minimum detected cells", "TF rescue minimum total counts", "Genes passing standard filter", "TF genes in raw matrix", "TF genes passing standard filter", "TF genes rescued", "Genes retained final", "Mitochondrial genes retained", "Ribosomal genes retained", "Immediate-early candidates retained" ), value = c( n_frozen, nrow(counts_frozen), standard_min_cells, standard_min_counts, tf_min_cells, MIN_TF_TOTAL_COUNTS, sum(standard_keep), sum(is_mouse_tf), sum(is_mouse_tf & standard_keep), sum(tf_rescue & !standard_keep), sum(final_keep), sum(final_keep & gene_category == "mitochondrial"), sum(final_keep & gene_category == "ribosomal"), sum( final_keep & gene_names %in% immediate_early_candidates ) ), stringsAsFactors = FALSE )
 write_utf8_csv( gene_filter_summary, file.path( TABDIR, "07_gene_filter_summary.csv" ) )
 if (sum(final_keep) < 1000) {
-  abort_step( paste0( "Fewer than 1,000 genes remain after filtering. ", "Do not proceed to GRN." ) )
+  abort_step( paste0( "Fewer than 1,000 genes remain after filtering. ", "proceed to GRN." ) )
 }
 counts_filtered <- counts_frozen[ final_keep, , drop = FALSE ]
 counts_filtered <- methods::as( counts_filtered, "dgCMatrix" )
-msg( "Genes retained for pySCENIC input: ", nrow(counts_filtered) )
 cell_metadata <- cell_metadata[ match( colnames(counts_filtered), cell_metadata$cell ), , drop = FALSE ]
 if ( !identical( as.character(cell_metadata$cell), colnames(counts_filtered) ) ) {
   abort_step( "Final metadata order does not match filtered count-matrix columns." )
@@ -414,7 +392,6 @@ write_utf8_csv( cell_metadata, file.path( INPUTDIR, "GSE162610_step7A_frozen_420
 MTX_FILE <- file.path( INPUTDIR, "GSE162610_step7A_frozen_4203_raw_counts_genes_by_cells.mtx" )
 GENE_FILE <- file.path( INPUTDIR, "GSE162610_step7A_frozen_4203_genes.tsv" )
 BARCODE_FILE <- file.path( INPUTDIR, "GSE162610_step7A_frozen_4203_barcodes.tsv" )
-msg("Writing sparse Matrix Market file...")
 Matrix::writeMM( obj = counts_filtered, file = MTX_FILE )
 utils::write.table( data.frame(gene = rownames(counts_filtered)), file = GENE_FILE, sep = "\t", quote = FALSE, row.names = FALSE, col.names = FALSE )
 utils::write.table( data.frame(cell = colnames(counts_filtered)), file = BARCODE_FILE, sep = "\t", quote = FALSE, row.names = FALSE, col.names = FALSE )
@@ -426,7 +403,6 @@ export_audit <- data.frame( file_role = c( "raw_counts_matrix", "genes", "barcod
 export_audit$size_human <- vapply( export_audit$size_bytes, format_bytes, FUN.VALUE = character(1) )
 write_utf8_csv( export_audit, file.path( TABDIR, "09_export_file_audit.csv" ) )
 export_pass <- all(export_audit$exists)
-msg("Auditing Python and pySCENIC environments...")
 PY_PROBE_FILE <- file.path( PROBEDIR, "python_environment_probe.py" )
 writeLines( c( "import sys", "import importlib", "import importlib.metadata as metadata", "", "packages = [", " 'pyscenic',", " 'arboreto',", " 'ctxcore',", " 'pandas',", " 'numpy',", " 'loompy',", " 'dask',", " 'numba',", " 'scanpy',", " 'pyarrow'", "]", "", "print('python_executable\\t' + str(sys.executable))", "print('python_version\\t' + str(sys.version).replace('\\n', ' '))", "", "for package in packages:", " try:", " module = importlib.import_module(package)", " try:", " version = metadata.version(package)", " except Exception:", " version = getattr(module, '__version__', 'installed_version_unknown')", " print(package + '\\tPASS\\t' + str(version) + '\\t')", " except Exception as exc:", " text = str(exc).replace('\\t', ' ').replace('\\n', ' ')", " print(package + '\\tFAIL\\tNA\\t' + text)" ), con = PY_PROBE_FILE, useBytes = TRUE )
 known_python_paths <- c( Sys.getenv("PYSCENIC_PYTHON"), unname(Sys.which("python")), unname(Sys.which("python3")), file.path( Sys.getenv("USERPROFILE"), "miniconda3", "envs", "pyscenic_env", "python.exe" ), file.path( Sys.getenv("USERPROFILE"), "anaconda3", "envs", "pyscenic_env", "python.exe" ), file.path( Sys.getenv("LOCALAPPDATA"), "miniconda3", "envs", "pyscenic_env", "python.exe" ), "C:/ProgramData/miniconda3/envs/pyscenic_env/python.exe", "C:/ProgramData/anaconda3/envs/pyscenic_env/python.exe" )
@@ -505,7 +481,7 @@ input_pass <- input_matrix_pass && input_metadata_pass && tf_filter_pass
 environment_pass <- python_import_pass && python_cli_pass
 if ( input_pass && environment_pass && database_pass ) {
   FINAL_STATUS <- "PASS"
-  NEXT_ACTION <- paste0( "Step 7A passed. Proceed to Step 7B GRNBoost2 planning, ", "using the frozen 4,203-cell input. Do not change branch labels." )
+  NEXT_ACTION <- paste0( "Step 7A passed. Proceed to Step 7B GRNBoost2 planning, ", "using the frozen 4,203-cell input. change branch labels." )
 } else if (
   input_matrix_pass && input_metadata_pass
 ) {
@@ -513,26 +489,11 @@ if ( input_pass && environment_pass && database_pass ) {
   NEXT_ACTION <- paste0( "The frozen sparse input is prepared, but one or more of the ", "mouse TF list, Python/pySCENIC CLI, or cisTarget resources is incomplete. ", "Repair the environment/resources before running GRNBoost2." )
 } else {
   FINAL_STATUS <- "FAIL"
-  NEXT_ACTION <- paste0( "Do not start GRNBoost2. Resolve the failed input/metadata audit first." )
+  NEXT_ACTION <- paste0( "start GRNBoost2. Resolve the failed input/metadata audit first." )
 }
 decision_table <- data.frame( domain = c( "Formal input files", "Frozen state counts", "Sparse raw-count matrix", "Required cell metadata", "Step6B module metadata", "Mouse TF filtering", "Python required-package imports", "pySCENIC CLI via system2", "Mouse cisTarget feather", "Mouse motif annotation", "Mouse TF list", "Overall Step 7A" ), pass = c( all(input_file_audit$exists), all(state_count_audit$exact_match), input_matrix_pass, critical_metadata_pass, module_metadata_pass, tf_filter_pass, python_import_pass, python_cli_pass, nrow(valid_feather) >= 1L, nrow(valid_annotation) >= 1L, nrow(valid_tf_audit) >= 1L && length(mouse_tfs) >= 100L, FINAL_STATUS == "PASS" ), status = c( ifelse( all(input_file_audit$exists), "PASS", "FAIL" ), ifelse( all(state_count_audit$exact_match), "PASS", "FAIL" ), ifelse( input_matrix_pass, "PASS", "FAIL" ), ifelse( critical_metadata_pass, "PASS", "FAIL" ), ifelse( module_metadata_pass, "PASS", "FAIL" ), ifelse( tf_filter_pass, "PASS", "PARTIAL/FAIL" ), ifelse( python_import_pass, "PASS", "FAIL" ), ifelse( python_cli_pass, "PASS", "FAIL" ), ifelse( nrow(valid_feather) >= 1L, "PASS", "FAIL" ), ifelse( nrow(valid_annotation) >= 1L, "PASS", "FAIL" ), ifelse( nrow(valid_tf_audit) >= 1L && length(mouse_tfs) >= 100L, "PASS", "FAIL" ), FINAL_STATUS ), stringsAsFactors = FALSE )
 write_utf8_csv( decision_table, file.path( TABDIR, "13_final_decision_table.csv" ) )
 selected_resource_lines <- c( paste0( "Selected Python: ", ifelse( is.na(PYTHON_SELECTED), "<none>", PYTHON_SELECTED ) ), paste0( "Selected mouse TF file: ", ifelse( is.na(TF_FILE_SELECTED), "<none>", safe_normalize_path( TF_FILE_SELECTED ) ) ), paste0( "Valid mouse feather files: ", nrow(valid_feather) ), paste0( "Valid mouse motif annotation files: ", nrow(valid_annotation) ), paste0( "Valid mouse TF-list files: ", nrow(valid_tf_audit) ) )
-report_lines <- c( "======================================================================", "GSE162610 | STEP 7A REPORT", "pySCENIC input preparation and environment audit", "======================================================================", "", paste0("Generated: ", timestamp()), paste0("Project root: ", PROJECT_ROOT), paste0("Overall status: ", FINAL_STATUS), "", "FORMAL SCOPE:", "Step 7A only. No GRNBoost2, motif pruning, AUCell, RSS or CSI was run.", "", "FROZEN CELL SET:", capture_table(state_count_audit), "", "RAW-COUNT INPUT:", paste0( "Filtered sparse matrix: ", nrow(counts_filtered), " genes x ", ncol(counts_filtered), " cells" ), paste0( "Non-zero entries: ", length(counts_filtered@x) ), paste0( "Matrix orientation: genes x cells" ), paste0( "Matrix file: ", safe_normalize_path(MTX_FILE) ), "", "GENE FILTER:", capture_table(gene_filter_summary), "", "FILTERING INTERPRETATION:", paste0( "Very-low-expression genes were filtered. Mouse TFs received only a ", "conservative expression-based rescue. Mitochondrial/ribosomal genes ", "were flagged but not mechanically deleted. Immediate-early candidates ", "such as Junb and Egr1 were not automatically removed." ), "", "CELL METADATA:", paste0( "Required trajectory metadata pass: ", critical_metadata_pass ), paste0( "Step6B per-cell module-score metadata pass: ", module_metadata_pass ), paste0( "Module-score method: mean RNA log-normalized expression across each ", "formal Step6B module; metadata/audit only; not used to define branches." ), "", "PYTHON / PYSCENIC:", selected_resource_lines, paste0( "Required Python imports pass: ", python_import_pass ), paste0( "pySCENIC CLI callable by R system2(): ", python_cli_pass ), "", "CISTARGET DATABASE:", paste0( "Database/resource pass: ", database_pass ), "A database PASS requires a readable mouse feather ranking database,", "a readable mouse/mgi motif annotation table, and a valid non-HTML mouse TF list.", "", "RESOURCE ESTIMATE:", capture_table(resource_estimate), "", "FINAL DECISION:", capture_table(decision_table), "", "NEXT ACTION:", NEXT_ACTION, "", "IMPORTANT:", "Do not run commands copied directly from the reference 13.R template.", "That template converts counts to a dense CSV, mixes Linux terminal commands", "with R code, includes human database names in the example commands, and", "contains a setwd typo. This Step 7A script deliberately avoids those issues.", "", "KEY OUTPUTS TO KEY OUTPUTS:", "1) reports/Step7A_report.txt", "2) tables/03_frozen_state_count_audit.csv", "3) tables/07_gene_filter_summary.csv", "4) tables/10_python_environment_audit.csv", "5) tables/05_cistarget_database_audit.csv" )
-writeLines( report_lines, con = OUT_REPORT, useBytes = TRUE )
 writeLines( capture.output( sessionInfo() ), con = OUT_SESSION, useBytes = TRUE )
 rm( norm_frozen, counts_frozen, full_obj, seurat_meta, seurat_meta_frozen )
 gc()
-msg("====================================================")
-msg("STEP 7A COMPLETE")
-msg("====================================================")
-msg("Status: ", FINAL_STATUS)
-msg( "Frozen sparse matrix: ", nrow(counts_filtered), " genes x ", ncol(counts_filtered), " cells" )
-msg("Output directory: ", OUTDIR)
-msg("")
-msg("Key outputs:")
-msg("1) reports/Step7A_report.txt")
-msg("2) tables/03_frozen_state_count_audit.csv")
-msg("3) tables/07_gene_filter_summary.csv")
-msg("4) tables/10_python_environment_audit.csv")
-msg("5) tables/05_cistarget_database_audit.csv")

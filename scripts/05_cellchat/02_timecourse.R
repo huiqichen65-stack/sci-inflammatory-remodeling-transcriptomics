@@ -2,7 +2,6 @@ rm(list = ls())
 gc()
 options( stringsAsFactors = FALSE, width = 240, warn = 1, timeout = 86400, future.globals.maxSize = 32 * 1024^3 )
 set.seed(20260802)
-cat("R parser check PASS: the complete Step8B file was parsed by source().\n")
 PROJECT_ROOT <- Sys.getenv("GLIA_PROJECT_ROOT", unset = normalizePath(".", winslash = "/", mustWork = FALSE))
 FORMAL_TIMEPOINTS <- c( "1dpi", "3dpi", "7dpi" )
 FORMAL_BRANCH_SENDERS <- c( "Microglia_Arm_1", "Microglia_Arm_2" )
@@ -83,10 +82,6 @@ if ( !is.finite(N_WORKERS) || N_WORKERS < 1L ) {
 }
 timestamp <- function() {
   format( Sys.time(), "%Y-%m-%d %H:%M:%S" )
-}
-msg <- function(...) {
-  cat( sprintf( "[%s] %s\n", timestamp(), paste0(..., collapse = "") ) )
-  flush.console()
 }
 safe_path <- function(path) {
   normalizePath( path, winslash = "/", mustWork = FALSE )
@@ -452,12 +447,9 @@ run_cellchat_timepoint <- function( timepoint, expression_data, metadata, eligib
       }
     )
     if ( !is.null( checkpoint ) && checkpoint_is_valid( checkpoint, timepoint, current_cells, current_groups ) ) {
-      msg( "Reusing validated ", timepoint, " CellChat checkpoint." )
       return( list( cellchat = checkpoint$cellchat, run_summary = data.frame( timepoint = timepoint, status = "REUSED_CHECKPOINT", n_cells = length( current_cells ), n_groups = length( current_groups ), groups = paste( current_groups, collapse = " | " ), elapsed_seconds = 0, checkpoint = safe_path( checkpoint_file ), stringsAsFactors = FALSE ) ) )
     }
-    msg( "Existing ", timepoint, " checkpoint did not match frozen inputs; recomputing." )
   }
-  msg( "Running CellChat for ", timepoint, ": ", length( current_cells ), " cells across ", length( current_groups ), " groups." )
   current_expression <- expression_data[ , current_cells, drop = FALSE ]
   current_meta_for_cellchat <- current_metadata[ , c( "cell", "cellchat_group" ), drop = FALSE ]
   rownames( current_meta_for_cellchat ) <- current_meta_for_cellchat$cell
@@ -481,10 +473,6 @@ run_cellchat_timepoint <- function( timepoint, expression_data, metadata, eligib
 }
 run_step8B <- function() {
   overall_start <- Sys.time()
-  msg("==============================================================")
-  msg("GSE162610 Step 8B PREVIEW | official rapid CellChat discovery")
-  msg("==============================================================")
-  msg( "Workers: ", N_WORKERS, "; checkpoints: ", REUSE_VALID_CHECKPOINTS )
   required_files <- c( ATLAS_RDS_FILE, STEP8A_MANIFEST_FILE, STEP8A_DECISION_FILE, STEP8A_CANDIDATE_LIGAND_FILE )
   missing_files <- required_files[ !file.exists( required_files ) ]
   input_audit <- data.frame( role = c( "Full GSE162610 atlas", "Step8A input manifest", "Step8A final decision", "Step8A Step7G candidate-ligand catalog" ), path = safe_path( required_files ), exists = file.exists( required_files ), size_bytes = ifelse( file.exists( required_files ), file.info( required_files )$size, NA_real_ ), stringsAsFactors = FALSE )
@@ -541,7 +529,6 @@ run_step8B <- function() {
   if (anyDuplicated(metadata$cell) > 0L) {
     abort_step( "Duplicated cells were found in the Step8A CellChat metadata." )
   }
-  msg("Loading full atlas and normalized RNA data...")
   atlas <- readRDS( ATLAS_RDS_FILE )
   if (!inherits(atlas, "Seurat")) {
     abort_step( "The full atlas input is not a Seurat object." )
@@ -617,7 +604,6 @@ run_step8B <- function() {
   write_csv_utf8( network_summary, NETWORK_SUMMARY_FILE )
   write_tsv( pathway_flow, PATHWAY_FLOW_FILE )
   write_tsv_gz( all_interactions, ALL_INTERACTIONS_FILE )
-  msg("Merging the three timepoint CellChat objects...")
   merge_arguments <- list( object.list = cellchat_objects, add.names = FORMAL_TIMEPOINTS, cell.prefix = TRUE )
   merged_cellchat <- call_with_supported_arguments( CellChat::mergeCellChat, merge_arguments )
   saveRDS( merged_cellchat, MERGED_CELLCHAT_FILE, compress = TRUE )
@@ -750,7 +736,6 @@ run_step8B <- function() {
   candidate_integrated <- sample_shortlist[ sample_shortlist$Step7G_candidate_ligand %in% TRUE, , drop = FALSE ]
   candidate_integrated <- candidate_integrated[ order( -candidate_integrated$n_samples_axis_supported, -abs( candidate_integrated$delta_Arm2_minus_Arm1 ) ), , drop = FALSE ]
   write_tsv( candidate_integrated, CANDIDATE_INTEGRATED_FILE )
-  msg("Generating Step8B figures...")
   network_plot_long <- rbind( data.frame( timepoint = network_summary$timepoint, metric = "Interaction count", value = network_summary$total_interaction_count, stringsAsFactors = FALSE ), data.frame( timepoint = network_summary$timepoint, metric = "Interaction weight", value = network_summary$total_interaction_weight, stringsAsFactors = FALSE ) )
   network_plot_long$timepoint <- factor( network_plot_long$timepoint, levels = FORMAL_TIMEPOINTS )
   p_network <- ggplot( network_plot_long, aes( x = timepoint, y = value, group = metric ) ) + geom_line( linewidth = 0.8 ) + geom_point( size = 2.5 ) + facet_wrap( ~ metric, scales = "free_y", ncol = 1 ) + labs( title = "GSE162610 CellChat network summary", x = NULL, y = NULL ) + theme_bw( base_size = 11 )
@@ -880,59 +865,15 @@ run_step8B <- function() {
   top_arm1_pathways <- utils::head( top_arm1_pathways, 20L )
   top_replicated_lr <- sample_shortlist[ sample_shortlist$sample_replication_status == "REPLICATED_IN_ALL_7DPI_SAMPLES", , drop = FALSE ]
   top_replicated_lr <- utils::head( top_replicated_lr, 30L )
-  report_lines <- c( "======================================================================", "GSE162610 | STEP 8B OFFICIAL RAPID PREVIEW REPORT", "CellChat timecourse and 7 dpi branch-specific communication", "======================================================================", "", paste0( "Generated: ", timestamp() ), paste0( "Overall Step 8B PREVIEW status: ", FINAL_STATUS ), paste0( "Total elapsed time: ", format_duration( overall_elapsed ) ), paste0( "CellChat version: ", as.character( packageVersion( "CellChat" ) ) ), paste0( "Workers: ", N_WORKERS ), "", "OFFICIAL RAPID PREVIEW SCOPE:", paste0( "Independent CellChat inference was performed for 1 dpi, 3 dpi and 7 dpi ", "using deterministic sample-stratified rapid-preview subsets." ), paste0( "All frozen branch cells were retained. Other sample x group strata were ", "capped at ", FAST_MAX_CELLS_PER_SAMPLE_GROUP, " cells. The full 7 dpi cell set was retained for the sample-level ", "ligand/receptor expression audit." ), paste0( "This is a rapid-preview result. Prioritized 7 dpi axes require a full-cell ", "nboot=100 confirmatory rerun before final manuscript claims." ), paste0( "The formal branch test compared 7 dpi Microglia_Arm_1 and ", "Microglia_Arm_2 outgoing signals to eligible non-branch recipient groups." ), "", "PREVIEW DESIGN:", paste0( "nboot=20; non-branch sample x timepoint x group strata capped at ", FAST_MAX_CELLS_PER_SAMPLE_GROUP, " cells; all frozen branch cells retained." ), paste0( "The sample-level ligand/receptor expression audit uses all available ", "7 dpi cells and is not downsampled." ), "", "FROZEN PARAMETERS:", paste0( "Database=CellChatDB.mouse; categories=all; type=triMean; raw.use=TRUE; ", "population.size=FALSE; distance.use=FALSE; min.cells=", MIN_CELLS_PER_GROUP, "; nboot=", CELLCHAT_PARAMETERS$nboot, "; max non-branch cells per sample x group=", FAST_MAX_CELLS_PER_SAMPLE_GROUP, "." ), "", "FAST SAMPLING SUMMARY:", paste( capture.output( print( fast_sampling$summary_by_time, row.names = FALSE ) ), collapse = "\n" ), "", "TIMEPOINT RUN SUMMARY:", paste( capture.output( print( timepoint_run_summary, row.names = FALSE ) ), collapse = "\n" ), "", "NETWORK SUMMARY:", paste( capture.output( print( network_summary, row.names = FALSE ) ), collapse = "\n" ), "", "TOP ARM_2-DOMINANT OUTGOING PATHWAYS:", if ( nrow( top_arm2_pathways ) > 0L ) {
-      paste( capture.output( print( top_arm2_pathways, row.names = FALSE ) ), collapse = "\n" )
-    } else {
-      "None."
-    },
-    "", "TOP ARM_1-DOMINANT OUTGOING PATHWAYS:", if ( nrow( top_arm1_pathways ) > 0L ) {
-      paste( capture.output( print( top_arm1_pathways, row.names = FALSE ) ), collapse = "\n" )
-    } else {
-      "None."
-    },
-    "", "7 DPI LR COMPARISON:", paste0( "All LR-target rows: ", nrow( branch_lr_differential ) ), paste0( "CellChat-significant in at least one branch: ", sum( branch_lr_differential$significant_either ) ), paste0( "Step7G candidate-ligand rows: ", sum( branch_lr_differential$Step7G_candidate_ligand ) ), "", "TWO-SAMPLE EXPRESSION AUDIT:", paste0( "7 dpi biological samples: ", paste( seven_dpi_samples, collapse = " | " ) ), paste0( "Interactions entering sample audit: ", nrow( sample_audit_candidates ) ), paste0( "Fully supported in all 7 dpi samples: ", sum( sample_shortlist$sample_replication_status == "REPLICATED_IN_ALL_7DPI_SAMPLES", na.rm = TRUE ) ), "", "TOP FULLY SAMPLE-SUPPORTED LR AXES:", if ( nrow( top_replicated_lr ) > 0L ) {
-      paste( capture.output( print( top_replicated_lr, row.names = FALSE ) ), collapse = "\n" )
-    } else {
-      "No LR axis met all predefined sample-support criteria."
-    },
-    "", "STEP7G CANDIDATE INTEGRATION:", paste0( "Integrated candidate rows: ", nrow( candidate_integrated ) ), if ( nrow( candidate_integrated ) > 0L ) {
-      paste( capture.output( print( utils::head( candidate_integrated, 30L ), row.names = FALSE ) ), collapse = "\n" )
-    } else {
-      "No Step7G candidate ligand passed the current CellChat and sample-audit filters."
-    },
-    "", "FINAL DECISION:", paste( capture.output( print( final_decision, row.names = FALSE ) ), collapse = "\n" ), "", "INTERPRETATION BOUNDARY:", paste0( "Arm_1 and Arm_2 remain neutral labels. Do not rename them repair/scar ", "from CellChat alone." ), paste0( "CellChat P values arise from cell-level bootstrapping and must not be ", "reported as biological-replicate inference." ), paste0( "The two-sample expression audit supports direction and receptor ", "availability but does not replace external validation." ), paste0( "A TF-target-ligand-receptor chain remains an integrated association ", "until spatial proximity, external replication and perturbation support it." ), "", "NEXT ACTION:", if ( FINAL_STATUS == "PASS" ) {
-      paste0( "Review the rapid-preview pathway and LR shortlists, then run the dedicated ", "full-cell 7 dpi nboot=100 confirmation for prioritized Arm_1 versus ", "Arm_2 axes before Step8C recipient-program integration." )
-    } else {
-      paste0( "Resolve the failed Step8B audit domain. Valid timepoint checkpoints ", "will be reused automatically." )
-    },
-    "", "PRIMARY OUTPUTS:", paste0( "Pathway differential: ", safe_path( PATHWAY_OUTGOING_DIFF_FILE ) ), paste0( "LR differential: ", safe_path( LR_DIFF_FILE ) ), paste0( "Sample-supported LR shortlist: ", safe_path( SAMPLE_SHORTLIST_FILE ) ), paste0( "Step7G integrated shortlist: ", safe_path( CANDIDATE_INTEGRATED_FILE ) ), paste0( "Merged CellChat object: ", safe_path( MERGED_CELLCHAT_FILE ) ), "", "KEY OUTPUTS:", "1) reports/Step8B_PREVIEW_report.txt", "2) tables/06_7dpi_branch_outgoing_pathway_differential.tsv", "3) tables/07_7dpi_branch_LR_differential.tsv", "4) tables/09_7dpi_sample_supported_LR_shortlist.tsv", "5) tables/12_final_decision.csv", "======================================================================"
-  )
-  writeLines( report_lines, con = REPORT_FILE, useBytes = TRUE )
   capture.output( sessionInfo(), file = SESSION_FILE )
   future::plan( "sequential" )
   gc()
-  msg("==============================================================")
-  msg("STEP 8B OFFICIAL RAPID PREVIEW COMPLETE")
-  msg("==============================================================")
-  msg("Status: ", FINAL_STATUS)
-  msg( "Timepoint checkpoints: ", paste( FORMAL_TIMEPOINTS, collapse = ", " ) )
-  msg( "7 dpi significant LR-target rows: ", sum( branch_lr_differential$significant_either ) )
-  msg( "Fully sample-supported LR rows: ", sum( sample_shortlist$sample_replication_status == "REPLICATED_IN_ALL_7DPI_SAMPLES" ) )
-  msg( "Report: ", safe_path( REPORT_FILE ) )
-  msg("")
-  msg("Key outputs:")
-  msg("1) reports/Step8B_PREVIEW_report.txt")
-  msg("2) tables/06_7dpi_branch_outgoing_pathway_differential.tsv")
-  msg("3) tables/07_7dpi_branch_LR_differential.tsv")
-  msg("4) tables/09_7dpi_sample_supported_LR_shortlist.tsv")
-  msg("5) tables/12_final_decision.csv")
   invisible( results_object )
 }
 STEP8B_RESULT <- tryCatch( run_step8B(), error = function(e) {
     future::plan( "sequential" )
-    error_lines <- c( "======================================================================", "GSE162610 | STEP 8B PREVIEW ERROR", "======================================================================", paste0( "Time: ", timestamp() ), paste0( "Message: ", conditionMessage(e) ), paste0( "Failed call: ", paste( deparse( conditionCall(e) ), collapse = " " ) ), "", paste0( "Valid completed timepoint checkpoints are retained in: ", safe_path( CHECKPOINTDIR ) ), "Do not rerun Step1-Step8A.", "Rerun only this Step8B PREVIEW file after correcting the reported issue." )
+    error_lines <- c( "======================================================================", "GSE162610 | STEP 8B PREVIEW ERROR", "======================================================================", paste0( "Time: ", timestamp() ), paste0( "Message: ", conditionMessage(e) ), paste0( "Failed call: ", paste( deparse( conditionCall(e) ), collapse = " " ) ), "", paste0( "Valid completed timepoint checkpoints are retained in: ", safe_path( CHECKPOINTDIR ) ), "rerun Step1-Step8A.", "Rerun only this Step8B PREVIEW file after correcting the reported issue." )
     writeLines( error_lines, con = ERROR_FILE, useBytes = TRUE )
-    message( paste( error_lines, collapse = "\n" ) )
     stop( e )
   }
 )

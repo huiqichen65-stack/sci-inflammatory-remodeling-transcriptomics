@@ -27,23 +27,13 @@ if (file.exists(run_log)) {
 annotated_object_path <- file.path( rds_dir, "GSE234774_step9C_QC_doublet_annotated_BPCells.rds" )
 singlet_object_path <- file.path( rds_dir, "GSE234774_step9C_QC_singlets_BPCells.rds" )
 singlet_matrix_dir <- file.path( bpcells_dir, "GSE234774_step9C_QC_singlets" )
-log_message <- function(...) {
-  msg <- paste0(...)
-  stamp <- format(Sys.time(), "%Y-%m-%d %H:%M:%S")
-  line <- paste0("[", stamp, "] ", msg)
-  cat(line, "\n")
-  cat(line, "\n", file = run_log, append = TRUE)
-}
 write_csv_safe <- function(x, filename) {
   out <- file.path(tables_dir, filename)
   utils::write.csv(x, out, row.names = FALSE, na = "")
-  log_message("Wrote: ", out)
   invisible(out)
 }
 stop_with_report <- function(reason) {
   report_path <- file.path( output_dir, "10_STEP9C_FINAL_REPORT.txt" )
-  report <- c( "GSE234774 STEP 9C SAMPLE-WISE DOUBLETS", "============================================================", paste0("Run time: ", format(Sys.time(), "%Y-%m-%d %H:%M:%S")), paste0("Output directory: ", output_dir), "", "FINAL DECISION: STOP", "", paste0("Reason: ", reason) )
-  writeLines(report, report_path, useBytes = TRUE)
   stop(reason, call. = FALSE)
 }
 trim_na <- function(x) {
@@ -92,7 +82,6 @@ checkpoint_is_usable <- function(path, expected_cells, expected_library) {
   }
   TRUE
 }
-log_message("Starting package preflight.")
 cran_required <- c( "Matrix", "data.table", "ggplot2", "scales", "Seurat", "SeuratObject", "BPCells" )
 missing_cran <- cran_required[ !vapply( cran_required, requireNamespace, quietly = TRUE, FUN.VALUE = logical(1) ) ]
 if (length(missing_cran) > 0L) {
@@ -104,7 +93,6 @@ if (length(missing_bioc) > 0L) {
   if (!requireNamespace("BiocManager", quietly = TRUE)) {
     utils::install.packages( "BiocManager", repos = "https://cloud.r-project.org" )
   }
-  log_message( "Attempting Bioconductor installation: ", paste(missing_bioc, collapse = ", ") )
   try( BiocManager::install( missing_bioc, ask = FALSE, update = FALSE ), silent = TRUE )
 }
 missing_bioc_after <- bioc_required[ !vapply( bioc_required, requireNamespace, quietly = TRUE, FUN.VALUE = logical(1) ) ]
@@ -128,7 +116,6 @@ write_csv_safe( package_versions, "00_package_versions.csv" )
 if (!file.exists(input_object_path)) {
   stop_with_report( paste0( "QC-filtered object not found: ", input_object_path ) )
 }
-log_message("Loading Step 9B QC-filtered object.")
 obj_QC <- readRDS(input_object_path)
 if (!inherits(obj_QC, "Seurat")) {
   stop_with_report( "The Step 9B input RDS is not a Seurat object." )
@@ -162,7 +149,6 @@ if (length(counts_layers) != 1L) {
   stop_with_report( paste0( "Expected exactly one counts layer, detected: ", paste(counts_layers, collapse = ", ") ) )
 }
 counts_layer <- counts_layers[[1L]]
-log_message( "Reading the BPCells-backed counts layer reference: ", counts_layer )
 counts_all <- SeuratObject::LayerData( object = obj_QC, assay = "RNA", layer = counts_layer, fast = FALSE )
 if ( nrow(counts_all) != nrow(obj_QC) || ncol(counts_all) != ncol(obj_QC) ) {
   stop_with_report( "Counts-layer dimensions differ from the Seurat object." )
@@ -182,8 +168,6 @@ pre_doublet_library_counts <- merge( library_manifest, pre_doublet_library_count
 pre_doublet_library_counts <- pre_doublet_library_counts[ match( libraries, pre_doublet_library_counts$biological_library ), , drop = FALSE ]
 pre_doublet_library_counts$expected_doublet_rate <- vapply( pre_doublet_library_counts$n_QC_cells, expected_doublet_rate, numeric(1) )
 write_csv_safe( pre_doublet_library_counts, "02_pre_doublet_library_manifest.csv" )
-log_message( "Starting scDblFinder separately for 20 biological libraries." )
-log_message( "Explicit dbr.per1k = ", DBR_PER_1K, "; clusters = ", USE_CLUSTERS )
 result_list <- vector( mode = "list", length = length(libraries) )
 names(result_list) <- libraries
 error_list <- list()
@@ -192,20 +176,17 @@ for (i in seq_along(libraries)) {
   lib_cells <- rownames(obj_QC@meta.data)[ as.character(obj_QC$biological_library) == lib ]
   checkpoint_path <- file.path( checkpoint_dir, paste0( sprintf("%02d", i), "_", sanitize_filename(lib), "_scDblFinder.tsv.gz" ) )
   if ( !isTRUE(FORCE_RERUN_ALL_LIBRARIES) && checkpoint_is_usable( checkpoint_path, expected_cells = lib_cells, expected_library = lib ) ) {
-    log_message( "[", i, "/", length(libraries), "] Reusing checkpoint: ", lib, " (", length(lib_cells), " nuclei)." )
     result_i <- data.table::fread( checkpoint_path, data.table = FALSE, showProgress = FALSE )
     result_i <- result_i[ match(lib_cells, result_i$barcode), , drop = FALSE ]
     result_list[[lib]] <- result_i
     next
   }
-  log_message( "[", i, "/", length(libraries), "] Running scDblFinder: ", lib, " (", length(lib_cells), " nuclei)." )
   result_i <- tryCatch( {
       cell_idx <- match( lib_cells, colnames(counts_all) )
       if (anyNA(cell_idx)) {
         stop( "At least one library barcode was not found in the counts layer." )
       }
       lib_view <- counts_all[ , cell_idx, drop = FALSE ]
-      log_message( "[", i, "/", length(libraries), "] Loading sparse library matrix into memory." )
       lib_counts <- methods::as( lib_view, "dgCMatrix" )
       rownames(lib_counts) <- rownames(lib_view)
       colnames(lib_counts) <- colnames(lib_view)
@@ -233,14 +214,12 @@ for (i in seq_along(libraries)) {
       result <- data.frame( barcode = colnames(sce), biological_library = lib, scDblFinder.score = score, scDblFinder.class = class, n_genes_used = sum(keep_genes), n_library_cells = length(lib_cells), expected_doublet_rate = expected_doublet_rate( length(lib_cells) ), dbr_per_1k = DBR_PER_1K, scDblFinder_version = safe_package_version( "scDblFinder" ), seed = SEED + i, stringsAsFactors = FALSE )
       result <- result[ match(lib_cells, result$barcode), , drop = FALSE ]
       data.table::fwrite( result, file = checkpoint_path, sep = "\t", quote = FALSE, na = "NA", compress = "gzip" )
-      log_message( "[", i, "/", length(libraries), "] Completed ", lib, "; called doublets=", sum(result$scDblFinder.class == "doublet"), " (", round( 100 * mean( result$scDblFinder.class == "doublet" ), 2 ), "%)." )
       rm( lib_view, lib_counts, sce )
       invisible(gc())
       result
     },
     error = function(e) {
       error_list[[length(error_list) + 1L]] <<- data.frame( biological_library = lib, n_cells = length(lib_cells), error = conditionMessage(e), stringsAsFactors = FALSE )
-      log_message( "[", i, "/", length(libraries), "] ERROR in ", lib, ": ", conditionMessage(e) )
       NULL
     }
   )
@@ -259,7 +238,7 @@ if (length(valid_results) != length(libraries)) {
 doublet_results <- do.call( rbind, valid_results )
 rownames(doublet_results) <- NULL
 if ( nrow(doublet_results) != ncol(obj_QC) || anyDuplicated(doublet_results$barcode) > 0L || !setequal( doublet_results$barcode, colnames(obj_QC) ) ) {
-  stop_with_report( "Combined scDblFinder results do not map one-to-one to all QC nuclei." )
+  stop_with_report( "Combined scDblFinder results map one-to-one to all QC nuclei." )
 }
 doublet_results <- doublet_results[ match( colnames(obj_QC), doublet_results$barcode ), , drop = FALSE ]
 if (!identical( doublet_results$barcode, colnames(obj_QC) )) {
@@ -286,7 +265,6 @@ complete_cell_status_path <- file.path( tables_dir, "05_cell_level_scDblFinder_s
 cell_status <- obj_annotated@meta.data
 cell_status$barcode <- rownames(cell_status)
 data.table::fwrite( cell_status, file = complete_cell_status_path, sep = "\t", quote = FALSE, na = "NA", compress = "gzip" )
-log_message( "Wrote: ", complete_cell_status_path )
 p_rate <- ggplot( doublet_summary_by_library, aes( x = reorder( biological_library, doublet_rate ), y = doublet_rate ) ) + geom_col() + geom_point( aes( y = expected_doublet_rate ), size = 2 ) + coord_flip() + scale_y_continuous( labels = scales::percent ) + labs( x = NULL, y = "Doublet rate", title = "Observed scDblFinder doublet rates by library", subtitle = "Points indicate the 0.8% per 1000-cell expectation" ) + theme_bw()
 ggsave( filename = file.path( figures_dir, "01_doublet_rate_by_library.pdf" ), plot = p_rate, width = 10, height = 8, limitsize = FALSE )
 set.seed(SEED)
@@ -302,25 +280,20 @@ p_complexity <- ggplot( plot_meta, aes( x = scDblFinder.class, y = nFeature_RNA 
 ggsave( filename = file.path( figures_dir, "03_nFeature_by_doublet_class.pdf" ), plot = p_complexity, width = 12, height = 8, limitsize = FALSE )
 obj_annotated@misc$GSE234774_step9C <- list( method = "scDblFinder", mode = "sample-wise; clusters=FALSE", library_field = "biological_library", dbr_per_1k = DBR_PER_1K, package_version = safe_package_version( "scDblFinder" ), seed = SEED, completed_at = as.character(Sys.time()), note = paste( "Doublet detection only.", "No normalization, integration, clustering, annotation,", "signature transfer, pseudotime, or spatial analysis was run." ) )
 saveRDS( obj_annotated, annotated_object_path, compress = FALSE )
-log_message( "Saved doublet-annotated object: ", annotated_object_path )
 singlet_cells <- colnames(obj_annotated)[ obj_annotated$scDblFinder.class == "singlet" ]
 singlet_idx <- match( singlet_cells, colnames(counts_all) )
 if (anyNA(singlet_idx)) {
   stop_with_report( "At least one singlet barcode is absent from the counts layer." )
 }
 if ( isTRUE(FORCE_REWRITE_SINGLET_MATRIX) && dir.exists(singlet_matrix_dir) ) {
-  log_message( "Deleting existing singlet BPCells matrix." )
   unlink( singlet_matrix_dir, recursive = TRUE, force = TRUE )
 }
 if (!dir.exists(singlet_matrix_dir)) {
-  log_message( "Writing the singlet-only BPCells matrix." )
   singlet_view <- counts_all[ , singlet_idx, drop = FALSE ]
   BPCells::write_matrix_dir( mat = singlet_view, dir = singlet_matrix_dir, compress = TRUE, overwrite = FALSE )
   rm(singlet_view)
   invisible(gc())
-  log_message( "Completed singlet-only BPCells matrix." )
 } else {
-  log_message( "Reusing existing singlet BPCells matrix: ", singlet_matrix_dir )
 }
 singlet_counts <- open_bpcells_safe( singlet_matrix_dir )
 if (inherits(singlet_counts, "error")) {
@@ -336,7 +309,6 @@ Seurat::DefaultAssay(obj_singlet) <- "RNA"
 obj_singlet@misc$GSE234774_step9C <- obj_annotated@misc$GSE234774_step9C
 obj_singlet@misc$GSE234774_step9C$singlet_matrix_dir <- normalizePath( singlet_matrix_dir, winslash = "/", mustWork = TRUE )
 saveRDS( obj_singlet, singlet_object_path, compress = FALSE )
-log_message( "Saved singlet-only object: ", singlet_object_path )
 minimum_singlets <- min( doublet_summary_by_library$n_singlet )
 maximum_doublet_rate <- max( doublet_summary_by_library$doublet_rate )
 global_doublet_rate <- mean( obj_annotated$scDblFinder.class == "doublet" )
@@ -361,43 +333,13 @@ final_decision <- if (any(required_fail)) {
 library_lines <- paste0( doublet_summary_by_library$biological_library, " [", doublet_summary_by_library$timepoint, "]: ", doublet_summary_by_library$n_QC_input, " QC nuclei -> ", doublet_summary_by_library$n_singlet, " singlets + ", doublet_summary_by_library$n_doublet, " doublets; rate=", round( 100 * doublet_summary_by_library$doublet_rate, 2 ), "%" )
 timepoint_lines <- paste0( doublet_summary_by_timepoint$timepoint, ": ", doublet_summary_by_timepoint$n_QC_input, " QC nuclei -> ", doublet_summary_by_timepoint$n_singlet, " singlets + ", doublet_summary_by_timepoint$n_doublet, " doublets; rate=", round( 100 * doublet_summary_by_timepoint$doublet_rate, 2 ), "%" )
 rate_review_libraries <- doublet_summary_by_library$biological_library[ doublet_summary_by_library$rate_review_flag ]
-report_lines <- c( "GSE234774 STEP 9C SAMPLE-WISE DOUBLETS", "============================================================", paste0( "Run time: ", format(Sys.time(), "%Y-%m-%d %H:%M:%S") ), paste0( "Input object: ", input_object_path ), paste0( "Output directory: ", output_dir ), "", paste0( "FINAL DECISION: ", final_decision ), "", "SCOPE", "scDblFinder was run independently within each biological_library.", paste0( "Explicit dbr.per1k: ", DBR_PER_1K ), paste0( "Artificial-doublet mode: clusters=", USE_CLUSTERS ), "No normalization, scaling, PCA, UMAP, tSNE, Harmony, neighbors, clustering, annotation, signature transfer, pseudotime, or spatial analysis was run.", "", "GLOBAL RESULT", paste0( "QC input nuclei: ", ncol(obj_QC) ), paste0( "Called singlets: ", length(singlet_cells) ), paste0( "Called doublets: ", ncol(obj_QC) - length(singlet_cells) ), paste0( "Global doublet rate: ", round( 100 * global_doublet_rate, 2 ), "%" ), paste0( "Maximum library doublet rate: ", round( 100 * maximum_doublet_rate, 2 ), "%" ), paste0( "Minimum singlets retained in one library: ", minimum_singlets ), "", "TIMEPOINT RESULT", timepoint_lines, "", "LIBRARY RESULT", library_lines, "", "RATE REVIEW", if ( length(rate_review_libraries) == 0L ) {
-    "No library was flagged for a large observed-versus-expected rate discrepancy."
-  } else {
-    paste0( "Review observed-versus-expected rates for: ", paste( rate_review_libraries, collapse = ", " ), ". A review flag is not an automatic failure." )
-  },
-  "", "PRIMARY OUTPUTS", paste0( "Doublet-annotated object: ", annotated_object_path ), paste0( "Singlet-only object: ", singlet_object_path ), paste0( "Singlet BPCells matrix: ", singlet_matrix_dir ), "", "ANALYSIS BOUNDARIES", "1. biological_library is the separate doublet-detection unit.", "2. Individual nuclei are not biological replicates.", "3. The singlet object remains unnormalized and unannotated.", "4. GSE234774 will validate frozen GSE162610 programs and will not redefine Arm_1/Arm_2.", "5. Cohort age remains METHODS_REVIEW_REQUIRED."
-)
 if (final_decision == "STOP") {
   failed <- audit_checks[ audit_checks$required_for_pass & audit_checks$status != "PASS", , drop = FALSE ]
-  report_lines <- c( report_lines, "", "STOP REASONS" )
   for (i in seq_len(nrow(failed))) {
-    report_lines <- c( report_lines, paste0( i, ". ", failed$check[[i]], " -- ", failed$detail[[i]] ) )
   }
-  report_lines <- c( report_lines, "", "Do not start normalization or downstream analysis." )
 } else {
-  report_lines <- c( report_lines, "", "STEP 9C DECISION", "Sample-wise doublet detection and singlet-object construction passed.", "Stop here and review the per-library doublet rates before normalization." )
 }
 report_path <- file.path( output_dir, "10_STEP9C_FINAL_REPORT.txt" )
-writeLines( report_lines, report_path, useBytes = TRUE )
-log_message( "Final decision: ", final_decision )
-log_message( "Final report: ", report_path )
-cat("\n")
-cat("============================================================\n")
-cat("GSE234774 STEP 9C DOUBLETS COMPLETED\n")
-cat("FINAL DECISION:", final_decision, "\n")
-cat("Output:", output_dir, "\n")
-cat("Doublet-annotated object:\n")
-cat(" ", annotated_object_path, "\n", sep = "")
-cat("Singlet-only object:\n")
-cat(" ", singlet_object_path, "\n", sep = "")
-cat("Key outputs:\n")
-cat(" 1) tables/02_pre_doublet_library_manifest.csv\n")
-cat(" 2) tables/03_scDblFinder_errors.csv\n")
-cat(" 3) tables/04_scDblFinder_summary_by_library.csv\n")
-cat(" 4) tables/09_STEP9C_audit_checks.csv\n")
-cat(" 5) 10_STEP9C_FINAL_REPORT.txt\n")
-cat("============================================================\n")
 if (final_decision == "STOP") {
   stop( "GSE234774 Step 9C decision is STOP. Review the final report.", call. = FALSE )
 }

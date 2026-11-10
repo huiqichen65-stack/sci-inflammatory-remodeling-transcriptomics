@@ -35,23 +35,13 @@ if (file.exists( RUN_LOG )) {
 }
 SCORED_OBJECT_PATH <- file.path( RDS_DIR, "GSE234774_step11A_main_timepoint_primary_resident_Arm_scored_BPCells.rds" )
 RESULTS_RDS_PATH <- file.path( RDS_DIR, "GSE234774_step11A_Arm_AUCell_ssGSEA_results.rds" )
-log_message <- function(...) {
-  message_text <- paste0(...)
-  timestamp <- format( Sys.time(), "%Y-%m-%d %H:%M:%S" )
-  line <- paste0( "[", timestamp, "] ", message_text )
-  cat( line, "\n" )
-  cat( line, "\n", file = RUN_LOG, append = TRUE )
-}
 write_csv_safe <- function( x, filename ) {
   path <- file.path( TABLES_DIR, filename )
   utils::write.csv( x, path, row.names = FALSE, na = "" )
-  log_message( "Wrote: ", path )
   invisible( path )
 }
 stop_with_report <- function(reason) {
   report_path <- file.path( OUTPUT_DIR, "10_STEP11A_FINAL_REPORT.txt" )
-  report_lines <- c( "GSE234774 STEP 11A MAIN-TIMEPOINT ARM VALIDATION", "============================================================", paste0( "Run time: ", format( Sys.time(), "%Y-%m-%d %H:%M:%S" ) ), paste0( "Output directory: ", OUTPUT_DIR ), "", "FINAL DECISION: STOP", "", paste0( "Reason: ", reason ), "", "Do not interpret Arm_1/Arm_2 validation from this run." )
-  writeLines( report_lines, report_path, useBytes = TRUE )
   stop( reason, call. = FALSE )
 }
 safe_package_version <- function( package_name ) {
@@ -123,7 +113,6 @@ to_dgCMatrix <- function( matrix_object, label ) {
 run_ssgsea_version_safe <- function( expression_matrix, gene_sets ) {
   gsva_exports <- getNamespaceExports( "GSVA" )
   if ( "ssgseaParam" %in% gsva_exports ) {
-    log_message( "Running ssGSEA with the current GSVA ssgseaParam() interface." )
     parameter_arguments <- list( exprData = expression_matrix, geneSets = gene_sets, minSize = MIN_SIGNATURE_GENES_PRESENT, maxSize = Inf, alpha = SSGSEA_ALPHA, normalize = TRUE, checkNA = "yes", use = "all.obs", ondisk = "no", verbose = TRUE )
     parameter_formals <- names( formals( GSVA::ssgseaParam ) )
     if ( !"..." %in% parameter_formals ) {
@@ -132,7 +121,6 @@ run_ssgsea_version_safe <- function( expression_matrix, gene_sets ) {
     parameter_object <- do.call( GSVA::ssgseaParam, parameter_arguments )
     result <- GSVA::gsva( parameter_object, verbose = TRUE, BPPARAM = BiocParallel::SerialParam() )
   } else {
-    log_message( "Running ssGSEA with the legacy GSVA::gsva(method='ssgsea') interface." )
     legacy_arguments <- list( expr = expression_matrix, gset.idx.list = gene_sets, method = "ssgsea", kcdf = "Gaussian", abs.ranking = TRUE, ssgsea.norm = TRUE, min.sz = MIN_SIGNATURE_GENES_PRESENT, max.sz = Inf, parallel.sz = 1L, verbose = TRUE )
     legacy_formals <- names( formals( GSVA::gsva ) )
     if ( !"..." %in% legacy_formals ) {
@@ -157,7 +145,6 @@ safe_cor_test <- function( x, y ) {
   test <- suppressWarnings( stats::cor.test( x_complete, y_complete, method = "spearman", exact = FALSE ) )
   list( rho = unname( test$estimate ), p_value = test$p.value, n = length( x_complete ) )
 }
-log_message( "Starting package preflight." )
 required_packages <- c( "Matrix", "data.table", "ggplot2", "patchwork", "scales", "Seurat", "SeuratObject", "AUCell", "GSVA", "edgeR", "BiocParallel" )
 missing_packages <- required_packages[ !vapply( required_packages, requireNamespace, quietly = TRUE, FUN.VALUE = logical(1) ) ]
 if ( length( missing_packages ) > 0L ) {
@@ -193,7 +180,6 @@ write_csv_safe( input_file_audit, "01_input_file_audit.csv" )
 if ( !all( input_file_audit$exists ) ) {
   stop_with_report( paste0( "Missing required input file(s): ", paste( input_file_audit$input_name[ !input_file_audit$exists ], collapse = ", " ), "." ) )
 }
-log_message( "Loading the frozen Step 10G primary non-cycling resident object." )
 primary_object <- readRDS( PRIMARY_OBJECT_PATH )
 if (!inherits( primary_object, "Seurat" )) {
   stop_with_report( "The Step 10G primary input is not a Seurat object." )
@@ -211,7 +197,7 @@ if (!FROZEN_UMAP %in% names( primary_object@reductions ) ) {
 }
 input_cluster_values <- sort( unique( as.character( primary_object@meta.data[ , FROZEN_CLUSTER_COLUMN ] ) ), method = "radix" )
 if (!setequal( input_cluster_values, PRIMARY_CLUSTERS )) {
-  stop_with_report( paste0( "Primary object clusters do not match 0,1,2,3,7. Detected: ", paste( input_cluster_values, collapse = ", " ), "." ) )
+  stop_with_report( paste0( "Primary object clusters match 0,1,2,3,7. Detected: ", paste( input_cluster_values, collapse = ", " ), "." ) )
 }
 if ( any( as.character( primary_object$arm_analysis_set ) != "PRIMARY_NONCYCLING_RESIDENT" ) ) {
   stop_with_report( "The primary object contains cells outside PRIMARY_NONCYCLING_RESIDENT." )
@@ -221,7 +207,6 @@ main_cells <- colnames( primary_object )[ primary_timepoint_values %in% MAIN_TIM
 if ( length( main_cells ) == 0L ) {
   stop_with_report( "No nuclei were retained for the five main validation timepoints." )
 }
-log_message( "Subsetting to the five main validation timepoints." )
 main_object <- subset( x = primary_object, cells = main_cells )
 main_object$timepoint <- factor( as.character( main_object$timepoint ), levels = TIMEPOINT_LEVELS, ordered = TRUE )
 if ( any( as.character( main_object$timepoint ) %in% c( "1 dpi", "4 dpi" ) ) ) {
@@ -253,8 +238,6 @@ if ( length( low_replication_timepoints ) > 0L ) {
 }
 main_object_audit <- rbind( data.frame( record_type = "MAIN_OBJECT", timepoint = "ALL", biological_library = "ALL", n_libraries = length( unique( library_cell_counts$biological_library ) ), n_cells = ncol( main_object ), minimum_library_cells = min( library_cell_counts$n_cells ), maximum_library_cells = max( library_cell_counts$n_cells ), stringsAsFactors = FALSE ), data.frame( record_type = "TIMEPOINT", timepoint = as.character( timepoint_replication$timepoint ), biological_library = "ALL", n_libraries = timepoint_replication$n_libraries, n_cells = timepoint_replication$n_cells, minimum_library_cells = timepoint_replication$minimum_library_cells, maximum_library_cells = timepoint_replication$maximum_library_cells, stringsAsFactors = FALSE ), data.frame( record_type = "LIBRARY", timepoint = as.character( library_cell_counts$timepoint ), biological_library = library_cell_counts$biological_library, n_libraries = 1L, n_cells = library_cell_counts$n_cells, minimum_library_cells = library_cell_counts$n_cells, maximum_library_cells = library_cell_counts$n_cells, stringsAsFactors = FALSE ) )
 write_csv_safe( main_object_audit, "02_main_timepoint_object_and_library_audit.csv" )
-log_message( "Main analysis contains ", ncol( main_object ), " nuclei across ", length( unique( library_cell_counts$biological_library ) ), " biological libraries." )
-log_message( "Loading frozen GSE162610 Step6A and Step6B signature sources." )
 step6a_arm1 <- data.table::fread( STEP6A_ARM1_FILE, data.table = FALSE, check.names = FALSE, showProgress = FALSE )
 step6a_arm2 <- data.table::fread( STEP6A_ARM2_FILE, data.table = FALSE, check.names = FALSE, showProgress = FALSE )
 step6b_assignments <- data.table::fread( STEP6B_ASSIGNMENT_FILE, data.table = FALSE, check.names = FALSE, showProgress = FALSE )
@@ -297,7 +280,6 @@ signature_gene_audit <- data.frame( record_type = "GENE", gene = all_signature_g
 signature_summary_rows <- data.frame( record_type = "SUMMARY", gene = c( "Step6A_Arm1_highconf", "Step6B_M3_Shared_prebranch", "Arm_1_frozen_union", "Step6A_Arm2_highconf", "Step6B_M1_M2_Arm2_terminal", "Arm_2_frozen_union", "Arm1_Arm2_overlap" ), component_Step6A_Arm1 = NA, component_Step6B_M3 = NA, component_Step6A_Arm2 = NA, component_Step6B_M1_M2 = NA, in_Arm1_frozen = NA, in_Arm2_frozen = NA, overlap_between_frozen_arms = NA, resolved_external_feature = "", present_in_GSE234774 = NA, technical_gene_pattern = NA, input_gene_count = c( length( step6a_arm1_genes ), length( step6b_arm1_genes ), length( arm1_frozen_requested ), length( step6a_arm2_genes ), length( step6b_arm2_genes ), length( arm2_frozen_requested ), length( overlap_requested ) ), present_gene_count = c( sum( step6a_arm1_genes %in% available_features ), sum( step6b_arm1_genes %in% available_features ), length( arm1_present ), sum( step6a_arm2_genes %in% available_features ), sum( step6b_arm2_genes %in% available_features ), length( arm2_present ), length( overlap_present ) ), mapping_fraction = c( mean( step6a_arm1_genes %in% available_features ), mean( step6b_arm1_genes %in% available_features ), arm1_mapping_fraction, mean( step6a_arm2_genes %in% available_features ), mean( step6b_arm2_genes %in% available_features ), arm2_mapping_fraction, ifelse( length( overlap_requested ) == 0L, NA_real_, length( overlap_present ) / length( overlap_requested ) ) ), stringsAsFactors = FALSE )
 signature_gene_audit <- rbind( signature_summary_rows, signature_gene_audit )
 write_csv_safe( signature_gene_audit, "04_frozen_Arm_signature_gene_audit.csv" )
-log_message( "Frozen signature mapping PASS: Arm_1 ", length( arm1_present ), "/", length( arm1_frozen_requested ), "; Arm_2 ", length( arm2_present ), "/", length( arm2_frozen_requested ), "; overlap retained=", length( overlap_present ), "." )
 Seurat::DefaultAssay( main_object ) <- "RNA"
 rna_layers <- SeuratObject::Layers( object = main_object, assay = "RNA", search = NA )
 counts_layers <- rna_layers[ grepl( "^counts($|\\.)", rna_layers ) ]
@@ -307,7 +289,6 @@ if ( length( counts_layers ) != 1L || length( data_layers ) != 1L ) {
 }
 counts_layer_name <- counts_layers[[1L]]
 data_layer_name <- data_layers[[1L]]
-log_message( "Reading the main-timepoint RNA counts layer." )
 counts_matrix_raw <- SeuratObject::LayerData( object = main_object, assay = "RNA", layer = counts_layer_name, fast = FALSE )
 counts_matrix <- to_dgCMatrix( counts_matrix_raw, "main-timepoint RNA counts" )
 rm( counts_matrix_raw )
@@ -315,11 +296,9 @@ invisible( gc() )
 if ( nrow( counts_matrix ) != nrow( main_object ) || ncol( counts_matrix ) != ncol( main_object ) || !identical( rownames( counts_matrix ), rownames( main_object ) ) || !identical( colnames( counts_matrix ), colnames( main_object ) ) ) {
   stop_with_report( "Sparse counts matrix does not match the main Seurat object." )
 }
-log_message( "Building AUCell rankings on the sparse counts matrix." )
 auc_max_rank <- max( 1L, ceiling( AUC_MAX_RANK_FRACTION * nrow( counts_matrix ) ) )
 set.seed( 20260803L )
 cell_rankings <- AUCell::AUCell_buildRankings( exprMat = counts_matrix, featureType = "genes", plotStats = FALSE, splitByBlocks = TRUE, BPPARAM = BiocParallel::SerialParam(), keepZeroesAsNA = FALSE, verbose = TRUE )
-log_message( "Calculating normalized AUCell AUC for the two frozen signatures." )
 cell_auc_object <- AUCell::AUCell_calcAUC( geneSets = arm_gene_sets, rankings = cell_rankings, nCores = 1L, normAUC = TRUE, aucMaxRank = auc_max_rank, verbose = TRUE )
 cell_auc_matrix <- as.matrix( AUCell::getAUC( cell_auc_object ) )
 required_auc_rows <- c( "Arm_1_frozen", "Arm_2_frozen" )
@@ -333,7 +312,6 @@ rm( cell_rankings, cell_auc_object )
 invisible( gc() )
 cell_score_table <- data.table::data.table( cell = colnames( main_object ), biological_library = as.character( main_object$biological_library ), timepoint = as.character( main_object$timepoint ), myeloid_final_label = as.character( main_object$myeloid_final_label ), Arm_1_AUCell = main_object$Arm_1_AUCell, Arm_2_AUCell = main_object$Arm_2_AUCell, Arm_balance_AUCell = main_object$Arm_balance_AUCell )
 library_auc_summary <- cell_score_table[ , .( n_cells = .N, Arm_1_AUCell_median = median( Arm_1_AUCell ), Arm_1_AUCell_mean = mean( Arm_1_AUCell ), Arm_2_AUCell_median = median( Arm_2_AUCell ), Arm_2_AUCell_mean = mean( Arm_2_AUCell ), Arm_balance_AUCell_median = median( Arm_balance_AUCell ), Arm_balance_AUCell_mean = mean( Arm_balance_AUCell ) ), by = .( biological_library, timepoint ) ]
-log_message( "Aggregating raw counts by biological_library for pseudobulk ssGSEA." )
 library_order_table <- unique( library_auc_summary[ , c( "biological_library", "timepoint" ), with = FALSE ] )
 library_order_table$timepoint <- factor( library_order_table$timepoint, levels = TIMEPOINT_LEVELS, ordered = TRUE )
 data.table::setorder( library_order_table, timepoint, biological_library )
@@ -406,7 +384,6 @@ combined_score_table$timepoint <- as.character( combined_score_table$timepoint )
 write_csv_safe( combined_score_table, "05_main_validation_library_and_timepoint_scores.csv" )
 write_csv_safe( library_scores, "06_library_scores_wide.csv" )
 write_csv_safe( concordance_table, "07_AUCell_ssGSEA_concordance.csv" )
-log_message( "Creating AUCell UMAP and library-level validation figures." )
 umap_embeddings <- Seurat::Embeddings( object = main_object, reduction = FROZEN_UMAP )
 umap_plot_data <- data.frame( UMAP_1 = umap_embeddings[ , 1L ], UMAP_2 = umap_embeddings[ , 2L ], Arm_1_AUCell = main_object$Arm_1_AUCell, Arm_2_AUCell = main_object$Arm_2_AUCell, Arm_balance_AUCell = main_object$Arm_balance_AUCell, timepoint = main_object$timepoint, stringsAsFactors = FALSE )
 p_arm1_umap <- plot_umap_score( plot_data = umap_plot_data, score_column = "Arm_1_AUCell", title_text = "Frozen Arm_1 AUCell", legend_title = "Normalized AUC" )
@@ -423,7 +400,6 @@ concordance_labels <- data.frame( signature = concordance_table$signature, label
 p_concordance <- ggplot2::ggplot( concordance_plot_data, ggplot2::aes( x = AUCell_z, y = ssGSEA_z, shape = timepoint ) ) + ggplot2::geom_hline( yintercept = 0, linetype = 3 ) + ggplot2::geom_vline( xintercept = 0, linetype = 3 ) + ggplot2::geom_point( size = 2.8 ) + ggplot2::geom_smooth( method = "lm", se = FALSE, linewidth = 0.7 ) + ggplot2::geom_text( data = concordance_labels, ggplot2::aes( x = x, y = y, label = label ), inherit.aes = FALSE, hjust = -0.05, vjust = 1.1, size = 3.2 ) + ggplot2::facet_wrap( ggplot2::vars( signature ), scales = "free" ) + ggplot2::labs( title = "Library-level AUCell and pseudobulk ssGSEA concordance", subtitle = "Scores are standardized within each method before plotting", x = "AUCell library-median Z score", y = "Pseudobulk ssGSEA Z score", shape = "Timepoint" ) + ggplot2::theme_bw()
 ggplot2::ggsave( filename = file.path( FIGURES_DIR, "03_AUCell_ssGSEA_library_concordance.pdf" ), plot = p_concordance, width = 15, height = 6.5, limitsize = FALSE )
 main_object@misc$GSE234774_step11A <- list( main_timepoints = MAIN_TIMEPOINTS, statistical_unit = "biological_library", frozen_Arm1_definition = "Step6A Arm1 high-confidence union Step6B M3_Shared_prebranch", frozen_Arm2_definition = "Step6A Arm2 high-confidence union Step6B M1/M2 Arm2_terminal", Arm1_requested_genes = arm1_frozen_requested, Arm2_requested_genes = arm2_frozen_requested, Arm1_present_genes = arm1_present, Arm2_present_genes = arm2_present, overlapping_present_genes = overlap_present, AUCell_aucMaxRank = auc_max_rank, AUCell_normAUC = TRUE, pseudobulk_normalization = "edgeR TMM logCPM", pseudobulk_prior_count = PSEUDOBULK_PRIOR_COUNT, ssGSEA_alpha = SSGSEA_ALPHA, ssGSEA_normalize = TRUE, cell_level_p_values_run = FALSE, sensitivity_analysis_run = FALSE, cycling_analysis_run = FALSE, Arm_signatures_redefined = FALSE, completed_at = as.character( Sys.time() ) )
-log_message( "Saving the main-timepoint Arm-scored Seurat object." )
 saveRDS( main_object, SCORED_OBJECT_PATH, compress = FALSE )
 results_object <- list( main_timepoints = MAIN_TIMEPOINTS, library_manifest = as.data.frame( library_cell_counts ), signature_gene_sets_requested = list( Arm_1_frozen = arm1_frozen_requested, Arm_2_frozen = arm2_frozen_requested ), signature_gene_sets_present = arm_gene_sets, signature_overlap_requested = overlap_requested, signature_overlap_present = overlap_present, AUCell_aucMaxRank = auc_max_rank, cell_AUCell = cell_auc_matrix, library_scores = library_scores, pseudobulk_counts = pseudobulk_counts, pseudobulk_logCPM = pseudobulk_logcpm, ssGSEA_scores = ssgsea_scores, concordance = concordance_table, timepoint_summary = as.data.frame( timepoint_score_summary ), completed_at = as.character( Sys.time() ) )
 saveRDS( results_object, RESULTS_RDS_PATH, compress = TRUE )
@@ -459,32 +435,12 @@ concordance_lines <- apply( concordance_table, 1L, function(row) {
     paste0( row[["signature"]], ": Spearman rho=", ifelse( is.na( as.numeric( row[["spearman_rho"]] ) ), "NA", round( as.numeric( row[["spearman_rho"]] ), 3 ) ), "; p=", ifelse( is.na( as.numeric( row[["p_value"]] ) ), "NA", signif( as.numeric( row[["p_value"]] ), 4 ) ), "; n=", row[["n_libraries"]] )
   }
 )
-report_lines <- c( "GSE234774 STEP 11A MAIN-TIMEPOINT ARM VALIDATION", "============================================================", paste0( "Run time: ", format( Sys.time(), "%Y-%m-%d %H:%M:%S" ) ), paste0( "Primary input: ", PRIMARY_OBJECT_PATH ), paste0( "Output directory: ", OUTPUT_DIR ), "", paste0( "FINAL DECISION: ", final_decision ), "", "FORMAL SCOPE", "Main validation timepoints only: Uninjured, 7 dpi, 14 dpi, 1 month, 2 months.", "Primary non-cycling resident microglia only; IFN-responsive cluster 7 retained.", "No 1 dpi, 4 dpi, non-IFN sensitivity, or cycling analysis was run.", "The statistical unit is biological_library.", "", "MAIN ANALYSIS COVERAGE", timepoint_lines, paste0( "Total main-analysis nuclei: ", ncol( main_object ) ), paste0( "Total biological libraries: ", length( library_order ) ), "", "FROZEN SIGNATURE DEFINITIONS", "Arm_1_frozen = Step6A Arm_1-biased high-confidence markers UNION Step6B M3_Shared_prebranch.", "Arm_2_frozen = Step6A Arm_2-biased high-confidence markers UNION Step6B M1_Arm2_terminal and M2_Arm2_terminal.", "Overlapping genes were audited and retained in both frozen sets; no data-driven removal was performed.", paste0( "Arm_1 mapped genes: ", length( arm1_present ), "/", length( arm1_frozen_requested ), " (", round( 100 * arm1_mapping_fraction, 2 ), "%)." ), paste0( "Arm_2 mapped genes: ", length( arm2_present ), "/", length( arm2_frozen_requested ), " (", round( 100 * arm2_mapping_fraction, 2 ), "%)." ), paste0( "Mapped overlap retained in both sets: ", length( overlap_present ), " genes." ), "", "AUCELL", "Input: sparse single-cell RNA counts.", paste0( "AUCell aucMaxRank: ", auc_max_rank, " genes (", 100 * AUC_MAX_RANK_FRACTION, "% of ranked features)." ), "Normalized AUC was calculated per cell.", "Formal library-level AUCell summary: median per-cell AUC within each biological_library.", "", "PSEUDOBULK SSGSEA", "Raw counts were summed within each biological_library.", paste0( "Pseudobulk profiles: ", ncol( pseudobulk_counts ), "." ), paste0( "Normalization: edgeR TMM logCPM with prior.count=", PSEUDOBULK_PRIOR_COUNT, "." ), paste0( "ssGSEA alpha=", SSGSEA_ALPHA, "; final ssGSEA normalization enabled." ), "", "LIBRARY-LEVEL METHOD CONCORDANCE", concordance_lines, "", "INTERPRETATION BOUNDARIES", "1. Technical PASS does not by itself prove biological replication; the score directions and time trends require review.", "2. Cell-level AUCell distributions are descriptive. Biological inference must use library-level summaries.", "3. Raw AUCell and ssGSEA score magnitudes are method-specific and must not be directly compared.", "4. Arm_balance is Arm_1 minus Arm_2 within each method and is a descriptive contrast.", "5. Frozen Arm signatures were not optimized on GSE234774.", "6. Arm_1 remains resolution/homeostasis-biased metabolic/lipid handling.", "7. Arm_2 remains inflammatory immune/vascular remodeling and scar-modulating; it is not a terminal-fate claim.", "", "PRIMARY OUTPUT OBJECTS", paste0( "Scored Seurat object: ", SCORED_OBJECT_PATH ), paste0( "Complete results RDS: ", RESULTS_RDS_PATH ), "", "NEXT DECISION AFTER SEVEN-FILE REVIEW", "Determine whether Arm_1, Arm_2, and Arm_balance show reproducible biological-library-level directions across the five main validation timepoints.", "Judge whether late 14 dpi, 1 month, and 2 months patterns support persistence, partial replication, or sample-sensitive replication." )
 if ( final_decision == "STOP" ) {
   failed <- audit_checks[ audit_checks$required_for_pass & audit_checks$status != "PASS", , drop = FALSE ]
-  report_lines <- c( report_lines, "", "STOP REASONS" )
   for ( index in seq_len( nrow( failed ) ) ) {
-    report_lines <- c( report_lines, paste0( index, ". ", failed$check[ index ], " -- ", failed$detail[ index ] ) )
   }
 }
 report_path <- file.path( OUTPUT_DIR, "10_STEP11A_FINAL_REPORT.txt" )
-writeLines( report_lines, report_path, useBytes = TRUE )
-log_message( "Final decision: ", final_decision )
-log_message( "Final report: ", report_path )
-cat("\n")
-cat("============================================================\n")
-cat("GSE234774 STEP 11A COMPLETED\n")
-cat( "FINAL DECISION:", final_decision, "\n" )
-cat( "Output:", OUTPUT_DIR, "\n" )
-cat("Key outputs:\n")
-cat(" 1) figures/01_AUCell_Arm_scores_UMAP.pdf\n")
-cat(" 2) figures/02_library_AUCell_ssGSEA_timecourse.pdf\n")
-cat(" 3) figures/03_AUCell_ssGSEA_library_concordance.pdf\n")
-cat(" 4) tables/04_frozen_Arm_signature_gene_audit.csv\n")
-cat(" 5) tables/05_main_validation_library_and_timepoint_scores.csv\n")
-cat(" 6) tables/09_STEP11A_audit_checks.csv\n")
-cat(" 7) 10_STEP11A_FINAL_REPORT.txt\n")
-cat("============================================================\n")
 if ( final_decision == "STOP" ) {
   stop( "GSE234774 Step 11A decision is STOP. Review the final report.", call. = FALSE )
 }
