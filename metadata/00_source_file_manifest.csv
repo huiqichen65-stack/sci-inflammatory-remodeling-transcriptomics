@@ -1,6 +1,0 @@
-role,project_relative_path,size_bytes,modified_time,md5
-Step2C final myeloid lineage metadata,04_results/step2C_GSE162610_final_microglia_extraction/GSE162610_step2_full_myeloid_with_final_lineage.rds,563904752,2026-07-30 22:21:35.651913,0f01f3e05f17a17f9c41f653c020a0e1
-Step3B clean resident microglia metadata,04_results/step3B_GSE162610_state_scoring/GSE162610_step3B_clean_state_scored.rds,379300814,2026-07-30 22:54:10.934067,5fab4221f31bd1464436cfc3e0444a8b
-"Step8A 62,842-cell atlas/CellChat metadata",04_results/step8A_GSE162610_CellChat_input_preflight/tables/02_CellChat_cell_metadata.tsv.gz,435947,2026-08-02 16:05:42.604483,61cbe8c12ce69193f00d26fe0e327a79
-"Step5BR2 14,005-cell trajectory metadata",04_results/step5BR2_GSE162610_single_root_branch_audit/Table5BR2_single_root_branch_audit.xlsx,1368821,2026-07-31 18:33:59.887535,ce29593f2a2b045b10b64336dcb3b860
-"Step7A frozen 4,203-cell formal branch metadata",04_results/step7A_GSE162610_pySCENIC_input_environment_audit/input/GSE162610_step7A_frozen_4203_cell_metadata.csv,1438445,2026-08-01 21:26:27.449234,4dbc91360efe417faacefefc579078e6
