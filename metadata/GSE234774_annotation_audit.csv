@@ -1,7 +1,0 @@
-check,value
-rows,25205
-unique_cell_barcodes,25205
-duplicate_cell_barcodes,0
-resident_lineage_included,20829
-non_microglial_myeloid_excluded,3997
-contaminant_excluded,379
