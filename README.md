@@ -1,6 +1,6 @@
 # Injury-associated inflammatory-remodeling program after spinal cord injury
 
-This repository contains the analysis code and cell-level annotations used in the revised manuscript **“Integrated single-cell and spatial transcriptomics identify an injury-associated inflammatory-remodeling program detectable near spinal cord lesions at chronic stages.”**
+This repository contains the analysis code and cell-level annotations used in the manuscript **“Integrated single-cell and spatial transcriptomics identify an injury-associated inflammatory-remodeling program detectable near spinal cord lesions at chronic stages.”**
 
 The study reanalyzes public mouse spinal cord injury transcriptomic datasets. GSE162610 is used for discovery, including atlas construction, myeloid refinement, resident-state analysis, trajectory and branch analyses, SCENIC, and CellChat. GSE234774 is used for independent single-nucleus and spatial validation.
 
