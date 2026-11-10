@@ -67,4 +67,4 @@ Some downstream modules are complementary rather than strictly serial and use ou
 
 ## Scope
 
-The repository contains the analysis code supporting the revised manuscript and the requested cell-level annotations. Raw matrices, large intermediate R objects, and rendered figures are not redistributed.
+The repository contains the analysis code supporting the manuscript and the cell-level annotations. Raw matrices, large intermediate R objects, and rendered figures are not redistributed.
