@@ -1,0 +1,8 @@
+"field","value","meaning"
+"resident_state","Canonical resident","Resident microglial state displayed in the revised manuscript."
+"resident_state","Activated resident","Resident microglial state displayed in the revised manuscript."
+"resident_state","IFN-responsive resident","Resident microglial state displayed in the revised manuscript."
+"resident_state","Cycling resident","Resident microglial state displayed in the revised manuscript."
+"branch_label","Shared_prebranch","Formal shared/prebranch portion of the frozen branch analysis."
+"branch_label","Alternative","Formal alternative branch (frozen Arm_1 correspondence)."
+"branch_label","Target","Formal target-program branch (frozen Arm_2 correspondence)."

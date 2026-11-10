@@ -1,0 +1,13 @@
+Channels, in strict priority order:
+  1. conda-forge
+  2. bioconda
+
+Environment:
+  name: pyscenic_env
+  python=3.10
+  numpy<1.24
+  pyscenic=0.12.1
+
+Reason:
+  Use the Bioconda pySCENIC package to avoid PyPI TLS/SSL and dependency
+  backtracking failures observed in the previous pip-based installation.
