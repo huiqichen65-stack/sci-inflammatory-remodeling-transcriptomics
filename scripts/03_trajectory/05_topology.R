@@ -112,10 +112,10 @@ map_cells_to_components <- function( membership, closest_vertex, cell_names) {
   out
 }
 if (!file.exists(INPUT_CDS)) {
-  stop( paste0( "找不到Step5B-R CDS：\n", INPUT_CDS ), call. = FALSE )
+  stop( paste0( "Required input not found: ", INPUT_CDS ), call. = FALSE )
 }
 if (!file.exists(INPUT_SEURAT)) {
-  stop( paste0( "找不到Step5B-R Seurat结果：\n", INPUT_SEURAT ), call. = FALSE )
+  stop( paste0( "Required input not found: ", INPUT_SEURAT ), call. = FALSE )
 }
 cds <- readRDS(INPUT_CDS)
 obj <- readRDS(INPUT_SEURAT)
@@ -129,7 +129,7 @@ if (is.null(pg)) {
 required_meta <- c( TIME_COL, SAMPLE_COL, CLUSTER_COL, PRIMARY_ROOT_COL, "shared_transition_3dpi_highconf", "transition_status", REPAIR_SCORE_COL, SCAR_SCORE_COL )
 missing_meta <- required_meta[ !required_meta %in% colnames(obj[[]]) ]
 if (length(missing_meta) > 0) {
-  stop( paste0( "Step5B-R Seurat结果缺少metadata：", paste(missing_meta, collapse = ", ") ), call. = FALSE )
+  stop( paste0( "Missing metadata: ", paste(missing_meta, collapse = ", ") ), call. = FALSE )
 }
 cds_cells <- colnames(cds)
 if (!all(cds_cells %in% colnames(obj))) {

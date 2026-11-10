@@ -29,20 +29,20 @@ dir.create(out_dir, recursive = TRUE, showWarnings = FALSE)
 dir.create(fig_dir, recursive = TRUE, showWarnings = FALSE)
 dir.create(tab_dir, recursive = TRUE, showWarnings = FALSE)
 if (!file.exists(step2A_rds)) {
-  stop("找不到 Step 2A RDS：\n", step2A_rds)
+  stop("Required input not found: ", step2A_rds)
 }
 if (!file.exists(step1F_rds)) {
-  stop("找不到 Step 1F RDS：\n", step1F_rds)
+  stop("Required input not found: ", step1F_rds)
 }
 obj <- readRDS(step2A_rds)
 if (!inherits(obj, "Seurat")) {
-  stop("Step 2A RDS 不是 Seurat 对象。")
+  stop("Input object is not a Seurat object.")
 }
 DefaultAssay(obj) <- "RNA"
 meta <- obj[[]]
 meta_names <- colnames(meta)
 if (!"myeloid_cluster_r04" %in% meta_names) {
-  stop("Step 2A 对象中缺少 myeloid_cluster_r04。")
+  stop("Required input not found: ")
 }
 obj$myeloid_cluster_r04 <- as.character(obj$myeloid_cluster_r04)
 Idents(obj) <- "myeloid_cluster_r04"
@@ -50,12 +50,12 @@ print(table(obj$myeloid_cluster_r04))
 expected_clusters <- as.character(0:11)
 observed_clusters <- sort(unique(as.character(obj$myeloid_cluster_r04)))
 if (!all(expected_clusters %in% observed_clusters)) {
-  warning( "当前对象的 cluster 集合不是完整的 0:11。\nObserved: ", paste(observed_clusters, collapse = ", ") )
+  warning( "Validation check.", paste(observed_clusters, collapse = ", ") )
 }
 intended_resolutions <- c(0.2, 0.3, 0.4, 0.5, 0.6, 0.8, 1.0)
 r04_candidates <- grep( "res\\.0\\.4$", meta_names, value = TRUE )
 if (length(r04_candidates) == 0) {
-  stop("metadata 中找不到任何 *_res.0.4 列，无法修正 clustree。")
+  stop("Required input not found: ")
 }
 target_r04 <- as.character(obj$myeloid_cluster_r04)
 r04_match <- vapply( r04_candidates, function(cc) {
@@ -67,7 +67,7 @@ r04_match <- vapply( r04_candidates, function(cc) {
 best_r04_col <- r04_candidates[which.max(r04_match)]
 best_match <- max(r04_match)
 if (!is.finite(best_match) || best_match < 0.95) {
-  stop( "无法可靠识别 Step 2A 的 resolution 0.4 cluster 列。\n", "Best candidate: ", best_r04_col, " | agreement = ", round(best_match, 4) )
+  stop( "Validation failed.", "Best candidate: ", best_r04_col, " | agreement = ", round(best_match, 4) )
 }
 cluster_prefix <- sub("0\\.4$", "", best_r04_col)
 find_resolution_col <- function(resolution_value) {
@@ -81,7 +81,7 @@ find_resolution_col <- function(resolution_value) {
 res_source_cols <- vapply( intended_resolutions, find_resolution_col, character(1) )
 res_map <- data.frame( resolution = intended_resolutions, source_column = res_source_cols, stringsAsFactors = FALSE )
 if (any(is.na(res_source_cols))) {
-  stop( "以下 Step 2A resolution 列未找到：", paste( intended_resolutions[is.na(res_source_cols)], collapse = ", " ) )
+  stop( "Required input not found: ", paste( intended_resolutions[is.na(res_source_cols)], collapse = ", " ) )
 }
 tree_meta <- data.frame( row.names = rownames(meta) )
 for (i in seq_along(intended_resolutions)) {
@@ -315,7 +315,7 @@ gene_set_availability <- do.call( rbind, lapply( names(gene_sets_use), function(
 write.csv( gene_set_availability, file.path(tab_dir, "04_lineage_gene_set_availability.csv"), row.names = FALSE )
 bad_sets <- names(gene_sets_use)[ vapply(gene_sets_use, length, integer(1)) < 3 ]
 if (length(bad_sets) > 0) {
-  stop( "以下 gene set 在表达矩阵中可用基因少于 3 个：", paste(bad_sets, collapse = ", ") )
+  stop( "Threshold check failed.", paste(bad_sets, collapse = ", ") )
 }
 dot_features <- unique(c( gene_sets_use$Resident_microglia, gene_sets_use$Infiltrating_mono_macro, gene_sets_use$BAM_like, gene_sets_use$Cycling_S, gene_sets_use$Cycling_G2M ))
 Idents(obj) <- "myeloid_cluster_r04"
@@ -330,7 +330,7 @@ get_rna_matrix <- function(seurat_obj) {
     x <- tryCatch( GetAssayData( seurat_obj, assay = "RNA", layer = "data" ), error = function(e) NULL )
   }
   if (is.null(x)) {
-    stop("无法从 RNA assay 获取 counts/data matrix。")
+    stop("Validation failed.")
   }
   x
 }

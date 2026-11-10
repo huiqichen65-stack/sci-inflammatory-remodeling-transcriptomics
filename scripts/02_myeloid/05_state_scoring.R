@@ -27,17 +27,17 @@ dir.create(out_dir, recursive = TRUE, showWarnings = FALSE)
 dir.create(fig_dir, recursive = TRUE, showWarnings = FALSE)
 dir.create(tab_dir, recursive = TRUE, showWarnings = FALSE)
 if (!file.exists(input_rds)) {
-  stop( "找不到 Step 3A RDS：\n", input_rds )
+  stop( "Required input not found: ", input_rds )
 }
 obj_all <- readRDS(input_rds)
 if (!inherits(obj_all, "Seurat")) {
-  stop("Step 3A RDS 不是 Seurat 对象。")
+  stop("Input object is not a Seurat object.")
 }
 DefaultAssay(obj_all) <- "RNA"
 required_meta <- c( "step3A_cluster_r04", "sample_id", "timepoint", "step2_final_cluster" )
 missing_meta <- required_meta[ !required_meta %in% colnames(obj_all[[]]) ]
 if (length(missing_meta) > 0) {
-  stop( "Step 3A 对象缺少必要 metadata：", paste(missing_meta, collapse = ", ") )
+  stop( "Missing metadata: ", paste(missing_meta, collapse = ", ") )
 }
 obj_all$step3A_cluster_r04 <- as.character( obj_all$step3A_cluster_r04 )
 print(table(obj_all$step3A_cluster_r04))
@@ -45,10 +45,10 @@ remove_clusters <- c("7", "11")
 keep_clusters <- c( "0", "1", "2", "3", "4", "5", "6", "8", "9", "10" )
 observed_clusters <- sort( unique( as.character( obj_all$step3A_cluster_r04 ) ) )
 if (!all(remove_clusters %in% observed_clusters)) {
-  stop( "预期删除 cluster 不完整。缺失：", paste( remove_clusters[ !remove_clusters %in% observed_clusters ], collapse = ", " ) )
+  stop( "Expected-value check failed.", paste( remove_clusters[ !remove_clusters %in% observed_clusters ], collapse = ", " ) )
 }
 if (!all(keep_clusters %in% observed_clusters)) {
-  stop( "预期保留 cluster 不完整。缺失：", paste( keep_clusters[ !keep_clusters %in% observed_clusters ], collapse = ", " ) )
+  stop( "Expected-value check failed.", paste( keep_clusters[ !keep_clusters %in% observed_clusters ], collapse = ", " ) )
 }
 cleanup_map <- data.frame( step3A_cluster_r04 = observed_clusters, step3B_status = ifelse( observed_clusters %in% remove_clusters, "REMOVE", "KEEP" ), step3B_reason = ifelse( observed_clusters == "7", "residual_monocyte_like_contamination", ifelse( observed_clusters == "11", "residual_astrocyte_glial_contamination", "retained_microglial_state_candidate" ) ), stringsAsFactors = FALSE )
 write.csv( cleanup_map, file.path( tab_dir, "01_step3B_residual_cleanup_map.csv" ), row.names = FALSE )
@@ -87,7 +87,7 @@ gene_set_availability <- do.call( rbind, lapply( names(gene_sets), function(nm) 
 write.csv( gene_set_availability, file.path( tab_dir, "03_state_program_gene_set_availability.csv" ), row.names = FALSE )
 bad_sets <- names(gene_sets_use)[ vapply( gene_sets_use, length, integer(1) ) < 3 ]
 if (length(bad_sets) > 0) {
-  stop( "以下 state gene set 可用基因少于3个：", paste(bad_sets, collapse = ", ") )
+  stop( "Threshold check failed.", paste(bad_sets, collapse = ", ") )
 }
 dot_features <- unique( unlist( gene_sets_use, use.names = FALSE ) )
 p_dot <- DotPlot( obj, features = dot_features, group.by = "step3A_cluster_r04", assay = "RNA" ) + RotatedAxis() + ggtitle( "Formal microglial state-program markers | Step 3B" )
@@ -101,7 +101,7 @@ get_rna_matrix <- function(seurat_obj) {
     x <- tryCatch( GetAssayData( seurat_obj, assay = "RNA", layer = "data" ), error = function(e) NULL )
   }
   if (is.null(x)) {
-    stop("无法从 RNA assay 获取 counts/data matrix。")
+    stop("Validation failed.")
   }
   x
 }

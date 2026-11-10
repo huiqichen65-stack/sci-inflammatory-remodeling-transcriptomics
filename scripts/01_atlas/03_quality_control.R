@@ -9,7 +9,7 @@ dir.create(out_dir, recursive = TRUE, showWarnings = FALSE)
 dir.create(fig_dir, recursive = TRUE, showWarnings = FALSE)
 dir.create(tab_dir, recursive = TRUE, showWarnings = FALSE)
 if (!file.exists(in_rds)) {
-  stop("找不到 Step 1A Seurat 对象：\n", in_rds)
+  stop("Input object is not a Seurat object.", in_rds)
 }
 pkgs <- c("Seurat", "data.table", "ggplot2", "patchwork")
 miss <- pkgs[!vapply(pkgs, requireNamespace, logical(1), quietly = TRUE)]
@@ -25,13 +25,13 @@ suppressPackageStartupMessages({
 pbmc <- readRDS(in_rds)
 required_meta <- c( "sample_id", "timepoint", "nFeature_RNA", "nCount_RNA", "percent.mt", "percent.HB" )
 if (!all(required_meta %in% colnames(pbmc@meta.data))) {
-  stop( "Step 1A 对象缺少以下 metadata：", paste(setdiff(required_meta, colnames(pbmc@meta.data)), collapse = ", ") )
+  stop( "Missing metadata: ", paste(setdiff(required_meta, colnames(pbmc@meta.data)), collapse = ", ") )
 }
 minFeature <- 500
 minCount   <- 1000
 maxMT      <- 15
 maxHB      <- 1
-thresholds <- data.frame( metric = c( "nFeature_RNA", "nCount_RNA", "percent.mt", "percent.HB" ), rule = c( paste0(">=", minFeature), paste0(">=", minCount), paste0("<", maxMT), paste0("<", maxHB) ), rationale = c( "去除极低复杂度/低质量细胞", "去除极低 UMI 细胞", "保守排除高线粒体比例细胞；避免过度删除 SCI 激活细胞", "去除明显血红蛋白污染；本数据绝大多数细胞接近 0" ), stringsAsFactors = FALSE )
+thresholds <- data.frame( metric = c( "nFeature_RNA", "nCount_RNA", "percent.mt", "percent.HB" ), rule = c( paste0(">=", minFeature), paste0(">=", minCount), paste0("<", maxMT), paste0("<", maxHB) ), rationale = c( "QC filter.", "QC filter.", "QC filter.", "QC filter." ), stringsAsFactors = FALSE )
 fwrite( thresholds, file.path(tab_dir, "01_QC_thresholds.csv") )
 md <- pbmc@meta.data
 md$cell <- rownames(md)
@@ -115,6 +115,3 @@ all_samples_preserved <- ( length(unique(pbmc_qc$sample_id)) == length(unique(pb
 all_timepoints_preserved <- ( length(unique(as.character(pbmc_qc$timepoint))) == length(unique(as.character(pbmc$timepoint))) )
 min_retention <- min( retention_sample$retention_pct, na.rm = TRUE )
 retention_warning <- min_retention < 70
-if ( all_samples_preserved && all_timepoints_preserved && !retention_warning ) {
-} else {
-}

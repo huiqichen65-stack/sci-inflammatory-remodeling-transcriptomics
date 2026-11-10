@@ -36,23 +36,23 @@ dir.create(go_dir, recursive = TRUE, showWarnings = FALSE)
 dir.create(gsea_dir, recursive = TRUE, showWarnings = FALSE)
 dir.create(pb_dir, recursive = TRUE, showWarnings = FALSE)
 if (!file.exists(input_rds)) {
-  stop( "找不到 Step 3C 输入对象：\n", input_rds )
+  stop( "Required input not found: ", input_rds )
 }
 obj <- readRDS(input_rds)
 if (!inherits(obj, "Seurat")) {
-  stop("输入 RDS 不是 Seurat object。")
+  stop("Input object is not a Seurat object.")
 }
 DefaultAssay(obj) <- "RNA"
 required_meta <- c( "sample_id", "timepoint", "step3A_cluster_r04" )
 missing_meta <- required_meta[ !required_meta %in% colnames(obj[[]]) ]
 if (length(missing_meta) > 0) {
-  stop( "缺少必要 metadata：", paste(missing_meta, collapse = ", ") )
+  stop( "Missing metadata: ", paste(missing_meta, collapse = ", ") )
 }
 obj$step3A_cluster_r04 <- as.character( obj$step3A_cluster_r04 )
 time_levels <- c( "Uninjured", "1 dpi", "3 dpi", "7 dpi" )
 obj$timepoint_step3D <- factor( as.character(obj$timepoint), levels = time_levels )
 if (any(is.na(obj$timepoint_step3D))) {
-  stop("timepoint 中存在无法映射到 Uninjured / 1 dpi / 3 dpi / 7 dpi 的值。")
+  stop("Consistency check failed.")
 }
 print(table(obj$timepoint_step3D))
 print(table(obj$sample_id))

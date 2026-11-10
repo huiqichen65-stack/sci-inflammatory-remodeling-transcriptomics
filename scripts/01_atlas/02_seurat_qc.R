@@ -16,7 +16,7 @@ f_cellmeta <- file.path(meta_dir, "01_GSE162610_cell_metadata_CONFIRMED.csv")
 f_manifest <- file.path(meta_dir, "02_GSE162610_sample_manifest_CONFIRMED.csv")
 required_files <- c(f_matrix, f_barcodes, f_genes, f_cellmeta, f_manifest)
 if (!all(file.exists(required_files))) {
-  stop( "缺少以下文件：\n", paste(required_files[!file.exists(required_files)], collapse = "\n") )
+  stop( "Required input not found: ", paste(required_files[!file.exists(required_files)], collapse = "\n") )
 }
 pkgs <- c("Matrix", "Seurat", "data.table", "ggplot2", "patchwork")
 miss <- pkgs[!vapply(pkgs, requireNamespace, logical(1), quietly = TRUE)]
@@ -67,24 +67,24 @@ colnames(counts) <- barcodes
 t1 <- Sys.time()
 load_minutes <- as.numeric(difftime(t1, t0, units = "mins"))
 if (nrow(counts) != length(gene_names)) {
-  stop("矩阵行数与 genes 不一致。")
+  stop("Consistency check failed.")
 }
 if (ncol(counts) != length(barcodes)) {
-  stop("矩阵列数与 barcodes 不一致。")
+  stop("Consistency check failed.")
 }
 pbmc <- CreateSeuratObject( counts = counts, project = "GSE162610", min.cells = 0, min.features = 0 )
 rm(counts)
 gc()
 cell_meta <- data.table::fread(f_cellmeta, data.table = FALSE)
 if (!all(c("barcode", "sample_id", "timepoint") %in% colnames(cell_meta))) {
-  stop( "确认版 cell metadata 中缺少 barcode/sample_id/timepoint 列。\n", "Check", f_cellmeta )
+  stop( "Missing metadata: ", "Check", f_cellmeta )
 }
 cell_meta$barcode <- clean_chr(cell_meta$barcode)
 cell_meta$sample_id <- clean_chr(cell_meta$sample_id)
 cell_meta$timepoint <- clean_chr(cell_meta$timepoint)
 idx <- match(colnames(pbmc), cell_meta$barcode)
 if (anyNA(idx)) {
-  stop("有 ", sum(is.na(idx)), " 个 Seurat barcode 无法在确认版 metadata 中找到。")
+  stop("Validation check.", sum(is.na(idx)), "Validation failed.")
 }
 cell_meta <- cell_meta[idx, , drop = FALSE]
 rownames(cell_meta) <- cell_meta$barcode
@@ -96,14 +96,14 @@ mt_genes <- grep("^mt-", rownames(pbmc), value = TRUE, ignore.case = TRUE)
 if (length(mt_genes) > 0) {
   pbmc[["percent.mt"]] <- PercentageFeatureSet(pbmc, features = mt_genes)
 } else {
-  warning("未识别到 mt- mitochondrial genes，percent.mt 设置为 0，Check")
+  warning("Validation check.")
   pbmc$percent.mt <- 0
 }
 hb_genes <- grep("^Hb[ab]", rownames(pbmc), value = TRUE, ignore.case = TRUE)
 if (length(hb_genes) > 0) {
   pbmc[["percent.HB"]] <- PercentageFeatureSet(pbmc, features = hb_genes)
 } else {
-  warning("未识别到 Hb genes，percent.HB 设置为 0。")
+  warning("Validation check.")
   pbmc$percent.HB <- 0
 }
 writeLines(mt_genes, file.path(tab_dir, "01_detected_mitochondrial_genes.txt"))

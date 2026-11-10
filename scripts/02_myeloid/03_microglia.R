@@ -23,18 +23,18 @@ dir.create(out_dir, recursive = TRUE, showWarnings = FALSE)
 dir.create(fig_dir, recursive = TRUE, showWarnings = FALSE)
 dir.create(tab_dir, recursive = TRUE, showWarnings = FALSE)
 if (!file.exists(input_rds)) {
-  stop( "找不到 Step 2B RDS：\n", input_rds )
+  stop( "Required input not found: ", input_rds )
 }
 obj <- readRDS(input_rds)
 if (!inherits(obj, "Seurat")) {
-  stop("Step 2B RDS 不是 Seurat 对象。")
+  stop("Input object is not a Seurat object.")
 }
 DefaultAssay(obj) <- "RNA"
 meta <- obj[[]]
 required_meta <- c( "myeloid_cluster_r04", "sample_id", "timepoint" )
 missing_meta <- required_meta[ !required_meta %in% colnames(meta) ]
 if (length(missing_meta) > 0) {
-  stop( "Step 2B 对象缺少必要 metadata：", paste(missing_meta, collapse = ", ") )
+  stop( "Missing metadata: ", paste(missing_meta, collapse = ", ") )
 }
 obj$myeloid_cluster_r04 <- as.character(obj$myeloid_cluster_r04)
 print(table(obj$myeloid_cluster_r04))
@@ -42,10 +42,10 @@ clean_clusters <- c("0", "3", "4", "5", "7", "9")
 excluded_clusters <- c("1", "2", "6", "8", "10", "11")
 observed_clusters <- sort( unique(as.character(obj$myeloid_cluster_r04)) )
 if (!all(clean_clusters %in% observed_clusters)) {
-  stop( "以下 clean clusters 在 Step 2B 对象中缺失：", paste( clean_clusters[ !clean_clusters %in% observed_clusters ], collapse = ", " ) )
+  stop( "Validation check.", paste( clean_clusters[ !clean_clusters %in% observed_clusters ], collapse = ", " ) )
 }
 if (!all(excluded_clusters %in% observed_clusters)) {
-  warning( "以下预期 excluded clusters 未在对象中找到：", paste( excluded_clusters[ !excluded_clusters %in% observed_clusters ], collapse = ", " ) )
+  warning( "Expected-value check failed.", paste( excluded_clusters[ !excluded_clusters %in% observed_clusters ], collapse = ", " ) )
 }
 final_lineage_map <- data.frame( myeloid_cluster_r04 = c( "0", "1", "2", "3", "4", "5", "6", "7", "8", "9", "10", "11" ), final_lineage_class = c( "canonical_resident_microglia", "infiltrating_macrophage", "infiltrating_monocyte", "activated_resident_microglia", "activated_resident_microglia", "cycling_S_microglia", "macrophage_biased_infiltrating_myeloid", "cycling_G2M_microglia", "BAM_like_macrophage", "IFN_responsive_resident_microglia", "IFN_responsive_infiltrating_mono_macro", "MHCII_APC_like_infiltrating_macrophage" ), final_step2_status = c( "KEEP", "EXCLUDE", "EXCLUDE", "KEEP", "KEEP", "KEEP", "EXCLUDE", "KEEP", "EXCLUDE", "KEEP", "EXCLUDE", "EXCLUDE" ), enter_step3 = c( TRUE, FALSE, FALSE, TRUE, TRUE, TRUE, FALSE, TRUE, FALSE, TRUE, FALSE, FALSE ), stringsAsFactors = FALSE )
 write.csv( final_lineage_map, file.path( tab_dir, "01_final_step2_lineage_map.csv" ), row.names = FALSE )
@@ -57,7 +57,7 @@ full_counts <- as.data.frame( table( cluster = obj$myeloid_cluster_r04, lineage 
 write.csv( full_counts, file.path( tab_dir, "02_full_myeloid_final_lineage_counts.csv" ), row.names = FALSE )
 clean_cells <- colnames(obj)[ obj$myeloid_cluster_r04 %in% clean_clusters ]
 if (length(clean_cells) == 0) {
-  stop("没有提取到 clean microglia cells。")
+  stop("Required result not found.")
 }
 microglia <- subset( obj, cells = clean_cells )
 DefaultAssay(microglia) <- "RNA"
@@ -67,7 +67,7 @@ Idents(microglia) <- "step2_final_cluster"
 print(table(microglia$step2_final_cluster))
 expected_total <- sum( c( 11808, 2797, 2196, 1864, 1515, 567 ) )
 if (ncol(microglia) != expected_total) {
-  warning( "最终 clean microglia 数量与 Step 2B 预期值不一致。\n", "Expected = ", expected_total, " | Observed = ", ncol(microglia) )
+  warning( "Consistency check failed.", "Expected = ", expected_total, " | Observed = ", ncol(microglia) )
 }
 cluster_counts <- as.data.frame( table( cluster = microglia$step2_final_cluster ) )
 cluster_counts$proportion <- ( cluster_counts$Freq / sum(cluster_counts$Freq) )
@@ -112,7 +112,7 @@ if (author_col %in% colnames(microglia[[]])) {
   write.csv( author_cross, file.path( tab_dir, "08_clean_microglia_vs_author_annotation.csv" ), row.names = FALSE )
 }
 if (!"umap.myeloid" %in% Reductions(microglia)) {
-  stop( "Step 2B 对象中缺少 umap.myeloid reduction；", "Step 2C 不应重新计算 UMAP。" )
+  stop( "Required input not found: ", "Validation check." )
 }
 p1 <- DimPlot( microglia, reduction = "umap.myeloid", group.by = "step2_final_cluster", label = TRUE, repel = TRUE ) + ggtitle("Final clean resident-derived microglia | Step 2C")
 p2 <- DimPlot( microglia, reduction = "umap.myeloid", group.by = "step2_final_state_label", label = TRUE, repel = TRUE ) + ggtitle("Final Step 2 lineage labels")

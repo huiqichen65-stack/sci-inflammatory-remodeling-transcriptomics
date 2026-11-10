@@ -68,7 +68,7 @@ calc_gene_z_program <- function(mat, genes) {
   list( score = as.numeric(score), genes = genes )
 }
 if (!file.exists(INPUT_RDS)) {
-  stop( paste0( "找不到Step 4A scored RDS：\n", INPUT_RDS, "\n\nCheck" ), call. = FALSE )
+  stop( paste0( "Required input not found: ", INPUT_RDS, "\n\nCheck" ), call. = FALSE )
 }
 obj <- readRDS(INPUT_RDS)
 if (!inherits(obj, "Seurat")) {
@@ -78,10 +78,10 @@ DefaultAssay(obj) <- "RNA"
 required_meta <- c( TIME_COL, SAMPLE_COL, CLUSTER_COL, "transition_status", "shared_transition_3dpi_highconf" )
 missing_meta <- required_meta[ !required_meta %in% colnames(obj[[]]) ]
 if (length(missing_meta) > 0) {
-  stop( paste0( "缺少正式metadata：", paste(missing_meta, collapse = ", ") ), call. = FALSE )
+  stop( paste0( "Missing metadata: ", paste(missing_meta, collapse = ", ") ), call. = FALSE )
 }
 if (!UMAP_REDUCTION %in% Seurat::Reductions(obj)) {
-  stop( paste0( "缺少正式Step3A UMAP：", UMAP_REDUCTION, "\n重新计算或替换UMAP。" ), call. = FALSE )
+  stop( paste0( "Required input not found: ", UMAP_REDUCTION, "Validation check." ), call. = FALSE )
 }
 obj$step3A_cluster_r04 <- as.character( obj$step3A_cluster_r04 )
 time_vec <- as.character( obj[[TIME_COL, drop = TRUE]] )
@@ -111,10 +111,10 @@ expr_root <- expr[ , root_candidate_cells, drop = FALSE ]
 homeo_avail <- intersect( HOMEOSTATIC_GENES, rownames(expr_root) )
 dam_avail <- intersect( ACTIVATED_DAM_GENES, rownames(expr_root) )
 if (length(homeo_avail) < 6) {
-  stop( paste0( "可用homeostatic genes <6：", paste(homeo_avail, collapse = ", ") ), call. = FALSE )
+  stop( paste0( "Threshold check failed.", paste(homeo_avail, collapse = ", ") ), call. = FALSE )
 }
 if (length(dam_avail) < 6) {
-  stop( paste0( "可用activated/DAM genes <6：", paste(dam_avail, collapse = ", ") ), call. = FALSE )
+  stop( paste0( "Threshold check failed.", paste(dam_avail, collapse = ", ") ), call. = FALSE )
 }
 homeo_score_obj <- calc_gene_z_program( expr_root, homeo_avail )
 dam_score_obj <- calc_gene_z_program( expr_root, dam_avail )

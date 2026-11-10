@@ -77,7 +77,7 @@ euclidean_to_vector <- function(mat, vec) {
   sqrt(rowSums((mat - matrix( vec, nrow = nrow(mat), ncol = ncol(mat), byrow = TRUE )) ^ 2))
 }
 if (!file.exists(INPUT_RDS)) {
-  stop("找不到Step5A正式trajectory input RDS：\n", INPUT_RDS)
+  stop("Required input not found: ", INPUT_RDS)
 }
 obj <- readRDS(INPUT_RDS)
 if (!inherits(obj, "Seurat")) {
@@ -87,12 +87,12 @@ DefaultAssay(obj) <- "RNA"
 required_meta <- c( TIME_COL, SAMPLE_COL, CLUSTER_COL, "transition_status", "shared_transition_3dpi_highconf" )
 missing_meta <- required_meta[ !required_meta %in% colnames(obj[[]]) ]
 if (length(missing_meta) > 0) {
-  stop( "缺少metadata：", paste(missing_meta, collapse = ", "), call. = FALSE )
+  stop( "Missing metadata: ", paste(missing_meta, collapse = ", "), call. = FALSE )
 }
 required_reductions <- c( UMAP_REDUCTION, HARMONY_REDUCTION )
 missing_reductions <- setdiff( required_reductions, Seurat::Reductions(obj) )
 if (length(missing_reductions) > 0) {
-  stop( paste0( "缺少正式reduction：", paste(missing_reductions, collapse = ", "), "\n重新运行Harmony或UMAP。" ), call. = FALSE )
+  stop( paste0( "Required input not found: ", paste(missing_reductions, collapse = ", "), "Validation check." ), call. = FALSE )
 }
 time_vec <- as.character(obj[[TIME_COL, drop = TRUE]])
 sample_vec <- as.character(obj[[SAMPLE_COL, drop = TRUE]])
@@ -102,7 +102,7 @@ candidate_tbl <- tibble::tibble( cell = candidate_cells, sample = sample_vec[mat
 candidate_counts <- candidate_tbl |> dplyr::count(sample, name = "n_candidates") |> tidyr::complete( sample = EXPECTED_UNINJ_SAMPLES, fill = list(n_candidates = 0) )
 print(candidate_counts)
 if (any(candidate_counts$n_candidates < MIN_ROOT_PER_SAMPLE)) {
-  stop( "至少一个Uninjured sample在cluster 0中的候选细胞 < ", MIN_ROOT_PER_SAMPLE, "，不能继续。", call. = FALSE )
+  stop( "Threshold check failed.", MIN_ROOT_PER_SAMPLE, "Requirement not met.", call. = FALSE )
 }
 expr <- get_data_matrix(obj)
 if (!identical(colnames(expr), colnames(obj))) {
@@ -153,7 +153,7 @@ highconf_counts <- candidate_tbl |> dplyr::filter(highconf_consensus) |> dplyr::
 print(highconf_counts)
 min_highconf <- min(highconf_counts$n_highconf)
 if (min_highconf < MIN_ROOT_PER_SAMPLE) {
-  stop( paste0( "最少样本仅有 ", min_highconf, " 个高置信Harmony-space root candidates (<", MIN_ROOT_PER_SAMPLE, ")。\n", "停止运行并检查 root-candidate 阈值。" ), call. = FALSE )
+  stop( paste0( "Validation check.", min_highconf, "Threshold check failed.", MIN_ROOT_PER_SAMPLE, ")。\n", "Requirement not met." ), call. = FALSE )
 }
 final_n_per_sample <- min( TARGET_ROOT_PER_SAMPLE, min_highconf )
 final_root_tbl <- candidate_tbl |> dplyr::filter(highconf_consensus) |> dplyr::group_by(sample) |> dplyr::arrange( dplyr::desc(consensus_priority), dplyr::desc(root_score), .by_group = TRUE ) |> dplyr::mutate( within_sample_rank = dplyr::row_number() ) |> dplyr::filter( within_sample_rank <= final_n_per_sample ) |> dplyr::ungroup()

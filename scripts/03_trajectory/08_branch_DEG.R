@@ -33,7 +33,7 @@ TOP_LABEL_PER_DIRECTION <- 8
 required_pkgs <- c( "Seurat", "SeuratObject", "Matrix", "dplyr", "tidyr", "tibble", "ggplot2", "patchwork", "edgeR", "limma", "openxlsx" )
 missing_pkgs <- required_pkgs[ !vapply( required_pkgs, requireNamespace, logical(1), quietly = TRUE ) ]
 if (length(missing_pkgs) > 0) {
-  stop( paste0( "缺少以下R包：", paste(missing_pkgs, collapse = ", ") ), call. = FALSE )
+  stop( paste0( "Missing R package(s): ", paste(missing_pkgs, collapse = ", ") ), call. = FALSE )
 }
 suppressPackageStartupMessages({
   library(Seurat)
@@ -70,7 +70,7 @@ standardize_seurat_deg <- function(x) {
   x$gene_id <- rownames(x)
   fc_col <- intersect( c( "avg_log2FC", "avg_logFC" ), colnames(x) )[1]
   if ( length(fc_col) == 0 || is.na(fc_col) ) {
-    stop( paste0( "FindMarkers结果中找不到avg_log2FC/avg_logFC。当前列：", paste(colnames(x), collapse = ", ") ), call. = FALSE )
+    stop( paste0( "Required input not found: ", paste(colnames(x), collapse = ", ") ), call. = FALSE )
   }
   out <- tibble::tibble( gene_id = as.character(x$gene_id), avg_log2FC = as.numeric(x[[fc_col]]), pct_Arm1 = if ("pct.1" %in% colnames(x)) as.numeric(x$pct.1) else NA_real_, pct_Arm2 = if ("pct.2" %in% colnames(x)) as.numeric(x$pct.2) else NA_real_, p_value = if ("p_val" %in% colnames(x)) as.numeric(x$p_val) else NA_real_, FDR = if ("p_val_adj" %in% colnames(x)) as.numeric(x$p_val_adj) else NA_real_ )
   out$BH_FDR <- stats::p.adjust( out$p_value, method = "BH" )
@@ -86,15 +86,15 @@ choose_umap <- function(obj) {
   avail <- names(obj@reductions)
   hit <- prefs[prefs %in% avail][1]
   if ( length(hit) == 0 || is.na(hit) ) {
-    stop( paste0( "没有找到可复用UMAP。现有reductions：", paste(avail, collapse = ", ") ), call. = FALSE )
+    stop( paste0( "Required result not found.", paste(avail, collapse = ", ") ), call. = FALSE )
   }
   hit
 }
 if (!file.exists(INPUT_STEP5CR)) {
-  stop( paste0("找不到Step5C-R结果：", INPUT_STEP5CR), call. = FALSE )
+  stop( paste0("Required input not found: ", INPUT_STEP5CR), call. = FALSE )
 }
 if (!file.exists(INPUT_SEURAT)) {
-  stop( paste0("找不到Step5B-R2 Seurat对象：", INPUT_SEURAT), call. = FALSE )
+  stop( paste0("Input object is not a Seurat object.", INPUT_SEURAT), call. = FALSE )
 }
 step5cr <- readRDS(INPUT_STEP5CR)
 obj <- readRDS(INPUT_SEURAT)
@@ -102,10 +102,10 @@ DefaultAssay(obj) <- "RNA"
 required_step5_fields <- c( "arm1_cells", "arm2_cells", "branchpoint" )
 missing_step5 <- required_step5_fields[ !required_step5_fields %in% names(step5cr) ]
 if (length(missing_step5) > 0) {
-  stop( paste0( "Step5C-R结果缺少：", paste(missing_step5, collapse = ", ") ), call. = FALSE )
+  stop( paste0( "Required input not found: ", paste(missing_step5, collapse = ", ") ), call. = FALSE )
 }
 if ( !TIME_COL %in% colnames(obj[[]]) || !SAMPLE_COL %in% colnames(obj[[]]) ) {
-  stop( "Seurat对象缺少timepoint或sample_id metadata。", call. = FALSE )
+  stop( "Missing metadata: ", call. = FALSE )
 }
 timepoint <- as.character( obj[[TIME_COL, drop = TRUE]] )
 names(timepoint) <- colnames(obj)
@@ -126,7 +126,7 @@ cell_summary <- obj7[[]] |> tibble::rownames_to_column("cell") |> dplyr::count( 
 print(cell_summary)
 sample_branch_check <- cell_summary |> dplyr::group_by(step6A_sample) |> dplyr::summarise( n_branches = dplyr::n_distinct(step6A_branch), min_cells = min(n_cells), .groups = "drop" )
 if (any(sample_branch_check$n_branches < 2)) {
-  stop( "至少一个7 dpi biological sample没有同时包含Arm_1和Arm_2。", call. = FALSE )
+  stop( "Required result not found.", call. = FALSE )
 }
 if (any(sample_branch_check$min_cells < 50)) {
   stop("At least one sample x branch group has <50 cells.", call. = FALSE)
@@ -148,7 +148,7 @@ for (smp in samples7) {
   obj_smp <- subset( obj7, cells = cells_smp )
   tab_smp <- table( obj_smp$step6A_branch )
   if ( !all(c("Arm_1", "Arm_2") %in% names(tab_smp)) || any(tab_smp[c("Arm_1", "Arm_2")] < 20) ) {
-    stop( paste0( smp, "中至少一个branch细胞过少。" ), call. = FALSE )
+    stop( paste0( smp, "Validation check." ), call. = FALSE )
   }
   dd <- run_cell_deg( obj_smp, ident1 = "Arm_1", ident2 = "Arm_2" )
   dd$sample <- smp
@@ -201,7 +201,7 @@ pb_deg <- tryCatch( {
     fit <- edgeR::glmQLFit( y2, design, robust = TRUE )
     coef_name <- grep( "^branchArm_1$", colnames(design), value = TRUE )
     if (length(coef_name) != 1) {
-      stop( paste0( "无法唯一识别branchArm_1 coefficient。design列：", paste(colnames(design), collapse = ", ") ) )
+      stop( paste0( "Validation failed.", paste(colnames(design), collapse = ", ") ) )
     }
     qlf <- edgeR::glmQLFTest( fit, coef = coef_name )
     tt <- edgeR::topTags( qlf, n = Inf, sort.by = "PValue" )$table
@@ -215,7 +215,7 @@ pb_deg <- tryCatch( {
     fit <- edgeR::glmFit( y2, design )
     coef_name <- grep( "^branchArm_1$", colnames(design), value = TRUE )
     if (length(coef_name) != 1) {
-      stop( paste0( "无法唯一识别branchArm_1 coefficient。design列：", paste(colnames(design), collapse = ", ") ) )
+      stop( paste0( "Validation failed.", paste(colnames(design), collapse = ", ") ) )
     }
     lrt <- edgeR::glmLRT( fit, coef = coef_name )
     tt <- edgeR::topTags( lrt, n = Inf, sort.by = "PValue" )$table
@@ -252,7 +252,7 @@ grDevices::pdf( OUT_FIG2, width = 8.5, height = 7, useDingbats = FALSE )
 print(p2)
 grDevices::dev.off()
 if (length(rep_fc_cols) != 2) {
-  stop( paste0( "当前Step6A预期恰好2个7 dpi biological samples，但得到：", length(rep_fc_cols) ), call. = FALSE )
+  stop( paste0( "Expected-value check failed.", length(rep_fc_cols) ), call. = FALSE )
 }
 rep_plot <- replicate_consistency |> dplyr::left_join( master |> dplyr::select( gene_id, high_confidence_branch_marker, final_direction, technical_like ), by = "gene_id" )
 names(rep_plot)[ match(rep_fc_cols, names(rep_plot)) ] <- c( "sample1_log2FC", "sample2_log2FC" )

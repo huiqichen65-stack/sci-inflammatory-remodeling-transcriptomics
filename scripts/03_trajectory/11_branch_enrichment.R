@@ -153,23 +153,23 @@ make_branch_dotplot <- function( df, title_text, subtitle_text, n_per_branch) {
   ggplot2::ggplot( plot_df, ggplot2::aes( x = GeneRatio_numeric, y = stats::reorder( Description_wrapped, GeneRatio_numeric ), size = Count, color = branch ) ) + ggplot2::geom_point( alpha = 0.90 ) + ggplot2::facet_wrap( ~branch, scales = "free_y", ncol = 2 ) + ggplot2::scale_color_manual( values = ARM_COLORS ) + ggplot2::labs( title = title_text, subtitle = paste0( subtitle_text, "\n", display_level ), x = "Gene ratio", y = NULL, size = "Genes", color = NULL ) + ggplot2::theme_classic( base_size = 10 ) + ggplot2::theme( legend.position = "top", strip.background = ggplot2::element_rect( fill = "grey95", color = NA ), strip.text = ggplot2::element_text( face = "bold" ) )
 }
 if (!file.exists(INPUT_STEP6A)) {
-  stop( paste0( "找不到Step6A结果：", INPUT_STEP6A ), call. = FALSE )
+  stop( paste0( "Required input not found: ", INPUT_STEP6A ), call. = FALSE )
 }
 step6a <- readRDS( INPUT_STEP6A )
 required_fields <- c( "master_evidence", "pseudobulk_deg" )
 missing_fields <- required_fields[ !required_fields %in% names(step6a) ]
 if (length(missing_fields) > 0) {
-  stop( paste0( "Step6A结果缺少：", paste( missing_fields, collapse = ", " ) ), call. = FALSE )
+  stop( paste0( "Required input not found: ", paste( missing_fields, collapse = ", " ) ), call. = FALSE )
 }
 master <- as.data.frame( step6a$master_evidence )
 pb_deg <- as.data.frame( step6a$pseudobulk_deg )
 required_master_cols <- c( "gene_id", "final_direction", "strict_pseudobulk_supported" )
 missing_master_cols <- required_master_cols[ !required_master_cols %in% colnames(master) ]
 if (length(missing_master_cols) > 0) {
-  stop( paste0( "Step6A master_evidence缺少：", paste( missing_master_cols, collapse = ", " ) ), call. = FALSE )
+  stop( paste0( "Required input not found: ", paste( missing_master_cols, collapse = ", " ) ), call. = FALSE )
 }
 if (!"gene_id" %in% colnames(pb_deg)) {
-  stop( "Step6A pseudobulk_deg缺少gene_id。", call. = FALSE )
+  stop( "Required input not found: ", call. = FALSE )
 }
 direction_levels <- c( "Arm_1-biased", "Arm_2-biased" )
 primary_master <- master |> dplyr::filter( final_direction %in% direction_levels ) |> dplyr::distinct( gene_id, .keep_all = TRUE )

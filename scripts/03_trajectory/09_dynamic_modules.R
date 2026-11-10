@@ -33,7 +33,7 @@ MIN_ABS_MODULE_EFFECT_PER_SAMPLE <- 0.15
 required_pkgs <- c( "Seurat", "SeuratObject", "Matrix", "dplyr", "tidyr", "tibble", "ggplot2", "patchwork", "cluster", "openxlsx" )
 missing_pkgs <- required_pkgs[ !vapply( required_pkgs, requireNamespace, logical(1), quietly = TRUE ) ]
 if (length(missing_pkgs) > 0) {
-  stop( paste0( "缺少以下R包：", paste(missing_pkgs, collapse = ", ") ), call. = FALSE )
+  stop( paste0( "Missing R package(s): ", paste(missing_pkgs, collapse = ", ") ), call. = FALSE )
 }
 suppressPackageStartupMessages({
   library(Seurat)
@@ -123,7 +123,7 @@ safe_cor <- function(x, y) {
 }
 for (ff in c(INPUT_STEP5CR, INPUT_STEP6A, INPUT_SEURAT)) {
   if (!file.exists(ff)) {
-    stop( paste0("找不到输入文件：", ff), call. = FALSE )
+    stop( paste0("Input file not found.：", ff), call. = FALSE )
   }
 }
 step5cr <- readRDS(INPUT_STEP5CR)
@@ -133,12 +133,12 @@ DefaultAssay(obj) <- "RNA"
 required_step5 <- c( "prebranch_cells", "arm1_cells", "arm2_cells", "analysis_metadata", "progressive_shape_genes", "strong_progressive_genes" )
 missing_step5 <- required_step5[ !required_step5 %in% names(step5cr) ]
 if (length(missing_step5) > 0) {
-  stop( paste0( "Step5C-R结果缺少：", paste(missing_step5, collapse = ", ") ), call. = FALSE )
+  stop( paste0( "Required input not found: ", paste(missing_step5, collapse = ", ") ), call. = FALSE )
 }
 required_step6a <- c( "high_confidence_branch_markers", "master_evidence", "pseudobulk_logCPM", "pseudobulk_metadata" )
 missing_step6a <- required_step6a[ !required_step6a %in% names(step6a) ]
 if (length(missing_step6a) > 0) {
-  stop( paste0( "Step6A结果缺少：", paste(missing_step6a, collapse = ", ") ), call. = FALSE )
+  stop( paste0( "Required input not found: ", paste(missing_step6a, collapse = ", ") ), call. = FALSE )
 }
 step5_progressive <- unique( as.character( step5cr$progressive_shape_genes ) )
 step5_strong <- unique( as.character( step5cr$strong_progressive_genes ) )
@@ -148,7 +148,7 @@ analysis_meta <- as.data.frame( step5cr$analysis_metadata )
 required_meta <- c( "cell", "state", "sample", "signed_progress", "post_progress" )
 missing_meta <- required_meta[ !required_meta %in% colnames(analysis_meta) ]
 if (length(missing_meta) > 0) {
-  stop( paste0( "Step5C-R analysis_metadata缺少：", paste(missing_meta, collapse = ", ") ), call. = FALSE )
+  stop( paste0( "Missing metadata: ", paste(missing_meta, collapse = ", ") ), call. = FALSE )
 }
 pt_candidates <- c( "retained_step5BR_pseudotime", "step5BR_pseudotime", "pseudotime" )
 PT_TIE_COL <- pt_candidates[ pt_candidates %in% colnames(analysis_meta) ][1]
@@ -161,7 +161,7 @@ if ( length(PT_TIE_COL) == 0 || is.na(PT_TIE_COL) ) {
 analysis_meta <- analysis_meta |> dplyr::filter( state %in% c( "Shared_prebranch", "Arm_1", "Arm_2" ), cell %in% colnames(obj) )
 analysis_cells <- analysis_meta$cell
 if (length(unique(analysis_cells)) != nrow(analysis_meta)) {
-  stop( "Step5C-R analysis_metadata存在重复cell。", call. = FALSE )
+  stop( "Validation check.", call. = FALSE )
 }
 norm_mat <- get_norm(obj)
 candidate_genes <- intersect( candidate_genes, rownames(norm_mat) )
@@ -169,7 +169,7 @@ expr_candidate <- norm_mat[ candidate_genes, analysis_cells, drop = FALSE ]
 detection_fraction <- Matrix::rowMeans( expr_candidate > 0 )
 keep_genes <- names(detection_fraction)[ is.finite(detection_fraction) & detection_fraction >= MIN_DETECTION_FRACTION ]
 if (length(keep_genes) < 50) {
-  stop( "表达过滤后候选动态基因少于50个。", call. = FALSE )
+  stop( "Threshold check failed.", call. = FALSE )
 }
 expr_use <- norm_mat[ keep_genes, analysis_cells, drop = FALSE ]
 analysis_meta <- analysis_meta |> dplyr::mutate( segment = dplyr::case_when( state == "Shared_prebranch" ~ "Pre", state == "Arm_1" ~ "Arm1", state == "Arm_2" ~ "Arm2", TRUE ~ NA_character_ ), local_progress = dplyr::case_when( segment == "Pre" ~ signed_progress, segment %in% c("Arm1", "Arm2") ~ post_progress, TRUE ~ NA_real_ ) )
@@ -220,7 +220,7 @@ profile_mat <- profile_mat[ valid_profile_genes, , drop = FALSE ]
 profile_z <- row_zscore(profile_mat)
 profile_z <- profile_z[ apply(profile_z, 1, function(v) all(is.finite(v))), , drop = FALSE ]
 if (nrow(profile_z) < 50) {
-  stop( "可用于动态模块聚类的完整表达轨迹基因少于50个。", call. = FALSE )
+  stop( "Threshold check failed.", call. = FALSE )
 }
 dist_mat <- stats::dist( profile_z, method = "euclidean" )
 k_search <- list()
@@ -274,12 +274,12 @@ step5_master_raw <- as.data.frame( step5cr$master_table )
 required_step5_master_cols <- c( "gene_id", "progressive_shape_q_value", "anchored_branch_q_value", "terminal_direction" )
 missing_step5_master_cols <- required_step5_master_cols[ !required_step5_master_cols %in% colnames(step5_master_raw) ]
 if (length(missing_step5_master_cols) > 0) {
-  stop( paste0( "Step5C-R master_table缺少：", paste( missing_step5_master_cols, collapse = ", " ) ), call. = FALSE )
+  stop( paste0( "Required input not found: ", paste( missing_step5_master_cols, collapse = ", " ) ), call. = FALSE )
 }
 strong_col_candidates <- c( "strong_progressive_pattern", "strong_progressive" )
 STRONG_PROGRESSIVE_COL <- strong_col_candidates[ strong_col_candidates %in% colnames(step5_master_raw) ][1]
 if ( length(STRONG_PROGRESSIVE_COL) == 0 || is.na(STRONG_PROGRESSIVE_COL) ) {
-  warning( "Step5C-R master_table没有strong-progressive标记列；将根据strong_progressive_genes重新构建。" )
+  warning( "Required result not found." )
   step5_master_raw$strong_progressive_pattern <- step5_master_raw$gene_id %in%
     step5_strong
 } else {
@@ -293,10 +293,10 @@ module_annotation <- module_annotation |> dplyr::left_join( module_sizes, by = c
 pb_logcpm <- as.matrix( step6a$pseudobulk_logCPM )
 pb_meta <- as.data.frame( step6a$pseudobulk_metadata )
 if ( !"pb_group" %in% colnames(pb_meta) || !"sample" %in% colnames(pb_meta) || !"branch" %in% colnames(pb_meta) ) {
-  stop( "Step6A pseudobulk_metadata缺少pb_group/sample/branch。", call. = FALSE )
+  stop( "Missing metadata: ", call. = FALSE )
 }
 if (!all(pb_meta$pb_group %in% colnames(pb_logcpm))) {
-  stop( "Step6A pseudobulk metadata与logCPM列不匹配。", call. = FALSE )
+  stop( "Validation check.", call. = FALSE )
 }
 pb_meta <- pb_meta[ match( colnames(pb_logcpm), pb_meta$pb_group ), , drop = FALSE ]
 module_pb_list <- lapply( unique(gene_modules$module_name), function(mod) {

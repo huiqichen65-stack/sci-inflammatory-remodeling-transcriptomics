@@ -41,7 +41,7 @@ CORES <- if (.Platform$OS.type == "windows") {
 required_pkgs <- c( "Seurat", "SeuratObject", "Matrix", "monocle3", "SingleCellExperiment", "SummarizedExperiment", "S4Vectors", "splines", "dplyr", "tidyr", "tibble", "ggplot2", "patchwork", "openxlsx" )
 missing_pkgs <- required_pkgs[ !vapply( required_pkgs, requireNamespace, logical(1), quietly = TRUE ) ]
 if (length(missing_pkgs) > 0) {
-  stop( paste0( "缺少以下R包：", paste(missing_pkgs, collapse = ", ") ), call. = FALSE )
+  stop( paste0( "Missing R package(s): ", paste(missing_pkgs, collapse = ", ") ), call. = FALSE )
 }
 suppressPackageStartupMessages({
   library(Seurat)
@@ -117,10 +117,10 @@ null_plot <- function(label) {
   ggplot2::ggplot( tibble::tibble( x = 1, y = 1 ), ggplot2::aes(x, y) ) + ggplot2::annotate( "text", x = 1, y = 1, label = label, size = 5 ) + ggplot2::theme_void()
 }
 if (!file.exists(INPUT_CDS)) {
-  stop( paste0( "找不到Step5B-R CDS：", INPUT_CDS ), call. = FALSE )
+  stop( paste0( "Required input not found: ", INPUT_CDS ), call. = FALSE )
 }
 if (!file.exists(INPUT_SEURAT)) {
-  stop( paste0( "找不到Step5B-R2 Seurat object：", INPUT_SEURAT ), call. = FALSE )
+  stop( paste0( "Required input not found: ", INPUT_SEURAT ), call. = FALSE )
 }
 cds <- readRDS( INPUT_CDS )
 obj <- readRDS( INPUT_SEURAT )
@@ -128,7 +128,7 @@ DefaultAssay(obj) <- "RNA"
 required_meta <- c( TIME_COL, SAMPLE_COL, PSEUDOTIME_COL, BRANCH_ARM_COL, PRIMARY_BRANCHPOINT_COL )
 missing_meta <- required_meta[ !required_meta %in% colnames(obj[[]]) ]
 if (length(missing_meta) > 0) {
-  stop( paste0( "缺少Step5C-v2所需metadata：", paste( missing_meta, collapse = ", " ) ), call. = FALSE )
+  stop( paste0( "Missing metadata: ", paste( missing_meta, collapse = ", " ) ), call. = FALSE )
 }
 bp_values <- unique( stats::na.omit( as.character( obj[[PRIMARY_BRANCHPOINT_COL, drop = TRUE]] ) ) )
 if (length(bp_values) != 1) {

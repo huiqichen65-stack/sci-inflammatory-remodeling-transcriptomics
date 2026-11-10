@@ -142,7 +142,7 @@ summarize_branch_vertex <- function( bp, pg, closest_vertex, root_vertices, cell
   tibble::tibble( branch_vertex = bp, degree = igraph::degree(pg, v = bp), root_side_components = length(root_comp_ids), downstream_components = nrow(downstream), downstream_major_arms = nrow(major), min_top2_7dpi_cells = ifelse( length(top2) >= 2, min(top2), 0 ), top2_7dpi_sum = ifelse( length(top2) >= 2, sum(top2), sum(top2) ), near_cells = nrow(near_df), near_3dpi_cells = sum( near_df$timepoint == "3 dpi" ), near_transition_cells = sum( near_df$shared_transition_3dpi_highconf, na.rm = TRUE ), near_transition_fraction = ifelse( nrow(near_df) > 0, mean( near_df$shared_transition_3dpi_highconf, na.rm = TRUE ), NA_real_ ) )
 }
 if (!file.exists(INPUT_RDS)) {
-  stop( paste0( "找不到Step5A-R正式输入：\n", INPUT_RDS ), call. = FALSE )
+  stop( paste0( "Required input not found: ", INPUT_RDS ), call. = FALSE )
 }
 obj <- readRDS(INPUT_RDS)
 if (!inherits(obj, "Seurat")) {
@@ -152,10 +152,10 @@ DefaultAssay(obj) <- "RNA"
 required_meta <- c( TIME_COL, SAMPLE_COL, CLUSTER_COL, PRIMARY_ROOT_COL, SENS_ROOT_COL, "transition_status", "shared_transition_3dpi_highconf", REPAIR_SCORE_COL, SCAR_SCORE_COL )
 missing_meta <- required_meta[ !required_meta %in% colnames(obj[[]]) ]
 if (length(missing_meta) > 0) {
-  stop( paste0( "缺少Step5B所需metadata：\n ", paste(missing_meta, collapse = ", ") ), call. = FALSE )
+  stop( paste0( "Missing metadata: ", paste(missing_meta, collapse = ", ") ), call. = FALSE )
 }
 if (!UMAP_REDUCTION %in% Seurat::Reductions(obj)) {
-  stop( paste0( "缺少正式Step3A UMAP：", UMAP_REDUCTION ), call. = FALSE )
+  stop( paste0( "Required input not found: ", UMAP_REDUCTION ), call. = FALSE )
 }
 primary_root_cells <- colnames(obj)[ as.logical( obj[[PRIMARY_ROOT_COL, drop = TRUE]] ) ]
 sens_root_cells <- colnames(obj)[ as.logical( obj[[SENS_ROOT_COL, drop = TRUE]] ) ]

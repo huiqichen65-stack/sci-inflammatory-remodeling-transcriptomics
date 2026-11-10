@@ -111,21 +111,21 @@ score_component_set <- function(expr_mat, component_list, prefix) {
   Reduce( function(x, y) dplyr::left_join(x, y, by = "cell"), out )
 }
 if (!file.exists(STEP3D_RDS)) {
-  stop( paste0( "找不到Step 3D正式输入RDS：\n", STEP3D_RDS ), call. = FALSE )
+  stop( paste0( "Required input not found: ", STEP3D_RDS ), call. = FALSE )
 }
 obj <- readRDS(STEP3D_RDS)
 if (!inherits(obj, "Seurat")) {
-  stop("Step 3D输入不是Seurat object。", call. = FALSE)
+  stop("Input object is not a Seurat object.", call. = FALSE)
 }
 DefaultAssay(obj) <- "RNA"
 required_meta <- c( TIME_COL, SAMPLE_COL, CLUSTER_COL, "transition_status", "shared_transition_3dpi_highconf" )
 missing_meta <- required_meta[ !required_meta %in% colnames(obj[[]]) ]
 if (length(missing_meta) > 0) {
-  stop( paste0( "Step 3D对象缺少Step 3正式metadata：\n ", paste(missing_meta, collapse = ", "), "\n\n自动猜测其他字段。" ), call. = FALSE )
+  stop( paste0( "Missing metadata: ", paste(missing_meta, collapse = ", "), "Validation check." ), call. = FALSE )
 }
 available_reductions <- Seurat::Reductions(obj)
 if (!UMAP_REDUCTION %in% available_reductions) {
-  stop( paste0( "Step 3D对象缺少正式microglia UMAP：", UMAP_REDUCTION, "\n现有reductions：", paste(available_reductions, collapse = ", "), "\n\n重新计算UMAP，也不会使用其他降维代替。" ), call. = FALSE )
+  stop( paste0( "Required input not found: ", UMAP_REDUCTION, "Validation check.", paste(available_reductions, collapse = ", "), "Validation check." ), call. = FALSE )
 }
 obj$step3A_cluster_r04 <- as.character(obj$step3A_cluster_r04)
 observed_clusters_all <- sort( unique(obj$step3A_cluster_r04) )
@@ -138,7 +138,7 @@ sample_vec  <- as.character(obj[[SAMPLE_COL, drop = TRUE]])
 cluster_vec <- as.character(obj[[CLUSTER_COL, drop = TRUE]])
 all_7dpi_cells <- colnames(obj)[ time_vec == "7 dpi" ]
 if (length(all_7dpi_cells) == 0) {
-  stop("Step 3D对象中未找到timepoint == '7 dpi'的细胞。", call. = FALSE)
+  stop("Required input not found: ", call. = FALSE)
 }
 primary_keep <- ( time_vec == "7 dpi" & !(cluster_vec %in% CYCLING_CLUSTERS) & cluster_vec != IFN_CLUSTER )
 primary_cells <- colnames(obj)[primary_keep]
@@ -152,7 +152,7 @@ if (length(primary_cells) < 100) {
   stop("Primary 7 dpi landscape has <100 cells.", call. = FALSE)
 }
 if (length(seven_samples) < 2) {
-  warning("7 dpi biological samples <2，不能形成replicate-level结论。")
+  warning("Threshold check failed.")
 }
 obj$step4A_analysis_status <- "not_primary"
 obj$step4A_analysis_status[ time_vec == "7 dpi" ] <- "7dpi_all"
@@ -241,7 +241,7 @@ score_cor_by_sample <- score_tbl |> dplyr::group_by(sample) |> dplyr::summarise(
 transition_summary <- score_tbl |> dplyr::group_by(transition_status) |> dplyr::summarise( n_cells = dplyr::n(), repair_median = median(repair_candidate_score, na.rm = TRUE), scar_median = median(scar_candidate_score, na.rm = TRUE), repair_minus_scar_median = median(repair_minus_scar, na.rm = TRUE), .groups = "drop" ) |> dplyr::arrange(dplyr::desc(n_cells))
 umap <- Seurat::Embeddings( obj, reduction = UMAP_REDUCTION )
 if (ncol(umap) < 2) {
-  stop( paste0( UMAP_REDUCTION, "少于2个维度。" ), call. = FALSE )
+  stop( paste0( UMAP_REDUCTION, "Threshold check failed." ), call. = FALSE )
 }
 umap_df <- tibble::tibble( cell = rownames(umap), UMAP_1 = umap[, 1], UMAP_2 = umap[, 2] ) |> dplyr::filter( cell %in% primary_cells ) |> dplyr::left_join( score_tbl |> dplyr::select( cell, cluster, sample, transition_status, repair_candidate_score, scar_candidate_score, repair_minus_scar, core_activated_DAM_reference ), by = "cell" )
 missing_cluster_colors <- setdiff( sort(unique(umap_df$cluster)), names(COL_CLUSTER) )

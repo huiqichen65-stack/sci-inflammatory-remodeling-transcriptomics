@@ -35,7 +35,7 @@ CORES <- if (.Platform$OS.type == "windows") 1L else 4L
 required_pkgs <- c( "Seurat", "SeuratObject", "Matrix", "monocle3", "SingleCellExperiment", "SummarizedExperiment", "igraph", "splines", "dplyr", "tidyr", "tibble", "ggplot2", "patchwork", "openxlsx" )
 missing_pkgs <- required_pkgs[ !vapply(required_pkgs, requireNamespace, logical(1), quietly = TRUE) ]
 if (length(missing_pkgs) > 0) {
-  stop( paste0( "缺少R包：", paste(missing_pkgs, collapse = ", ") ), call. = FALSE )
+  stop( paste0( "Missing R package：", paste(missing_pkgs, collapse = ", ") ), call. = FALSE )
 }
 suppressPackageStartupMessages({
   library(Seurat)
@@ -103,7 +103,7 @@ standardize_compare <- function(x, prefix) {
   p_candidates <- c("p_value", "pval", "p.value", "lrtest_p_value")
   p_col <- p_candidates[p_candidates %in% colnames(x)][1]
   if (length(p_col) == 0 || is.na(p_col)) {
-    stop( paste0( "compare_models没有识别到p值列。当前列：", paste(colnames(x), collapse = ", ") ), call. = FALSE )
+    stop( paste0( "Required result not found.", paste(colnames(x), collapse = ", ") ), call. = FALSE )
   }
   pp <- as.numeric(x[[p_col]])
   q_candidates <- c("q_value", "qval", "q.value")
@@ -149,13 +149,13 @@ if (have_memory) {
 }
 formal_genes <- branch_dep_tbl |> dplyr::filter( is.finite(branch_dependence_q_value), branch_dependence_q_value <= 0.05 ) |> dplyr::pull(gene_id) |> unique()
 if (length(formal_genes) < 10) {
-  stop("正式branch-dependent genes少于10个。", call. = FALSE)
+  stop("Threshold check failed.", call. = FALSE)
 }
 if (!file.exists(INPUT_CDS)) {
-  stop(paste0("找不到：", INPUT_CDS), call. = FALSE)
+  stop(paste0("Required input not found: ", INPUT_CDS), call. = FALSE)
 }
 if (!file.exists(INPUT_SEURAT)) {
-  stop(paste0("找不到：", INPUT_SEURAT), call. = FALSE)
+  stop(paste0("Required input not found: ", INPUT_SEURAT), call. = FALSE)
 }
 cds <- readRDS(INPUT_CDS)
 obj <- readRDS(INPUT_SEURAT)
@@ -163,16 +163,16 @@ DefaultAssay(obj) <- "RNA"
 req <- c( TIME_COL, SAMPLE_COL, BRANCH_COL, PT_COL, TRANSITION_COL )
 miss <- req[!req %in% colnames(obj[[]])]
 if (length(miss) > 0) {
-  stop( paste0( "缺少metadata：", paste(miss, collapse = ", ") ), call. = FALSE )
+  stop( paste0( "Missing metadata: ", paste(miss, collapse = ", ") ), call. = FALSE )
 }
 pg <- monocle3::principal_graph(cds)[["UMAP"]]
 if ( is.null(pg) || !PRIMARY_BRANCHPOINT %in% igraph::V(pg)$name ) {
-  stop("Step5B-R graph中找不到Y_29。", call. = FALSE)
+  stop("Required input not found: ", call. = FALSE)
 }
 cds_cells <- colnames(cds)
 obj_cells <- colnames(obj)
 if (!all(cds_cells %in% obj_cells)) {
-  stop("部分CDS细胞不在Step5B-R2 Seurat对象中。", call. = FALSE)
+  stop("Input object is not a Seurat object.", call. = FALSE)
 }
 branch_arm <- as.character(obj[[BRANCH_COL, drop = TRUE]])
 names(branch_arm) <- obj_cells

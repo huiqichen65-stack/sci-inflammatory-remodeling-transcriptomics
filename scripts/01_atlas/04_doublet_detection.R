@@ -12,7 +12,7 @@ dir.create(tab_dir, recursive = TRUE, showWarnings = FALSE)
 log_file <- file.path(out_dir, "00_run_log.txt")
 writeLines( paste0("GSE162610 Step 1C-v2 run started: ", Sys.time()), log_file )
 if (!file.exists(in_rds)) {
-  stop("找不到 Step 1B 对象：\n", in_rds)
+  stop("Required input not found: ", in_rds)
 }
 cran_pkgs <- c("Seurat", "data.table", "ggplot2")
 missing_cran <- cran_pkgs[ !vapply(cran_pkgs, requireNamespace, logical(1), quietly = TRUE) ]
@@ -38,15 +38,15 @@ suppressPackageStartupMessages({
 pbmc <- readRDS(in_rds)
 required_meta <- c( "sample_id", "timepoint", "nFeature_RNA", "nCount_RNA", "percent.mt", "percent.HB" )
 if (!all(required_meta %in% colnames(pbmc@meta.data))) {
-  stop( "对象缺少 metadata：", paste( setdiff(required_meta, colnames(pbmc@meta.data)), collapse = ", " ) )
+  stop( "Missing metadata: ", paste( setdiff(required_meta, colnames(pbmc@meta.data)), collapse = ", " ) )
 }
 sample_ids <- sort(unique(as.character(pbmc$sample_id)))
 if (length(sample_ids) != 10) {
-  warning("当前不是预期的 10 个 sample_id，Check")
+  warning("Expected-value check failed.")
 }
 counts <- GetAssayData( object = pbmc, assay = "RNA", layer = "counts" )
 if (!identical(colnames(counts), colnames(pbmc))) {
-  stop("Counts barcode 顺序与 Seurat 对象不一致。")
+  stop("Input object is not a Seurat object.")
 }
 sce <- SingleCellExperiment( assays = list(counts = counts) )
 colData(sce)$sample_id <- as.character(pbmc$sample_id)
@@ -59,13 +59,13 @@ t1 <- Sys.time()
 runtime_min <- as.numeric( difftime(t1, t0, units = "mins") )
 needed_cols <- c( "scDblFinder.score", "scDblFinder.class" )
 if (!all(needed_cols %in% colnames(colData(sce)))) {
-  stop( "scDblFinder 完成，但没有找到预期输出列：", paste( setdiff( needed_cols, colnames(colData(sce)) ), collapse = ", " ) )
+  stop( "Required result not found.", paste( setdiff( needed_cols, colnames(colData(sce)) ), collapse = ", " ) )
 }
 df_score <- colData(sce)$scDblFinder.score
 df_class <- as.character( colData(sce)$scDblFinder.class )
 table_class <- table(df_class)
 if (!identical(colnames(sce), colnames(pbmc))) {
-  stop("SCE barcode 顺序与 Seurat 对象不一致。")
+  stop("Input object is not a Seurat object.")
 }
 pbmc$Double_score <- as.numeric(df_score)
 pbmc$Is_Double <- ifelse( tolower(df_class) == "doublet", "Doublet", "Singlet" )
@@ -112,6 +112,3 @@ all_samples_preserved <- ( length(unique(pbmc_singlet$sample_id)) == length(uniq
 all_timepoints_preserved <- ( length( unique(as.character(pbmc_singlet$timepoint)) ) == length( unique(as.character(pbmc$timepoint)) ) )
 overall_doublet_pct <- round( 100 * (ncol(pbmc) - ncol(pbmc_singlet)) / ncol(pbmc), 2 )
 rate_warning <- any( summary_sample$detected_doublet_pct > 15 | summary_sample$detected_doublet_pct < 0.05 )
-if ( all_samples_preserved && all_timepoints_preserved && !rate_warning ) {
-} else {
-}

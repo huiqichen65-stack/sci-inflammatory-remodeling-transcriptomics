@@ -98,44 +98,44 @@ get_go_gene_sets <- function( specifications, expressed_genes) {
   list( gene_sets = gene_sets, mapping = mapping )
 }
 if (!file.exists(INPUT_STEP6A)) {
-  stop( paste0( "找不到Step6A结果：", INPUT_STEP6A ), call. = FALSE )
+  stop( paste0( "Required input not found: ", INPUT_STEP6A ), call. = FALSE )
 }
 step6a <- readRDS( INPUT_STEP6A )
 required_fields <- c( "pseudobulk_logCPM", "pseudobulk_metadata" )
 missing_fields <- required_fields[ !required_fields %in% names(step6a) ]
 if (length(missing_fields) > 0) {
-  stop( paste0( "Step6A结果缺少：", paste( missing_fields, collapse = ", " ) ), call. = FALSE )
+  stop( paste0( "Required input not found: ", paste( missing_fields, collapse = ", " ) ), call. = FALSE )
 }
 pb_logcpm <- as.matrix( step6a$pseudobulk_logCPM )
 pb_meta <- as.data.frame( step6a$pseudobulk_metadata )
 storage.mode(pb_logcpm) <- "double"
 if ( is.null(rownames(pb_logcpm)) || is.null(colnames(pb_logcpm)) ) {
-  stop( "pseudobulk_logCPM缺少gene或pseudobulk列名。", call. = FALSE )
+  stop( "Required input not found: ", call. = FALSE )
 }
 required_meta_cols <- c( "pb_group", "sample", "branch" )
 missing_meta_cols <- required_meta_cols[ !required_meta_cols %in% colnames(pb_meta) ]
 if (length(missing_meta_cols) > 0) {
-  stop( paste0( "pseudobulk_metadata缺少：", paste( missing_meta_cols, collapse = ", " ) ), call. = FALSE )
+  stop( paste0( "Missing metadata: ", paste( missing_meta_cols, collapse = ", " ) ), call. = FALSE )
 }
 pb_meta$pb_group <- as.character( pb_meta$pb_group )
 pb_meta$sample <- as.character( pb_meta$sample )
 pb_meta$branch <- as.character( pb_meta$branch )
 if ( !all( colnames(pb_logcpm) %in% pb_meta$pb_group ) ) {
-  stop( "pseudobulk_logCPM列名不能全部匹配pseudobulk_metadata$pb_group。", call. = FALSE )
+  stop( "Validation check.", call. = FALSE )
 }
 pb_meta <- pb_meta[ match( colnames(pb_logcpm), pb_meta$pb_group ), , drop = FALSE ]
 if (anyNA(pb_meta$pb_group)) {
-  stop( "pseudobulk metadata重排后出现NA。", call. = FALSE )
+  stop( "Validation check.", call. = FALSE )
 }
 pb_meta$sample <- factor( pb_meta$sample, levels = sort( unique( pb_meta$sample ) ) )
 pb_meta$branch <- factor( pb_meta$branch, levels = c( "Arm_2", "Arm_1" ) )
 pair_audit <- pb_meta |> dplyr::count( sample, branch, name = "n_pseudobulk" )
 if ( any( pair_audit$n_pseudobulk != 1 ) ) {
-  stop( "每个sample x branch必须恰好有一个pseudobulk。", call. = FALSE )
+  stop( "Requirement not met.", call. = FALSE )
 }
 sample_branch_counts <- pair_audit |> dplyr::group_by( sample ) |> dplyr::summarise( n_branches = dplyr::n_distinct( branch ), .groups = "drop" )
 if ( any( sample_branch_counts$n_branches != 2 ) ) {
-  stop( "至少一个7 dpi sample没有同时包含Arm_1和Arm_2。", call. = FALSE )
+  stop( "Required result not found.", call. = FALSE )
 }
 pb_meta <- pb_meta |> dplyr::arrange( sample, branch )
 pb_logcpm <- pb_logcpm[ , pb_meta$pb_group, drop = FALSE ]

@@ -12,7 +12,7 @@ INPUT_DIR <- file.path(
 OUTPUT_DIR <- file.path(
   PROJECT_ROOT,
   "04_results",
-  "step12A2_false_STOP_repair_only"
+  "step12A2_asset_manifest"
 )
 INPUT_ASSET_MANIFEST <- file.path(
   INPUT_DIR,
@@ -32,19 +32,19 @@ INPUT_FINAL_REPORT <- file.path(
 )
 OUTPUT_REPAIRED_MANIFEST <- file.path(
   OUTPUT_DIR,
-  "01_repaired_2d_capture_area_asset_manifest.csv"
+  "01_2d_capture_area_asset_manifest.csv"
 )
 OUTPUT_REPAIR_EVIDENCE <- file.path(
   OUTPUT_DIR,
-  "02_position_readability_repair_evidence.csv"
+  "02_position_readability_evidence.csv"
 )
 OUTPUT_REPAIRED_CHECKS <- file.path(
   OUTPUT_DIR,
-  "09_STEP12A2_REPAIRED_audit_checks.csv"
+  "09_STEP12A2_audit_checks.csv"
 )
 OUTPUT_FINAL_REPORT <- file.path(
   OUTPUT_DIR,
-  "10_STEP12A2_REPAIRED_FINAL_REPORT.txt"
+  "10_STEP12A2_FINAL_REPORT.txt"
 )
 OUTPUT_RUN_LOG <- file.path(
   OUTPUT_DIR,
@@ -361,7 +361,7 @@ main <- function() {
   if (!core_evidence_ok) {
     stop(
       "Direct evidence does not support repairing position_readable for all ",
-      "12 capture areas. Review 01_repaired_2d_capture_area_asset_manifest.csv."
+      "12 capture areas. Review 01_2d_capture_area_asset_manifest.csv."
     )
   }
   if (!all_linked) {
@@ -485,7 +485,7 @@ main <- function() {
       final_status = final_status,
       repaired_manifest = repaired_manifest,
       repair_evidence = repair_evidence,
-      repaired_checks = audit_checks
+      checks = audit_checks
     )
   )
 }

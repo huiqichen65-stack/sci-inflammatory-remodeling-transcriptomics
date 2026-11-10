@@ -12,7 +12,7 @@ dir.create(tab_dir, recursive = TRUE, showWarnings = FALSE)
 log_file <- file.path(out_dir, "00_run_log.txt")
 writeLines( paste0("GSE162610 Step 1E started: ", Sys.time()), log_file )
 if (!file.exists(in_rds)) {
-  stop("找不到 Step 1D 对象：\n", in_rds)
+  stop("Required input not found: ", in_rds)
 }
 cran_pkgs <- c( "Seurat", "data.table", "ggplot2", "patchwork", "harmony", "clustree" )
 missing_pkgs <- cran_pkgs[ !vapply(cran_pkgs, requireNamespace, logical(1), quietly = TRUE) ]
@@ -31,13 +31,13 @@ pbmc <- readRDS(in_rds)
 DefaultAssay(pbmc) <- "RNA"
 required_meta <- c( "sample_id", "timepoint" )
 if (!all(required_meta %in% colnames(pbmc@meta.data))) {
-  stop( "对象缺少 metadata：", paste( setdiff(required_meta, colnames(pbmc@meta.data)), collapse = ", " ) )
+  stop( "Missing metadata: ", paste( setdiff(required_meta, colnames(pbmc@meta.data)), collapse = ", " ) )
 }
 if (!"pca" %in% Reductions(pbmc)) {
-  stop("对象中没有 PCA reduction。")
+  stop("Required result not found.")
 }
 if (!"umap.preharmony" %in% Reductions(pbmc)) {
-  warning( "对象中没有 umap.preharmony；", "将无法生成完整的 Harmony 前后 UMAP 对照。" )
+  warning( "Required result not found.", "Validation failed." )
 }
 pcs_use <- 1:20
 harmony_theta <- 1
@@ -50,26 +50,26 @@ pbmc <- RunHarmony( object = pbmc, group.by.vars = "sample_id", reduction.use = 
 t_harmony <- Sys.time()
 harmony_minutes <- as.numeric( difftime( t_harmony, t0, units = "mins" ) )
 if (!"harmony" %in% Reductions(pbmc)) {
-  stop("Harmony 未生成 harmony reduction。")
+  stop("Required result not found.")
 }
 harmony_dims <- ncol( Embeddings( pbmc, "harmony" ) )
 if (harmony_dims < 20) {
-  stop("Harmony 维度少于 20，无法继续使用 PCs 1:20。")
+  stop("Threshold check failed.")
 }
 pbmc <- RunUMAP( object = pbmc, reduction = "harmony", dims = pcs_use, reduction.name = "umap.harmony", reduction.key = "UMAPHARM_", seed.use = 20260730, verbose = FALSE )
 if (!"umap.harmony" %in% Reductions(pbmc)) {
-  stop("正式 Harmony UMAP 未Completed生成。")
+  stop("Validation check.")
 }
 pbmc <- FindNeighbors( object = pbmc, reduction = "harmony", dims = pcs_use, graph.name = c( "harmony_nn", "harmony_snn" ), verbose = FALSE )
 if (!"harmony_snn" %in% names(pbmc@graphs)) {
-  stop("harmony_snn graph 未Completed生成。")
+  stop("Validation check.")
 }
 for (res in resolution_seq) {
   pbmc <- FindClusters( object = pbmc, graph.name = "harmony_snn", resolution = res, algorithm = 1, random.seed = 20260730, verbose = FALSE )
 }
 res_cols <- grep( "^harmony_snn_res\\.", colnames(pbmc@meta.data), value = TRUE )
 if (length(res_cols) == 0) {
-  stop("没有找到 harmony_snn_res.* 聚类列。")
+  stop("Required result not found.")
 }
 cluster_number_table <- do.call( rbind, lapply( res_cols, function(cc) {
       res_value <- sub( "^harmony_snn_res\\.", "", cc )
@@ -84,7 +84,7 @@ if (!provisional_col %in% colnames(pbmc@meta.data)) {
   if (length(candidates) == 1) {
     provisional_col <- candidates
   } else {
-    stop( "找不到 provisional resolution=", provisional_resolution, " 对应的聚类列。" )
+    stop( "Required input not found: ", provisional_resolution, "Validation check." )
   }
 }
 pbmc$cluster_provisional <- as.character( pbmc@meta.data[[provisional_col]] )
@@ -157,6 +157,3 @@ umap_ok <- ( "umap.harmony" %in% Reductions(pbmc) )
 resolution_ok <- ( length(res_cols) >= length(resolution_seq) )
 step_pass <- all( all_samples_preserved, all_timepoints_preserved, harmony_ok, umap_ok, resolution_ok )
 runtime_total <- as.numeric( difftime( Sys.time(), t0, units = "mins" ) )
-if (step_pass) {
-} else {
-}

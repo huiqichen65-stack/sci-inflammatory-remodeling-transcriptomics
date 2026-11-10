@@ -1,6 +1,6 @@
 options(stringsAsFactors = FALSE, warn = 1)
 if (!requireNamespace("data.table", quietly = TRUE)) {
-  stop( "Required package 'data.table' is not installed. Run ", "install.packages('data.table') once, then source this script again." )
+  stop("Missing R package: data.table")
 }
 suppressPackageStartupMessages(library(data.table))
 PROJECT_ROOT <- Sys.getenv("GLIA_PROJECT_ROOT", unset = normalizePath(".", winslash = "/", mustWork = FALSE))
@@ -161,7 +161,7 @@ write_failure_report <- function(error_message) {
 main <- function() {
   required_files <- c( matrix = MATRIX_FILE, barcodes = BARCODE_FILE, features = FEATURE_FILE, metadata = METADATA_FILE, raw_tar = RAW_TAR )
   required_exists <- file.exists(required_files)
-  add_check( "C01", "input", "All five required spatial 2D input files exist.", all(required_exists), paste( paste(names(required_files), required_exists, sep = "="), collapse = "; " ), "matrix/barcodes/features/metadata/RAW.tar all TRUE", TRUE, "Restore missing local files. download or replace files silently." )
+  add_check( "C01", "input", "All five required spatial 2D input files exist.", all(required_exists), paste( paste(names(required_files), required_exists, sep = "="), collapse = "; " ), "matrix/barcodes/features/metadata/RAW.tar all TRUE", TRUE, "Restore missing local files. Check required input files." )
   if (!all(required_exists)) {
     stop( "Missing required input file(s): ", paste(names(required_files)[!required_exists], collapse = ", ") )
   }
@@ -169,7 +169,7 @@ main <- function() {
   barcode_table <- read_single_column(BARCODE_FILE, "barcode")
   feature_table <- read_single_column(FEATURE_FILE, "feature")
   metadata <- read_spatial_metadata(METADATA_FILE)
-  add_check( "C02", "matrix", "Matrix dimensions equal feature and barcode file lengths.", matrix_dimensions$n_features == nrow(feature_table) && matrix_dimensions$n_barcodes == nrow(barcode_table), paste0( "matrix=", matrix_dimensions$n_features, " x ", matrix_dimensions$n_barcodes, "; feature rows=", nrow(feature_table), "; barcode rows=", nrow(barcode_table) ), "Exact equality", TRUE, "create a spatial object until all dimensions match." )
+  add_check( "C02", "matrix", "Matrix dimensions equal feature and barcode file lengths.", matrix_dimensions$n_features == nrow(feature_table) && matrix_dimensions$n_barcodes == nrow(barcode_table), paste0( "matrix=", matrix_dimensions$n_features, " x ", matrix_dimensions$n_barcodes, "; feature rows=", nrow(feature_table), "; barcode rows=", nrow(barcode_table) ), "Exact equality", TRUE, "Check input dimensions." )
   required_metadata_columns <- c( "barcode", "id", "slide", "spot", "group", "replicate", "sections", "x", "y", "z" )
   missing_metadata_columns <- setdiff( required_metadata_columns, names(metadata) )
   add_check( "C03", "metadata", "Observed Step 12A2 metadata fields are present.", length(missing_metadata_columns) == 0L, if (length(missing_metadata_columns) == 0L) {
@@ -177,7 +177,7 @@ main <- function() {
     } else {
       paste0( "missing=", paste(missing_metadata_columns, collapse = " | ") )
     },
-    paste(required_metadata_columns, collapse = " | "), TRUE, "substitute fields by memory; inspect the processed metadata header."
+    paste(required_metadata_columns, collapse = " | "), TRUE, "Check metadata fields."
   )
   if (length(missing_metadata_columns) > 0L) {
     stop( "Required metadata columns are missing: ", paste(missing_metadata_columns, collapse = ", ") )

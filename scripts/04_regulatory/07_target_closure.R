@@ -408,8 +408,6 @@ for ( regulon_index in seq_len( nrow(timing_master) ) ) {
         overlap_top_weight_quartile_n = sum( overlap_target_rows$weight_percentile_within_regulon >= 0.75, na.rm = TRUE ), overlap_genes = paste( sort( overlap_result$overlap_genes ), collapse = " | " ), stringsAsFactors = FALSE
       )
   }
-  if ( regulon_index %% 25L == 0L ) {
-  }
 }
 all_enrichment <- do.call( rbind, enrichment_parts )
 all_enrichment$q_global <- stats::p.adjust( all_enrichment$p_value, method = "BH" )

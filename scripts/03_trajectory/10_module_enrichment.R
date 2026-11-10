@@ -28,7 +28,7 @@ TOP_PROGRAM_KEGG <- 8L
 required_pkgs <- c( "clusterProfiler", "org.Mm.eg.db", "AnnotationDbi", "enrichplot", "dplyr", "tidyr", "tibble", "ggplot2", "patchwork", "stringr", "openxlsx" )
 missing_pkgs <- required_pkgs[ !vapply( required_pkgs, requireNamespace, logical(1), quietly = TRUE ) ]
 if (length(missing_pkgs) > 0) {
-  stop( paste0( "缺少以下R包：", paste(missing_pkgs, collapse = ", "), "\n可使用BiocManager::install()安装Bioconductor包。" ), call. = FALSE )
+  stop( paste0( "Missing R package(s): ", paste(missing_pkgs, collapse = ", "), "Missing R package(s): " ), call. = FALSE )
 }
 suppressPackageStartupMessages({
   library(clusterProfiler)
@@ -123,20 +123,20 @@ null_plot <- function(txt) {
   ggplot2::ggplot( tibble::tibble(x = 1, y = 1), ggplot2::aes(x, y) ) + ggplot2::annotate( "text", x = 1, y = 1, label = txt, size = 5 ) + ggplot2::theme_void()
 }
 if (!file.exists(INPUT_STEP6B)) {
-  stop( paste0( "找不到Step6B结果：", INPUT_STEP6B ), call. = FALSE )
+  stop( paste0( "Required input not found: ", INPUT_STEP6B ), call. = FALSE )
 }
 step6b <- readRDS( INPUT_STEP6B )
 required_fields <- c( "genes_entering_clustering", "gene_modules", "module_annotation", "selected_k" )
 missing_fields <- required_fields[ !required_fields %in% names(step6b) ]
 if (length(missing_fields) > 0) {
-  stop( paste0( "Step6B结果缺少：", paste( missing_fields, collapse = ", " ) ), call. = FALSE )
+  stop( paste0( "Required input not found: ", paste( missing_fields, collapse = ", " ) ), call. = FALSE )
 }
 gene_modules <- as.data.frame( step6b$gene_modules )
 module_annotation <- as.data.frame( step6b$module_annotation )
 required_gene_cols <- c( "gene_id", "module_name" )
 missing_gene_cols <- required_gene_cols[ !required_gene_cols %in% colnames(gene_modules) ]
 if (length(missing_gene_cols) > 0) {
-  stop( paste0( "Step6B gene_modules缺少：", paste( missing_gene_cols, collapse = ", " ) ), call. = FALSE )
+  stop( paste0( "Required input not found: ", paste( missing_gene_cols, collapse = ", " ) ), call. = FALSE )
 }
 background_symbols <- unique( as.character( step6b$genes_entering_clustering ) )
 background_map <- convert_symbols( background_symbols )
@@ -157,7 +157,7 @@ print(module_mapping_audit)
 required_annotation_cols <- c( "module_name", "temporal_label", "mean_Arm1_minus_Arm2", "same_direction_all_samples", "robust_terminal_branch_effect" )
 missing_annotation_cols <- required_annotation_cols[ !required_annotation_cols %in% colnames(module_annotation) ]
 if (length(missing_annotation_cols) > 0) {
-  stop( paste0( "Step6B module_annotation缺少：", paste( missing_annotation_cols, collapse = ", " ) ), call. = FALSE )
+  stop( paste0( "Required input not found: ", paste( missing_annotation_cols, collapse = ", " ) ), call. = FALSE )
 }
 robust_arm2_modules <- module_annotation |> dplyr::filter( temporal_label == "Arm2_terminal", robust_terminal_branch_effect ) |> dplyr::pull( module_name )
 arm1_retained_modules <- module_annotation |> dplyr::filter( temporal_label == "Shared_prebranch", same_direction_all_samples, mean_Arm1_minus_Arm2 > 0 ) |> dplyr::pull( module_name )

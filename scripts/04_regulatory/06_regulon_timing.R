@@ -457,8 +457,6 @@ for ( regulon_index in seq_along(primary_regulons) ) {
   } else {
     regulon_rows[[regulon_index]] <- data.frame( regulon = regulon_name, model_success = FALSE, model_error = fit_result$error, progressive_shape_p = NA_real_, branch_deviation_p = NA_real_, adjusted_r_squared = NA_real_, residual_sd = NA_real_, prebranch_common_delta = NA_real_, prebranch_common_delta_z = NA_real_, Y29_difference = NA_real_, Y29_difference_z = NA_real_, late_difference = NA_real_, terminal_effect_z = NA_real_, late_direction = NA_character_, onset_threshold = NA_real_, onset_progress_raw = NA_real_, stringsAsFactors = FALSE )
   }
-  if ( regulon_index %% 25L == 0L ) {
-  }
 }
 regulon_master <- do.call( rbind, regulon_rows )
 regulon_master$progressive_shape_q <- stats::p.adjust( regulon_master$progressive_shape_p, method = "BH" )

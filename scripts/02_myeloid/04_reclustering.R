@@ -25,25 +25,25 @@ dir.create(out_dir, recursive = TRUE, showWarnings = FALSE)
 dir.create(fig_dir, recursive = TRUE, showWarnings = FALSE)
 dir.create(tab_dir, recursive = TRUE, showWarnings = FALSE)
 if (!file.exists(input_rds)) {
-  stop( "找不到 Step 3A 正式输入对象：\n", input_rds )
+  stop( "Required input not found: ", input_rds )
 }
 obj <- readRDS(input_rds)
 if (!inherits(obj, "Seurat")) {
-  stop("输入 RDS 不是 Seurat 对象。")
+  stop("Input object is not a Seurat object.")
 }
 if (!"RNA" %in% names(obj@assays)) {
-  stop("输入对象中没有 RNA assay。")
+  stop("Required result not found.")
 }
 DefaultAssay(obj) <- "RNA"
 expected_n <- 20747
 if (ncol(obj) != expected_n) {
-  warning( "Step 3A 输入细胞数与 Step 2C 预期不一致：", " expected = ", expected_n, ", observed = ", ncol(obj) )
+  warning( "Consistency check failed.", " expected = ", expected_n, ", observed = ", ncol(obj) )
 }
 meta <- obj[[]]
 required_meta <- c( "sample_id", "timepoint", "step2_final_cluster" )
 missing_meta <- required_meta[ !required_meta %in% colnames(meta) ]
 if (length(missing_meta) > 0) {
-  stop( "缺少必要 metadata：", paste(missing_meta, collapse = ", ") )
+  stop( "Missing metadata: ", paste(missing_meta, collapse = ", ") )
 }
 obj$step2_final_cluster <- as.character(obj$step2_final_cluster)
 print(table(obj$sample_id))
@@ -103,7 +103,7 @@ if (!"harmony.step3A" %in% Reductions(obj)) {
   if ("harmony" %in% Reductions(obj)) {
     obj[["harmony.step3A"]] <- obj[["harmony"]]
   } else {
-    stop("Harmony reduction 未Completed生成。")
+    stop("Validation check.")
   }
 }
 obj <- RunUMAP( obj, reduction = "harmony.step3A", dims = dims_use, reduction.name = "umap.microglia.step3A", reduction.key = "mg3A_", seed.use = 1234, verbose = TRUE )
@@ -127,7 +127,7 @@ p_tree <- clustree( tree_meta, prefix = "step3A_res." )
 ggsave( file.path( fig_dir, "07_microglia_clustree_resolution_0.1_to_1.0.pdf" ), p_tree, width = 12, height = 9 )
 anchor_col <- "step3A_res.0.4"
 if (!anchor_col %in% colnames(obj[[]])) {
-  stop( "未找到 provisional resolution 0.4 metadata。" )
+  stop( "Required input not found: " )
 }
 obj$step3A_cluster_r04 <- as.character( obj[[anchor_col]][, 1] )
 Idents(obj) <- "step3A_cluster_r04"

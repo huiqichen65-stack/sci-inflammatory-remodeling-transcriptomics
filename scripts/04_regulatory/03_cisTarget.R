@@ -170,7 +170,7 @@ capture_command <- function( command, args = character(0) ) {
   list( status = as.integer(status), output = as.character(output) )
 }
 find_environment_python <- function() {
-  candidates <- unique( c( file.path( Sys.getenv("USERPROFILE"), "anaconda3", "envs", CONDA_ENV_NAME, "python.exe" ), file.path( Sys.getenv("USERPROFILE"), "miniconda3", "envs", CONDA_ENV_NAME, "python.exe" ), "C:/ProgramData/anaconda3/envs/pyscenic_env/python.exe", "C:/ProgramData/miniconda3/envs/pyscenic_env/python.exe" ) )
+  candidates <- unique( c( file.path( Sys.getenv("USERPROFILE"), "anaconda3", "envs", CONDA_ENV_NAME, "python.exe" ), file.path( Sys.getenv("USERPROFILE"), "miniconda3", "envs", CONDA_ENV_NAME, "python.exe" ) ) )
   candidates <- candidates[ file.exists(candidates) ]
   if (length(candidates) == 0L) {
     return(NA_character_)

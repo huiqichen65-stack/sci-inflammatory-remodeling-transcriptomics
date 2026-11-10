@@ -399,8 +399,6 @@ needs_rebuild <- inherits( myeloid_data_disk, "error" )
 if (!needs_rebuild) {
   initial_validation <- validate_myeloid_data_matrix( matrix_object = myeloid_data_disk, seurat_object = myeloid_obj )
   needs_rebuild <- !isTRUE( initial_validation$pass )
-  if (needs_rebuild) {
-  }
 } else {
 }
 if (needs_rebuild) {

@@ -13,7 +13,7 @@ dir.create(tab_dir, recursive = TRUE, showWarnings = FALSE)
 log_file <- file.path(out_dir, "00_run_log.txt")
 writeLines( paste0("GSE162610 Step 1F started: ", Sys.time()), log_file )
 if (!file.exists(in_rds)) {
-  stop("找不到 Step 1E 对象：\n", in_rds)
+  stop("Required input not found: ", in_rds)
 }
 pkgs <- c( "Seurat", "data.table", "dplyr", "ggplot2", "patchwork" )
 missing_pkgs <- pkgs[ !vapply(pkgs, requireNamespace, logical(1), quietly = TRUE) ]
@@ -31,16 +31,16 @@ pbmc <- readRDS(in_rds)
 DefaultAssay(pbmc) <- "RNA"
 required_meta <- c( "sample_id", "timepoint", "cluster_provisional" )
 if (!all(required_meta %in% colnames(pbmc@meta.data))) {
-  stop( "对象缺少 metadata：", paste( setdiff(required_meta, colnames(pbmc@meta.data)), collapse = ", " ) )
+  stop( "Missing metadata: ", paste( setdiff(required_meta, colnames(pbmc@meta.data)), collapse = ", " ) )
 }
 if (!"umap.harmony" %in% Reductions(pbmc)) {
-  stop("对象中没有 umap.harmony reduction。")
+  stop("Required result not found.")
 }
 pbmc$cluster_provisional <- as.character(pbmc$cluster_provisional)
 Idents(pbmc) <- "cluster_provisional"
 cluster_ids <- sort( unique(as.character(pbmc$cluster_provisional)) )
 if (length(cluster_ids) != 19) {
-  warning( "当前 cluster 数不是预期的 19，而是 ", length(cluster_ids) )
+  warning( "Expected-value check failed.", length(cluster_ids) )
 }
 marker_sets_raw <- list( Microglia = c( "P2ry12", "Tmem119", "Fcrls", "Hexb", "Cx3cr1", "Sall1", "Siglech", "Csf1r" ), Myeloid_general = c( "Aif1", "Tyrobp", "Lyz2", "Csf1r", "Fcerg1", "Ctss", "Itgam", "Spi1" ), Macrophage_Monocyte = c( "Ccr2", "Ly6c2", "Ms4a7", "Lgals3", "Fcgr1", "Fn1", "S100a8", "S100a9" ), Neutrophil = c( "S100a8", "S100a9", "Retnlg", "Csf3r", "Ly6g", "Mpo", "Ngp", "Camp" ), Astrocyte = c( "Aqp4", "Gfap", "Aldoc", "Slc1a3", "S100b", "Sox9", "Fabp7", "Glul" ), Oligodendrocyte = c( "Mbp", "Plp1", "Mog", "Mag", "Cnp", "Mobp", "Mal", "Opalin" ), OPC = c( "Pdgfra", "Cspg4", "Olig1", "Olig2", "Sox10", "Ptprz1", "Vcan", "Nkx2-2" ), Endothelial = c( "Pecam1", "Cdh5", "Kdr", "Vwf", "Emcn", "Esam", "Klf2", "Rbp7" ), Fibroblast = c( "Col1a1", "Col1a2", "Col3a1", "Dcn", "Lum", "Pdgfra", "Col5a1", "Fn1" ), Pericyte_VSMC = c( "Pdgfrb", "Rgs5", "Mcam", "Cspg4", "Des", "Acta2", "Tagln", "Cnn1" ), Neuron = c( "Snap25", "Syt1", "Rbfox3", "Tubb3", "Map2", "Slc17a7", "Gad1", "Gad2" ), T_cell = c( "Cd3d", "Cd3e", "Cd3g", "Cd247", "Trbc1", "Trbc2", "Lck", "Il7r" ), B_cell = c( "Cd79a", "Cd79b", "Ms4a1", "Cd37", "Cd74", "H2-Aa", "Cd22", "Cd19" ), Mast = c( "Kit", "Ms4a2", "Cpa3", "Tpsb2", "Fcer1a", "Hdc", "Mcpt4", "Gata2" ), Ependymal = c( "Foxj1", "Pifo", "Tppp3", "Rsph1", "Cfap44", "Dynlrb2", "Fam183b", "Ccdc153" ) )
 cycling_markers_raw <- c( "Mki67", "Top2a", "Ube2c", "Birc5", "Cenpf", "Ccnb1", "Ccnb2", "Tpx2" )
@@ -64,11 +64,11 @@ t0 <- Sys.time()
 pbmc_markers <- FindAllMarkers( object = pbmc, assay = "RNA", only.pos = TRUE, min.pct = 0.10, logfc.threshold = 0.25, test.use = "wilcox", return.thresh = 0.01, random.seed = 20260730, verbose = TRUE )
 marker_runtime <- as.numeric( difftime( Sys.time(), t0, units = "mins" ) )
 if (nrow(pbmc_markers) == 0) {
-  stop("FindAllMarkers 没有返回任何 marker。")
+  stop("Required result not found.")
 }
 fwrite( pbmc_markers, file.path( tab_dir, "01_all_cluster_markers.csv" ) )
 if (!"avg_log2FC" %in% colnames(pbmc_markers)) {
-  stop("marker 表中没有 avg_log2FC 列。")
+  stop("Required result not found.")
 }
 top20_markers <- pbmc_markers %>% group_by(cluster) %>% arrange(desc(avg_log2FC), .by_group = TRUE) %>% slice_head(n = 20) %>% ungroup()
 fwrite( top20_markers, file.path( tab_dir, "02_top20_markers_per_cluster.csv" ) )
@@ -161,7 +161,7 @@ if (file.exists(step0_meta_file)) {
         author_annotation_available <- TRUE
         idx_raw <- match( colnames(pbmc), raw_meta$barcode )
         if (anyNA(idx_raw)) {
-          warning( "作者 metadata 有 ", sum(is.na(idx_raw)), " 个 barcode 无法映射。" )
+          warning( "Annotation cross-check.", sum(is.na(idx_raw)), "Consistency check failed." )
         } else {
           pbmc$author_annotation <- as.character( raw_meta[[author_annotation_col]][idx_raw] )
           author_ct <- as.data.frame( table( cluster = pbmc$cluster_provisional, author_annotation = pbmc$author_annotation ), stringsAsFactors = FALSE )

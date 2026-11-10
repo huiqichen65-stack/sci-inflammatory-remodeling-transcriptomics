@@ -25,7 +25,7 @@ tab_dir <- file.path(out_dir, "tables")
 dir.create(fig_dir, recursive = TRUE, showWarnings = FALSE)
 dir.create(tab_dir, recursive = TRUE, showWarnings = FALSE)
 if (!file.exists(input_rds)) {
-  stop("找不到输入 RDS：\n", input_rds)
+  stop("Input RDS not found.：\n", input_rds)
 }
 obj <- readRDS(input_rds)
 assay_names <- tryCatch( as.character(SeuratObject::Assays(obj)), error = function(e) {
@@ -37,7 +37,7 @@ if (is.null(assay_names) || length(assay_names) == 0) {
 }
 assay_names <- as.character(assay_names)
 if (!any(assay_names == "RNA")) {
-  stop("输入对象中没有 RNA assay。检测到：", paste(assay_names, collapse = ", "))
+  stop("Required result not found.", paste(assay_names, collapse = ", "))
 }
 DefaultAssay(obj) <- "RNA"
 joinlayers_available <- exists( "JoinLayers", where = asNamespace("SeuratObject"), mode = "function", inherits = FALSE )
@@ -59,14 +59,14 @@ if (!is.data.frame(meta)) {
 }
 meta_names <- as.character(colnames(meta))
 if (is.null(meta_names) || length(meta_names) == 0) {
-  stop("metadata 没有列名，无法继续 Step 2。")
+  stop("Missing metadata: ")
 }
 target_broad <- c("0", "17", "4", "8", "2")
 candidate_cluster_cols <- c( "seurat_clusters", "RNA_snn_res.0.4", "harmony_snn_res.0.4", grep("res\\.0\\.4$", meta_names, value = TRUE), grep("cluster", meta_names, value = TRUE, ignore.case = TRUE) )
 candidate_cluster_cols <- unique(as.character(candidate_cluster_cols))
 candidate_cluster_cols <- candidate_cluster_cols[ vapply(candidate_cluster_cols, function(z) any(meta_names == z), logical(1)) ]
 if (length(candidate_cluster_cols) == 0) {
-  stop( "没有找到可识别的 cluster metadata 列。\n", "Check" )
+  stop( "Missing metadata: ", "Check" )
 }
 score_cluster_col <- function(x) {
   vals_raw <- meta[[x]]
@@ -92,7 +92,7 @@ if (!has_all_targets) {
     obj$broad_cluster_step1 <- ident_vals
     broad_cluster_col <- "broad_cluster_step1"
   } else {
-    stop( "无法确认 Step 1 broad cluster 列。\n", "最佳候选列：", broad_cluster_col_raw, "\n", "该列未同时包含 cluster 0,17,4,8,2。\n", "候选列：", paste(candidate_cluster_cols, collapse = ", ") )
+    stop( "Validation failed.", "Validation check.", broad_cluster_col_raw, "\n", "Validation check.", "Validation check.", paste(candidate_cluster_cols, collapse = ", ") )
   }
 } else {
   obj$broad_cluster_step1 <- broad_vals
@@ -112,17 +112,17 @@ author_col <- if ("original_V30" %in% colnames(obj[[]])) {
   if (length(tmp) > 0) tmp[1] else NA_character_
 }
 if (is.na(sample_col)) {
-  stop("没有找到 sample_id/orig.ident 等样本列；Step 2 Harmony 必须按 biological sample 处理。")
+  stop("Requirement not met.")
 }
 if (is.na(time_col)) {
-  warning("没有自动识别到 timepoint 列；时间分布表将跳过。")
+  warning("Required result not found.")
 }
 if (is.na(author_col)) {
-  warning("没有自动识别到 original_V30；作者 annotation cross-check 将跳过。")
+  warning("Required result not found.")
 }
 cells_keep <- rownames(obj[[]])[ as.character(obj$broad_cluster_step1) %in% target_broad ]
 if (length(cells_keep) == 0) {
-  stop("0/17/4/8/2 没有提取到任何细胞。")
+  stop("Required result not found.")
 }
 myeloid <- subset(obj, cells = cells_keep)
 myeloid$broad_origin <- factor( as.character(myeloid$broad_cluster_step1), levels = c("0", "17", "4", "8", "2") )
@@ -149,7 +149,7 @@ myeloid <- tryCatch( {
   }
 )
 if (!"harmony" %in% Reductions(myeloid)) {
-  stop("Harmony reduction 未生成。")
+  stop("Required result not found.")
 }
 myeloid <- RunUMAP( myeloid, reduction = "harmony", dims = dims_use, reduction.name = "umap.myeloid", reduction.key = "myUMAP_", verbose = TRUE )
 myeloid <- FindNeighbors( myeloid, reduction = "harmony", dims = dims_use, verbose = TRUE )
@@ -161,7 +161,7 @@ res_cols <- grep("_res\\.", colnames(myeloid[[]]), value = TRUE)
 res_cols <- res_cols[grepl( paste0("(", paste(gsub("\\.", "\\\\.", resolutions), collapse = "|"), ")$"), res_cols )]
 final_res_col_candidates <- grep("res\\.0\\.4$", colnames(myeloid[[]]), value = TRUE)
 if (length(final_res_col_candidates) == 0) {
-  stop("未找到 resolution 0.4 的聚类列。")
+  stop("Required input not found: ")
 }
 final_res_col <- tail(final_res_col_candidates, 1)
 myeloid$myeloid_cluster_r04 <- as.character(myeloid[[final_res_col]][, 1])
@@ -175,10 +175,10 @@ resident_use <- intersect(resident_genes, all_rna_genes)
 macrophage_use <- intersect(macrophage_genes, all_rna_genes)
 cycling_use <- intersect(cycling_genes, all_rna_genes)
 if (length(resident_use) < 4) {
-  warning("Resident marker 命中少于 4 个，Check")
+  warning("Threshold check failed.")
 }
 if (length(macrophage_use) < 4) {
-  warning("Macrophage marker 命中少于 4 个，Check")
+  warning("Threshold check failed.")
 }
 myeloid <- AddModuleScore( myeloid, features = list(resident_use), name = "ResidentMG", assay = "RNA", search = FALSE )
 myeloid <- AddModuleScore( myeloid, features = list(macrophage_use), name = "InfiltratingMacro", assay = "RNA", search = FALSE )

@@ -2,7 +2,7 @@ options(stringsAsFactors = FALSE)
 set.seed(1234)
 pkgs <- c("Seurat","SeuratObject","dplyr","ggplot2","patchwork", "AUCell","Matrix","pheatmap")
 miss <- pkgs[!vapply(pkgs, requireNamespace, logical(1), quietly = TRUE)]
-if (length(miss) > 0) stop("缺少R包: ", paste(miss, collapse=", "))
+if (length(miss) > 0) stop("Missing R package: ", paste(miss, collapse=", "))
 suppressPackageStartupMessages({
   library(Seurat)
   library(SeuratObject)
@@ -20,22 +20,22 @@ fig_dir <- file.path(out_dir, "figures")
 tab_dir <- file.path(out_dir, "tables")
 dir.create(fig_dir, recursive=TRUE, showWarnings=FALSE)
 dir.create(tab_dir, recursive=TRUE, showWarnings=FALSE)
-if (!file.exists(input_rds)) stop("找不到输入RDS:\n", input_rds)
+if (!file.exists(input_rds)) stop("Input RDS not found.:\n", input_rds)
 obj <- readRDS(input_rds)
-if (!inherits(obj, "Seurat")) stop("输入对象不是Seurat对象")
+if (!inherits(obj, "Seurat")) stop("Input object is not a Seurat object.")
 DefaultAssay(obj) <- "RNA"
 req_meta <- c("step3A_cluster_r04","sample_id","timepoint","step2_final_cluster")
 miss_meta <- req_meta[!req_meta %in% colnames(obj[[]])]
-if (length(miss_meta)>0) stop("缺少metadata: ", paste(miss_meta, collapse=", "))
+if (length(miss_meta)>0) stop("Missing metadata: ", paste(miss_meta, collapse=", "))
 obj$step3A_cluster_r04 <- as.character(obj$step3A_cluster_r04)
 print(table(obj$step3A_cluster_r04))
 print(table(obj$timepoint))
 print(table(obj$sample_id))
 if (ncol(obj) != 19958) {
-  warning("Step3C输入细胞数不是预期19958，observed=", ncol(obj))
+  warning("Threshold check failed.", ncol(obj))
 }
 if (!"umap.microglia.step3A" %in% Reductions(obj)) {
-  stop("缺少 umap.microglia.step3A reduction")
+  stop("Required input not found: ")
 }
 gene_sets <- list( Homeostatic = c( "P2ry12","Tmem119","Sall1","Fcrls","Hexb", "Gpr34","P2ry13","Siglech","Cx3cr1" ), Activated_injury_core = c( "Apoe","Cst7","Cd68","Ctsb","Ctsd","Cd9","Tyrobp","Trem2" ), Early_DAM_transition = c( "Trem2","Apoe","Lpl","Cst7","Cd9","Tyrobp","Axl" ), Mature_DAM_phagocytic = c( "Gpnmb","Spp1","Lgals3","Fabp5","Cd68","Ctsd", "Lpl","Itgax","Clec7a" ) )
 rna_genes <- rownames(obj[["RNA"]])
@@ -45,7 +45,7 @@ avail <- bind_rows(lapply(names(gene_sets), function(nm) {
 }))
 write.csv(avail, file.path(tab_dir,"01_transition_program_gene_availability.csv"), row.names=FALSE)
 bad <- names(gene_sets_use)[vapply(gene_sets_use,length,integer(1)) < 3]
-if (length(bad)>0) stop("以下gene set可用基因<3: ", paste(bad,collapse=", "))
+if (length(bad)>0) stop("Threshold check failed.", paste(bad,collapse=", "))
 get_rna <- function(x) {
   m <- tryCatch(GetAssayData(x, assay="RNA", layer="counts"), error=function(e) NULL)
   if (is.null(m)) {
@@ -54,7 +54,7 @@ get_rna <- function(x) {
   if (is.null(m)) {
     m <- tryCatch(GetAssayData(x, assay="RNA", layer="data"), error=function(e) NULL)
   }
-  if (is.null(m)) stop("无法取得RNA counts/data")
+  if (is.null(m)) stop("Validation failed.")
   m
 }
 expr <- get_rna(obj)

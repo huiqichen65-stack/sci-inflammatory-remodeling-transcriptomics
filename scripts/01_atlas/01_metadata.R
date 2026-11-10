@@ -55,13 +55,13 @@ barcode_overlap <- sapply(seq_len(ncol(bmeta_raw)), function(j) {
 barcode_col_idx <- which.max(barcode_overlap)
 barcode_overlap_max <- barcode_overlap[barcode_col_idx]
 if (barcode_overlap_max < 0.95 * length(barcodes)) {
-  stop( "无法可靠识别 barcode 列。最大重叠仅 ", barcode_overlap_max, " / ", length(barcodes) )
+  stop( "Barcode column could not be identified reliably. Maximum overlap: ", barcode_overlap_max, " / ", length(barcodes) )
 }
 real_row <- bmeta_raw[[barcode_col_idx]] %in% barcodes
 bmeta <- bmeta_raw[real_row, , drop = FALSE]
 idx <- match(barcodes, bmeta[[barcode_col_idx]])
 if (anyNA(idx)) {
-  stop("metadata 中仍有 barcode 缺失，缺失数 = ", sum(is.na(idx)))
+  stop("Missing barcodes in metadata: ", sum(is.na(idx)))
 }
 bmeta <- bmeta[idx, , drop = FALSE]
 barcode_order_ok <- identical( barcodes, as.character(bmeta[[barcode_col_idx]]) )
@@ -72,7 +72,7 @@ sample_scores <- sapply(seq_len(ncol(bmeta)), function(j) {
 })
 sample_col_idx <- which.max(sample_scores)
 if (sample_scores[sample_col_idx] < 0.90) {
-  stop( "无法可靠识别 sample 列。最佳列匹配比例 = ", round(sample_scores[sample_col_idx], 4) )
+  stop( "Sample column could not be identified reliably. Best match fraction: ", round(sample_scores[sample_col_idx], 4) )
 }
 sample_id <- clean_chr(bmeta[[sample_col_idx]])
 normalize_time <- function(x) {
@@ -137,6 +137,3 @@ fwrite(manifest, file.path(out_dir, "02_GSE162610_sample_manifest_CONFIRMED.csv"
 fwrite(time_counts, file.path(out_dir, "03_GSE162610_timepoint_counts.csv"))
 detect_info <- data.frame( item = c( "barcode_col", "barcode_overlap", "sample_col", "sample_match_fraction", "time_col_candidate", "time_match_fraction", "time_source", "gene_header_removed" ), value = c( paste0("V", barcode_col_idx), barcode_overlap_max, paste0("V", sample_col_idx), round(sample_scores[sample_col_idx], 6), paste0("V", time_col_idx), round(time_scores[time_col_idx], 6), time_source, gene_header_removed ) )
 fwrite(detect_info, file.path(out_dir, "04_auto_detection_info.csv"))
-if (pass) {
-} else {
-}

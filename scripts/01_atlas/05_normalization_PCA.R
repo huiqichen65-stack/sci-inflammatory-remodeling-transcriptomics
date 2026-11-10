@@ -12,7 +12,7 @@ dir.create(tab_dir, recursive = TRUE, showWarnings = FALSE)
 log_file <- file.path(out_dir, "00_run_log.txt")
 writeLines( paste0("GSE162610 Step 1D started: ", Sys.time()), log_file )
 if (!file.exists(in_rds)) {
-  stop("找不到 Step 1C singlet 对象：\n", in_rds)
+  stop("Required input not found: ", in_rds)
 }
 pkgs <- c( "Seurat", "data.table", "ggplot2", "patchwork" )
 missing_pkgs <- pkgs[ !vapply(pkgs, requireNamespace, logical(1), quietly = TRUE) ]
@@ -28,7 +28,7 @@ suppressPackageStartupMessages({
 pbmc <- readRDS(in_rds)
 required_meta <- c( "sample_id", "timepoint", "nFeature_RNA", "nCount_RNA", "percent.mt", "percent.HB" )
 if (!all(required_meta %in% colnames(pbmc@meta.data))) {
-  stop( "对象缺少 metadata：", paste( setdiff(required_meta, colnames(pbmc@meta.data)), collapse = ", " ) )
+  stop( "Missing metadata: ", paste( setdiff(required_meta, colnames(pbmc@meta.data)), collapse = ", " ) )
 }
 DefaultAssay(pbmc) <- "RNA"
 t0 <- Sys.time()
@@ -36,7 +36,7 @@ pbmc <- NormalizeData( pbmc, normalization.method = "LogNormalize", scale.factor
 pbmc <- FindVariableFeatures( pbmc, selection.method = "vst", nfeatures = 3000, verbose = FALSE )
 hvg <- VariableFeatures(pbmc)
 if (length(hvg) != 3000) {
-  warning( "实际识别到的 HVG 数为 ", length(hvg), "，不是预期的 3000。" )
+  warning( "Validation check.", length(hvg), "Expected-value check failed." )
 }
 writeLines( hvg, file.path( tab_dir, "01_HVG_3000_genes.txt" ) )
 vf_info <- HVFInfo(pbmc)
@@ -46,7 +46,7 @@ fwrite( vf_info, file.path( tab_dir, "02_variable_feature_statistics.csv" ) )
 pbmc <- ScaleData( pbmc, features = hvg, verbose = FALSE )
 pbmc <- RunPCA( pbmc, features = hvg, npcs = 50, verbose = FALSE )
 if (!"pca" %in% Reductions(pbmc)) {
-  stop("PCA reduction 未Completed生成。")
+  stop("Validation check.")
 }
 stdev <- Stdev(pbmc, reduction = "pca")
 variance_pct <- 100 * (stdev^2) / sum(stdev^2)
@@ -95,6 +95,3 @@ pca_ok <- ( "pca" %in% Reductions(pbmc) && ncol(Embeddings(pbmc, "pca")) >= 30 )
 umap_ok <- ( "umap.preharmony" %in% Reductions(pbmc) )
 step_pass <- all( all_samples_preserved, all_timepoints_preserved, length(hvg) >= 2000, pca_ok, umap_ok )
 runtime_min <- as.numeric( difftime( Sys.time(), t0, units = "mins" ) )
-if (step_pass) {
-} else {
-}

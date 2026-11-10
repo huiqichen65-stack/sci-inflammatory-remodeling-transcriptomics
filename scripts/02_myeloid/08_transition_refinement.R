@@ -35,7 +35,7 @@ for (dd in c(fig_dir, tab_dir, go_dir, gsea_dir, pb_dir, rds_dir)) {
   dir.create(dd, recursive = TRUE, showWarnings = FALSE)
 }
 if (!file.exists(input_rds)) {
-  stop("找不到输入RDS:\n", input_rds)
+  stop("Input RDS not found.:\n", input_rds)
 }
 sig_cols <- c( "Sig" = "#D73027", "Not Sig" = "#1F9BCF" )
 state_cols <- c( "Homeostatic_root"       = "#66C2A5", "Early_activated_1dpi"   = "#FC8D62", "Shared_transition_3dpi" = "#8DA0CB", "Established_DAM_7dpi"   = "#E78AC3" )
@@ -44,12 +44,12 @@ stage_cols <- c( "Early_activation" = "#FC8D62", "Transition_3dpi"  = "#8DA0CB",
 comparison_point_cols <- c( "C1_Early_vs_Homeostatic" = "#D95F02", "C2_Transition_vs_Early"  = "#7570B3", "C3_DAM_vs_Transition"    = "#1B9E77" )
 hm_colors <- colorRampPalette( c("#2166AC", "#F7F7F7", "#B2182B") )(101)
 obj <- readRDS(input_rds)
-if (!inherits(obj, "Seurat")) stop("输入对象不是 Seurat object。")
+if (!inherits(obj, "Seurat")) stop("Input object is not a Seurat object.。")
 DefaultAssay(obj) <- "RNA"
 required_meta <- c( "sample_id", "timepoint", "step3A_cluster_r04", "transition_status", "shared_transition_3dpi_highconf" )
 missing_meta <- required_meta[!required_meta %in% colnames(obj[[]])]
 if (length(missing_meta) > 0) {
-  stop("缺少metadata: ", paste(missing_meta, collapse = ", "))
+  stop("Missing metadata: ", paste(missing_meta, collapse = ", "))
 }
 obj$step3A_cluster_r04 <- as.character(obj$step3A_cluster_r04)
 state_vec <- rep(NA_character_, ncol(obj))
@@ -64,10 +64,10 @@ write.csv( state_summary, file.path(tab_dir, "01_step3E_state_summary.csv"), row
 state_audit <- obj[[]] %>% dplyr::filter(!is.na(step3E_state)) %>% dplyr::count(step3E_state, timepoint, sample_id, step3A_cluster_r04, name = "n_cells")
 write.csv( state_audit, file.path(tab_dir, "02_step3E_state_cell_audit.csv"), row.names = FALSE )
 if (any(state_summary$n_cells < 100)) {
-  stop("至少一个Step3E state细胞数 <100，Check")
+  stop("Threshold check failed.")
 }
 if (any(state_summary$n_samples < 2)) {
-  stop("至少一个Step3E state来自 <2个biological samples，不宜继续比较。")
+  stop("Threshold check failed.")
 }
 stage_cells <- colnames(obj)[!is.na(obj$step3E_state)]
 obj_stage <- subset(obj, cells = stage_cells)
@@ -83,7 +83,7 @@ p_state_sample <- ggplot( state_sample_plot, aes(x = sample_id, y = frac_within_
 ggsave( file.path(fig_dir, "01_step3E_state_sample_composition.pdf"), p_state_sample, width = 12, height = 8 )
 get_fc_col <- function(df) {
   hit <- intersect(c("avg_log2FC", "avg_logFC"), colnames(df))
-  if (length(hit) == 0) stop("FindMarkers输出中无 avg_log2FC/avg_logFC")
+  if (length(hit) == 0) stop("Validation check.")
   hit[1]
 }
 run_deg <- function(sobj, case, ref) {
@@ -272,7 +272,7 @@ if (requireNamespace("edgeR", quietly = TRUE)) {
   get_counts <- function(sobj) {
     x <- tryCatch(GetAssayData(sobj, assay = "RNA", layer = "counts"), error = function(e) NULL)
     if (is.null(x)) x <- tryCatch(GetAssayData(sobj, assay = "RNA", slot = "counts"), error = function(e) NULL)
-    if (is.null(x)) stop("无法取得RNA counts。")
+    if (is.null(x)) stop("Validation failed.")
     x
   }
   counts <- get_counts(obj_stage)

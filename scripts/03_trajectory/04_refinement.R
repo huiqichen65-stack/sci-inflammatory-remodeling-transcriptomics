@@ -139,7 +139,7 @@ add_sheet_safe <- function(wb, name, df) {
   openxlsx::freezePane( wb, sheet = name, firstRow = TRUE )
 }
 if (!file.exists(INPUT_RDS)) {
-  stop( paste0( "找不到Step5A-R正式输入：\n", INPUT_RDS ), call. = FALSE )
+  stop( paste0( "Required input not found: ", INPUT_RDS ), call. = FALSE )
 }
 obj_full <- readRDS(INPUT_RDS)
 if (!inherits(obj_full, "Seurat")) {
@@ -149,12 +149,12 @@ DefaultAssay(obj_full) <- "RNA"
 required_meta <- c( TIME_COL, SAMPLE_COL, CLUSTER_COL, "transition_status", "shared_transition_3dpi_highconf", REPAIR_SCORE_COL, SCAR_SCORE_COL )
 missing_meta <- required_meta[ !required_meta %in% colnames(obj_full[[]]) ]
 if (length(missing_meta) > 0) {
-  stop( paste0( "缺少Step5B-R所需metadata：", paste(missing_meta, collapse = ", ") ), call. = FALSE )
+  stop( paste0( "Missing metadata: ", paste(missing_meta, collapse = ", ") ), call. = FALSE )
 }
 required_reductions <- c( UMAP_REDUCTION, HARMONY_REDUCTION )
 missing_reductions <- setdiff( required_reductions, Seurat::Reductions(obj_full) )
 if (length(missing_reductions) > 0) {
-  stop( paste0( "缺少正式reduction：", paste(missing_reductions, collapse = ", ") ), call. = FALSE )
+  stop( paste0( "Required input not found: ", paste(missing_reductions, collapse = ", ") ), call. = FALSE )
 }
 time_full <- as.character( obj_full[[TIME_COL, drop = TRUE]] )
 sample_full <- as.character( obj_full[[SAMPLE_COL, drop = TRUE]] )
@@ -222,7 +222,7 @@ highconf_root_counts <- root_candidate_tbl |> dplyr::filter( highconf_root ) |> 
 print(highconf_root_counts)
 min_highconf_root <- min( highconf_root_counts$n_highconf )
 if ( min_highconf_root < MIN_ROOT_PER_SAMPLE ) {
-  stop( paste0( "最少1 dpi样本只有 ", min_highconf_root, " 个高置信root candidates (<", MIN_ROOT_PER_SAMPLE, ")。\n", "停止运行并检查 root-candidate 阈值。" ), call. = FALSE )
+  stop( paste0( "Validation check.", min_highconf_root, "Threshold check failed.", MIN_ROOT_PER_SAMPLE, ")。\n", "Requirement not met." ), call. = FALSE )
 }
 root_n_per_sample <- min( TARGET_ROOT_PER_SAMPLE, min_highconf_root )
 primary_root_tbl <- root_candidate_tbl |> dplyr::filter( highconf_root ) |> dplyr::group_by(sample) |> dplyr::arrange( dplyr::desc(root_priority), .by_group = TRUE ) |> dplyr::mutate( within_sample_rank = dplyr::row_number() ) |> dplyr::filter( within_sample_rank <= root_n_per_sample ) |> dplyr::ungroup()
